@@ -50,10 +50,7 @@ import distributions as re_engine
 # their columns — they are just no longer served).
 LEVEL_FAMILIES = {
     "rest_days_diff": ("rest_days_home", "rest_days_away"),
-    # 2026-10-25 Pitching+ promotion: the served SP-quality family rides the
-    # learned grade; the xFIP-sourced trio is generated but no longer served.
-    "sp_pitchingplus_5g_diff": ("sp_pitchingplus_5g_home",
-                                "sp_pitchingplus_5g_away"),
+    "sp_xfip_5g_diff": ("sp_xfip_5g_home", "sp_xfip_5g_away"),
     "sp_fbvelo_diff": ("sp_fbvelo_3g_home", "sp_fbvelo_3g_away"),
     "bullpen_pitches_3d_diff": ("bullpen_pitches_3d_home", "bullpen_pitches_3d_away"),
     "team_hardhit_15g_diff": ("team_hardhit_15g_home", "team_hardhit_15g_away"),
@@ -66,9 +63,8 @@ LEVEL_FAMILIES = {
         "lineup_handedness_matchup_advantage_away"),
 }
 RENAME_FAMILIES = {
-    "pitcher_regression_indicator_pitchingplus_diff": (
-        "pitcher_regression_indicator_pitchingplus_home",
-        "pitcher_regression_indicator_pitchingplus_away"),
+    "pitcher_regression_indicator_diff": ("pitcher_regression_indicator_home",
+                                          "pitcher_regression_indicator_away"),
     "ace_efficiency_factor_diff": ("ace_efficiency_factor_home",
                                    "ace_efficiency_factor_away"),
 }
@@ -111,7 +107,6 @@ def _diff_frame(n: int = 4) -> pd.DataFrame:
     d: dict[str, object] = {}
     d.update(sides("rest_days", 1, 5))
     d.update(sides("sp_xfip_5g", 2.5, 6.0))
-    d.update(sides("sp_pitchingplus_5g", 92.0, 108.0))
     d.update(sides("sp_fbvelo_3g", 90.0, 99.0))
     d.update(sides("lineup_re24_std", 0.03, 0.08))
     d.update(sides("bullpen_pitches_3d", 20.0, 80.0))
@@ -381,16 +376,14 @@ def test_run_engine_side_view_carries_every_served_feature():
         "frame extras must not change the side view")
     # Side-agnostic matchup gaps are shared environment — present in BOTH
     # side views; per-side levels appear in their own side's view.
-    for shared in ("win_pct_diff", "elo_diff", "bullpen_pitchingplus_3g_diff",
-                   "bullpen_meltdown_risk_pitchingplus_diff",
+    for shared in ("win_pct_diff", "elo_diff", "bullpen_kbb_3g_diff",
+                   "bullpen_meltdown_risk_diff",
                    "lineup_handedness_matchup_advantage_diff"):
         assert shared in home_cols and shared in away_cols, shared
-    for twin in ("pitcher_regression_indicator_pitchingplus_home",
-                   "exp2_centered_k_home",
+    for twin in ("pitcher_regression_indicator_home", "exp2_centered_k_home",
                    "lineup_handedness_matchup_advantage_home"):
         assert twin in home_cols, twin
-    for twin in ("pitcher_regression_indicator_pitchingplus_away",
-                   "exp2_centered_k_away",
+    for twin in ("pitcher_regression_indicator_away", "exp2_centered_k_away",
                    "lineup_handedness_matchup_advantage_away"):
         assert twin in away_cols, twin
 
@@ -441,7 +434,7 @@ def test_metadata_covers_the_full_serving_width_without_warnings():
     assert not warnings, warnings
     loud = [r.getMessage() for r in records if r.levelno >= logging.WARNING]
     assert not loud, loud
-    for name in ("pitcher_regression_indicator_pitchingplus_diff",
+    for name in ("pitcher_regression_indicator_diff",
                  "pl_lf_xwoba_diff", "ace_efficiency_factor_diff",
                  "rest_days_home", "exp2_cat_k_offspeed_away"):
         entry = meta.get(name)

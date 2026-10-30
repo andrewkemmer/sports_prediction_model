@@ -1097,20 +1097,13 @@ def apply_weather_features(
     Same formulas as ``features.add_diff_features``:
       * wind_advantage_flyball_factor = wind_multiplier × sp_xfip_diff
       * air_density_velocity_boost   = (air_density − 1.225) × sp_fbvelo_diff
-      * wind_advantage_flyball_factor_pitchingplus_{diff,home,away} = wind_multiplier ×
-        the matching pitching+ leg (trial family 2026-10-24; pure
-        quality-input swap, pitching+ higher=better inverts the xFIP
-        polarity — the model learns the sign fresh).
     Dome games are genuinely neutral → a valid 0.  Rows without weather stay
     NULL.  Idempotent: rows absent from ``weather_data`` are left untouched.
     """
     df = df.copy()
     if weather_data is None or df.empty:
         return df
-    for col in ("wind_advantage_flyball_factor", "air_density_velocity_boost",
-                "wind_advantage_flyball_factor_pitchingplus_diff",
-                "wind_advantage_flyball_factor_pitchingplus_home",
-                "wind_advantage_flyball_factor_pitchingplus_away"):
+    for col in ("wind_advantage_flyball_factor", "air_density_velocity_boost"):
         if col not in df.columns:
             df[col] = np.nan
 
@@ -1125,28 +1118,11 @@ def apply_weather_features(
     velo = pd.to_numeric(df.get("sp_fbvelo_diff"), errors="coerce")
     if not isinstance(velo, pd.Series):
         velo = pd.Series(np.nan, index=df.index)
-    # Pitching+ trial legs (each gated on its own input, same NULL
-    # discipline as the xFIP/velo legs above).
-    pp_diff = pd.to_numeric(df.get("sp_pitchingplus_5g_diff"), errors="coerce")
-    if not isinstance(pp_diff, pd.Series):
-        pp_diff = pd.Series(np.nan, index=df.index)
-    pp_home = pd.to_numeric(df.get("sp_pitchingplus_5g_home"), errors="coerce")
-    if not isinstance(pp_home, pd.Series):
-        pp_home = pd.Series(np.nan, index=df.index)
-    pp_away = pd.to_numeric(df.get("sp_pitchingplus_5g_away"), errors="coerce")
-    if not isinstance(pp_away, pd.Series):
-        pp_away = pd.Series(np.nan, index=df.index)
     # Preserve values already attached by another weather pass. A fetch often
     # covers only a subset (for example, cache misses), and absence from that
     # subset is not evidence that a prior valid observation should be erased.
     wind_vals = pd.to_numeric(df["wind_advantage_flyball_factor"], errors="coerce").tolist()
     air_vals = pd.to_numeric(df["air_density_velocity_boost"], errors="coerce").tolist()
-    pp_diff_vals = pd.to_numeric(df["wind_advantage_flyball_factor_pitchingplus_diff"],
-                                 errors="coerce").tolist()
-    pp_home_vals = pd.to_numeric(df["wind_advantage_flyball_factor_pitchingplus_home"],
-                                 errors="coerce").tolist()
-    pp_away_vals = pd.to_numeric(df["wind_advantage_flyball_factor_pitchingplus_away"],
-                                 errors="coerce").tolist()
     for i, (idx, row) in enumerate(df.iterrows()):
         w = _lookup_weather(weather_data, row, idx)
         dome = pd.notna(row.get("dome_is_neutral")) and float(row["dome_is_neutral"]) == 1
@@ -1159,15 +1135,6 @@ def apply_weather_features(
             av = (float(ad) - sea_level_rho) * velo.iloc[i] if pd.notna(ad) and pd.notna(velo.iloc[i]) else np.nan
             wind_vals[i] = wv
             air_vals[i] = av
-            pp_diff_vals[i] = (float(wm) * pp_diff.iloc[i]
-                               if pd.notna(wm) and pd.notna(pp_diff.iloc[i])
-                               else np.nan)
-            pp_home_vals[i] = (float(wm) * pp_home.iloc[i]
-                               if pd.notna(wm) and pd.notna(pp_home.iloc[i])
-                               else np.nan)
-            pp_away_vals[i] = (float(wm) * pp_away.iloc[i]
-                               if pd.notna(wm) and pd.notna(pp_away.iloc[i])
-                               else np.nan)
             n_applied += 1
         elif dome:
             # No weather fetched. Indoors the wind component is genuinely
@@ -1177,21 +1144,10 @@ def apply_weather_features(
             # existing value untouched and otherwise keep it NULL.
             if pd.notna(era.iloc[i]):
                 wind_vals[i] = 0.0
-            # Pitching+ trial legs: same KNOWN-zero dome discipline, each
-            # gated on its own pitching+ input.
-            if pd.notna(pp_diff.iloc[i]):
-                pp_diff_vals[i] = 0.0
-            if pd.notna(pp_home.iloc[i]):
-                pp_home_vals[i] = 0.0
-            if pd.notna(pp_away.iloc[i]):
-                pp_away_vals[i] = 0.0
         # For non-dome rows with no matching observation, preserve the
         # pre-existing values and leave genuinely missing values as NULL.
     df["wind_advantage_flyball_factor"] = pd.Series(wind_vals, index=df.index, dtype="float64")
     df["air_density_velocity_boost"] = pd.Series(air_vals, index=df.index, dtype="float64")
-    df["wind_advantage_flyball_factor_pitchingplus_diff"] = pd.Series(pp_diff_vals, index=df.index, dtype="float64")
-    df["wind_advantage_flyball_factor_pitchingplus_home"] = pd.Series(pp_home_vals, index=df.index, dtype="float64")
-    df["wind_advantage_flyball_factor_pitchingplus_away"] = pd.Series(pp_away_vals, index=df.index, dtype="float64")
 
     # Standalone ENV-LEVEL columns (run engine Phase 3.5b): the LEVEL values
     # behind the interactions, un-multiplied by any SP diff. Additive — the

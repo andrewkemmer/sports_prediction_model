@@ -181,10 +181,10 @@ CALIBRATION_MODE = os.getenv("CALIBRATION_MODE", "platt").strip().lower()
 # Reproducibility
 # ---------------------------------------------------------------------------
 RANDOM_SEED = 42
-# Same numeric names; Elo/records now exclude same-date outcomes. Rebuild
-# features, chronological OOF and final refits together; old bundles cannot
-# silently consume the corrected temporal definition.
-FEATURE_SCHEMA_VERSION = "mlb-v3-prior-date-elo-records"
+# Restore the pre-Pitching+ xFIP/K-BB% contract. Rebuild features, causal
+# OOF and final refits together; cached custom-model bundles must not score
+# the restored inputs. The prior-date Elo/records semantics remain intact.
+FEATURE_SCHEMA_VERSION = "mlb-v4-restored-xfip-kbb"
 ELO_SEED = 1500  # Starting Elo for every team
 
 # ---------------------------------------------------------------------------
@@ -859,28 +859,6 @@ RFE_GRID_MAX_STATES = 16       # grid-mode lattice cap (MLB_RFE_ADDITION_REMOVAL
                                # round-robins adds/removes to fit the cap; the
                                # dropped tail is recorded in the trace and overflow
                                # names still get 1-by-1 targeted trials.
-# PROMOTED 2026-10-25 (owner decision, closing the shadow-only trial).
-# History: this gate existed because the 2025 FanGraphs agreement check and a
-# game-model replacement ablation had not both passed. Both are now measured.
-# The replacement ablation (the exact 16-out/18-in contract below, 6,879
-# graded games, data_delivery/mlb_pitchingplus_replacement_ab_20261025.json)
-# scored AUC 0.5773 -> 0.5758 and logloss 0.6810 -> 0.6814, with ECE
-# 0.0121 -> 0.0084. The owner accepted the small ranking/loss cost for the
-# markedly better calibration and for stuff/location inputs over results-based
-# xFIP/K-BB%. Still open, and recorded in the 2026-10-24 validation note: 2025
-# external agreement stays below 0.90, and no untouched-new-data OOS run has
-# happened. Promotion releases the adoption block — it does not delete the
-# trial: set this False to restore shadow-only behavior (the columns remain
-# generated, and the gate re-blocks both writing and applying a subset).
-PITCHINGPLUS_PROMOTION_APPROVED = True
-PITCHINGPLUS_FEATURE_COLS = tuple(
-    f'{base}_{side}'
-    for base in ('sp_pitchingplus_5g', 'pitcher_regression_indicator_pitchingplus',
-                 'wind_advantage_flyball_factor_pitchingplus', 'bullpen_pitchingplus_10g',
-                 'bullpen_pitchingplus_3g', 'bullpen_meltdown_risk_pitchingplus')
-    for side in ('diff', 'home', 'away')
-)
-
 # The RFE candidate pool: generated, PIT-safe columns NOT currently in the
 # moneyline universe that feature_selection.py may additionally trial
 # (universe members are always in scope). Grouped in trial-priority order;
@@ -970,27 +948,6 @@ RFE_CANDIDATE_COLS = [
     "sp_xfip_diff",
     "sp_xfip_home",
     "sp_xfip_away",
-    # --- universe departures (Pitching+ promotion, 2026-10-25) (16) ---
-    # The six quality families moved to their learned Pitching+ legs (see
-    # PITCHINGPLUS_FEATURE_COLS and training's promotion block). The xFIP/
-    # K-BB%-sourced columns remain generated (features.py) and enter the
-    # addition pool so RFE may re-trial them with evidence — the 2026-09-07
-    # S-family cull pattern. sp_xfip_5g_home/away already sit in the per-side
-    # group below, so they are not repeated here.
-    "sp_xfip_5g_diff",
-    "pitcher_regression_indicator_diff",
-    "pitcher_regression_indicator_home",
-    "pitcher_regression_indicator_away",
-    "wind_advantage_flyball_factor",
-    "bullpen_kbb_10g_diff",
-    "bullpen_kbb_10g_home",
-    "bullpen_kbb_10g_away",
-    "bullpen_kbb_3g_diff",
-    "bullpen_kbb_3g_home",
-    "bullpen_kbb_3g_away",
-    "bullpen_meltdown_risk_diff",
-    "bullpen_meltdown_risk_home",
-    "bullpen_meltdown_risk_away",
     # --- raw per-side levels (shadowed by diff-only routing) (76) ---
     "rest_days_home",
     "rest_days_away",

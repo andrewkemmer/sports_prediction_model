@@ -11,7 +11,7 @@ Design decisions (locked):
 
 * FULL-POOL SEARCH, importance-ranked. The trial space is
   training.KNOWN_FEATURE_COLS — the 61-feature generation universe
-  (removal-eligible) plus config.RFE_CANDIDATE_COLS, the 182 generated
+  (removal-eligible) plus config.RFE_CANDIDATE_COLS, the 164 generated
   PIT-safe pre-game candidates (addition-eligible). 225 features, no
   exclusions. One all-folds importance pass (feature_importance_weights
   averaged over a deterministic sample of walk-forward folds, weighted by
@@ -98,8 +98,6 @@ from config import (
     RETRAIN_CADENCE_DAYS,
     RFE_AUC_GUARD,
     RFE_CANDIDATE_COLS,
-    PITCHINGPLUS_FEATURE_COLS,
-    PITCHINGPLUS_PROMOTION_APPROVED,
     RFE_ECE_GUARD,
     RFE_FLOOR,
     RFE_GRID_MAX_STATES,
@@ -1704,10 +1702,6 @@ def load_state() -> Optional[dict[str, Any]]:
 
 def write_state(cols: list[str], trace: dict[str, Any]) -> Path:
     """Record the adopted subset. Never merges — full replacement each adopt."""
-    blocked = set(cols) & set(PITCHINGPLUS_FEATURE_COLS)
-    if blocked and not PITCHINGPLUS_PROMOTION_APPROVED:
-        raise ValueError('Pitching+ promotion blocked: FanGraphs agreement and '
-                         'held-out game-model validation have not passed')
     state = {
         "record": "mlb_feature_selection_state",
         "adopted_at": datetime.now().isoformat(),
@@ -1754,9 +1748,6 @@ def apply_adopted_subset() -> dict[str, Any]:
         return report
     cols = state.get("cols") or []
     valid = [c for c in cols if c in KNOWN_FEATURE_COLS]
-    if set(cols) & set(PITCHINGPLUS_FEATURE_COLS) and not PITCHINGPLUS_PROMOTION_APPROVED:
-        logger.warning('Adopted Pitching+ subset rejected: external validation not approved')
-        return report
     if not cols or len(valid) != len(cols) or len(valid) < RFE_FLOOR:
         logger.warning(
             "Adopted feature subset rejected (%d/%d valid vs pool, floor %d) — "
