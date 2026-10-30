@@ -28,11 +28,11 @@ STATS_HEADERS = {
 SUMMARY_URL = "https://stats.nba.com/stats/boxscoresummaryv2"
 
 
-def get_summary(stats_game_id):
+def get_summary(stats_game_id, timeout=12):
     params = {"GameID": stats_game_id}
     url = SUMMARY_URL + "?" + urllib.parse.urlencode(params)
     req = urllib.request.Request(url, headers=STATS_HEADERS)
-    with urllib.request.urlopen(req, timeout=30) as resp:
+    with urllib.request.urlopen(req, timeout=timeout) as resp:
         return json.loads(resp.read().decode("utf-8"))
 
 
