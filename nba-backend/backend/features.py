@@ -586,24 +586,16 @@ def build_slate_features(schedule: pd.DataFrame,
         if postponed.any():
             sched = sched[~(sched.index.isin(pending.index[postponed]))].copy()
             pending = pending[~postponed].copy()
-    if len(pending):
-        # A game already underway is neither decided nor upcoming, and the
-        # same indistinguishability argument as postponements applies: left
-        # in ``pending`` it prices as a pre-game prediction while it is
-        # being played, and a run that sweeps a late-evening slate re-prices
-        # finished games into the next day's delivery under a stale
-        # slate_date (2026-10-22: three 10pm-ET games scored mid-3rd-quarter).
-        state = (pending["game_state"] if "game_state" in pending.columns
-                 else pd.Series([None] * len(pending), index=pending.index))
-        raw = (pending.game_status_detail.astype(str)
-               if "game_status_detail" in pending.columns
-               else pd.Series([""] * len(pending), index=pending.index))
-        underway = pd.Series(
-            [sources.is_underway(s, d) for s, d in zip(state, raw)],
-            index=pending.index)
-        if underway.any():
-            sched = sched[~(sched.index.isin(pending.index[underway]))].copy()
-            pending = pending[~underway].copy()
+    # MLB parity (2026-10-31): a game already underway STAYS in the slate.
+    # The ingestion door nulls running scores, so an underway row prices
+    # from strictly pre-tip features exactly like a pre-game row; serving
+    # labels it Live (never Scheduled), the moneyline freeze keeps the
+    # locked pre-tip probabilities across re-runs, and the state-keyed
+    # outcome guards keep it out of the decided frame until it finishes.
+    # (The 2026-10-22 exclusion this replaces mistook deletion for honesty:
+    # the board lost tipped games entirely. Correct labeling - the MLB/NFL/
+    # NHL structure - keeps the full slate visible without minting fake
+    # pre-game predictions.)
     if pending.empty:
         return pd.DataFrame()
     # One chronological engine for history and slate: season reversion and

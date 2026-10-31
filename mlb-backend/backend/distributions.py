@@ -1924,6 +1924,55 @@ def persist_markets(markets: pd.DataFrame, target_date_str: str,
                 else frame.loc[frame["kind"] == "oof", c].isna().any())]
     if bad:
         raise ValueError(f"markets frame contains NaNs in {bad} — refusing to persist")
+    # First-published wins (NFL parity, 2026-10-31): a same-day re-run must
+    # not re-price an already-published slate game's legs mid-game. Prior
+    # same-date kind='slate' rows contribute their model-output columns,
+    # matched on the stable game_pk; identifiers, scores, fit stats and
+    # frame flags always come from the fresh row. First publication of the
+    # date (no prior file) is a strict no-op.
+    if out_path.exists() and "game_pk" in frame.columns:
+        try:
+            _prior = pd.read_csv(out_path)
+            _leg_prefixes = ("p_over_", "p_push_", "p_under_",
+                             "p_home_cover_", "p_rl_", "home_expected_runs",
+                             "away_expected_runs", "distribution_mean_",
+                             "distribution_sd_")
+            _leg_exact = {"fair_total", "fair_spread", "p_over_fair",
+                          "p_cover_fair", "p_home_win_derived",
+                          "p_away_win_derived", "p_tie", "ml_win_prob"}
+            if (len(_prior) and "game_pk" in _prior.columns
+                    and "kind" in _prior.columns):
+                _prior = _prior[_prior["kind"].astype(str) == "slate"]
+                _leg_cols = [c for c in frame.columns
+                             if (c.startswith(_leg_prefixes) or c in _leg_exact)
+                             and c in _prior.columns]
+                if _leg_cols:
+                    _slate_mask = (frame["kind"].astype(str) == "slate") \
+                        if "kind" in frame.columns \
+                        else pd.Series([True] * len(frame), index=frame.index)
+                    _prior_rows = {}
+                    for _, _prow in _prior.iterrows():
+                        _pk = str(_prow["game_pk"])
+                        if _pk and _pk not in _prior_rows:
+                            _prior_rows[_pk] = _prow
+                    _frozen_n = 0
+                    for _oi in frame.index[_slate_mask]:
+                        _hit = _prior_rows.get(str(frame.at[_oi, "game_pk"]))
+                        if _hit is None:
+                            continue
+                        for _c in _leg_cols:
+                            try:
+                                _v = float(_hit[_c])
+                            except (TypeError, ValueError):
+                                continue
+                            if _v == _v:
+                                frame.at[_oi, _c] = _v
+                        _frozen_n += 1
+        except Exception as _exc:
+            import logging as _logging
+            _logging.getLogger(__name__).warning(
+                "markets freeze: skipping prior %s (%s)",
+                out_path.name, _exc)
     tmp = out_path.with_suffix(".csv.tmp")
     # LF-pinned delivery bytes (pandas csv default is CRLF on some stacks).
     frame.to_csv(tmp, index=False, lineterminator="\n")

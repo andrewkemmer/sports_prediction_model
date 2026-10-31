@@ -157,6 +157,19 @@ class TestEspnSchedule:
         assert bool(row.is_final) is False
         assert pd.isna(row.home_score)
 
+    def test_an_in_progress_game_carries_no_scores(self):
+        """NHL parity (2026-10-31): running scores are not results. ESPN
+        reports the mid-game score, but the door nulls it - a live row must
+        never carry a partial score into a frame that splits on score
+        presence, or the split mistakes it for decided."""
+        frame = src.espn_schedule_frame([_espn_event(
+            home_score="78", away_score="80", state="in", completed=False,
+            detail="8:33 - 3rd Quarter")])
+        row = frame.iloc[0]
+        assert bool(row.is_final) is False
+        assert pd.isna(row.home_score) and pd.isna(row.away_score)
+        assert row.game_state == "in"
+
     def test_a_late_game_keeps_its_eastern_date(self):
         """ESPN's `dates` is a UTC key, so a 10pm ET tipoff arrives under the
         following UTC day. Deciding the day in UTC moves it to the wrong date."""
@@ -2153,6 +2166,49 @@ class TestCardPresentationFields:
                                               [0.6], [0.6])
         assert record["games"][0]["game_status"] == "Scheduled"
 
+    def test_a_live_row_with_a_frozen_partial_score_is_still_live(self, tmp_path):
+        """State-keyed finality (2026-10-31): a stale frame carrying a
+        frozen mid-game score must render Live, never Final. Score presence
+        alone finalizes only stateless rows."""
+        import serving
+        slate = pd.DataFrame([{
+            "game_id": "1", "gameday": pd.Timestamp("2026-10-21"),
+            "home_team": "LAL", "away_team": "GSW",
+            "home_score": 78.0, "away_score": 80.0,
+            "home_win_prob_model": 0.6, "away_win_prob_model": 0.4,
+            "game_state": "in",
+            "game_status_detail": "8:33 - 3rd Quarter"}])
+        record = serving.write_moneyline_json(tmp_path / "m.json", slate,
+                                              [0.6], [0.6])
+        assert record["games"][0]["game_status"] == "Live"
+
+    def test_a_finished_row_with_scores_is_final(self, tmp_path):
+        import serving
+        slate = pd.DataFrame([{
+            "game_id": "1", "gameday": pd.Timestamp("2026-10-20"),
+            "home_team": "BOS", "away_team": "DET",
+            "home_score": 110.0, "away_score": 100.0,
+            "home_win_prob_model": 0.6, "away_win_prob_model": 0.4,
+            "game_state": "post",
+            "game_status_detail": "Final"}])
+        record = serving.write_moneyline_json(tmp_path / "m.json", slate,
+                                              [0.6], [0.6])
+        assert record["games"][0]["game_status"] == "Final"
+
+    def test_a_live_row_with_scores_never_trains(self):
+        """The training door is state-keyed too: a stale frame whose live
+        row carries a frozen partial score must not become a label, even
+        when season-log lines exist for the id."""
+        games = pd.DataFrame([{
+            "game_id": "1", "nba_game_id": "0022600111",
+            "gameday": pd.Timestamp("2026-10-21"),
+            "home_team": "LAL", "away_team": "GSW",
+            "home_score": 78.0, "away_score": 80.0,
+            "game_type": config.GAME_TYPE_REG,
+            "game_state": "in",
+            "game_status_detail": "8:33 - 3rd Quarter"}])
+        assert ing.trainable_games(games).empty
+
     def test_a_qualifying_player_is_actually_found(self):
         """End to end over the real column names, because a name-only test
         cannot tell a fixed guard from a still-empty one."""
@@ -2259,10 +2315,12 @@ class TestCardPresentationFields:
             "game_status_detail": "7:30 PM ET"}])
         assert len(feat.build_slate_features(games)) == 1
 
-    def test_an_underway_game_is_not_offered_as_upcoming(self):
-        """A game already in progress is neither decided nor upcoming.
-        Reproduces the 2026-10-22 delivery: three live Oct-21 games plus
-        two genuine Oct-22 games must slate to the two, not the five."""
+    def test_an_underway_game_is_carried_as_live_not_scheduled(self, tmp_path):
+        """MLB parity (2026-10-31): a game already in progress STAYS in the
+        slate. Reproduces the 2026-10-22 delivery shape (two live Oct-21
+        games plus one genuine pre-game): all three slate, and serving
+        labels the live ones Live - never Scheduled, never dropped."""
+        import serving
         games = pd.DataFrame([
             {"game_id": "401909092", "gameday": pd.Timestamp("2026-10-21"),
              "home_team": "LAL", "away_team": "GSW", "season": 2026,
@@ -2284,18 +2342,32 @@ class TestCardPresentationFields:
              "game_status_detail": "7:00 PM ET"},
         ])
         slate = feat.build_slate_features(games)
-        assert sorted(slate.game_id.astype(str)) == ["401909093"]
+        assert sorted(slate.game_id.astype(str)) == [
+            "401909092", "401909093", "401909841"]
+        slate = slate.copy()
+        slate["home_win_prob_model"] = 0.6
+        record = serving.write_moneyline_json(
+            tmp_path / "m.json", slate, [0.6] * 3, [0.6] * 3)
+        by_id = {g["game_id"]: g["game_status"] for g in record["games"]}
+        assert by_id["401909092"] == "Live"
+        assert by_id["401909841"] == "Live"
+        assert by_id["401909093"] == "Scheduled"
 
-    def test_an_underway_game_without_state_is_still_not_offered(self):
+    def test_an_underway_game_without_state_is_still_carried_as_live(self, tmp_path):
         """Older caches predate the ``game_state`` column; the detail text
-        alone has to exclude the row."""
+        alone has to carry the row (and serving labels it Live)."""
+        import serving
         games = pd.DataFrame([{
             "game_id": "1", "gameday": pd.Timestamp("2026-10-21"),
             "home_team": "LAC", "away_team": "SAC", "season": 2026,
             "home_score": np.nan, "away_score": np.nan,
             "game_type": config.GAME_TYPE_REG,
             "game_status_detail": "4:12 - 4th Quarter"}])
-        assert feat.build_slate_features(games).empty
+        slate = feat.build_slate_features(games)
+        assert len(slate) == 1
+        record = serving.write_moneyline_json(
+            tmp_path / "m.json", slate, [0.6], [0.6])
+        assert record["games"][0]["game_status"] == "Live"
 
 
 class TestSixtyDaySlices:

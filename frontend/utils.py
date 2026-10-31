@@ -3119,14 +3119,20 @@ def load_model_monitor_version_history(sport: str | None,
 
 
 def load_shap(game_id: str, date_str: str,
-              sport: str | None = None) -> pd.DataFrame:
+              sport: str | None = None,
+              legacy_id: str | None = None) -> pd.DataFrame:
     """Per-game SHAP attributions (feature, shap_value, signed_effect,
-    perspective_team) — MLB ``shap_game_<game_id>.csv``; NFL/NHL emit the same
-    schema as ``{sport}_shap_game_<game_id>.csv`` (game_id namespaces differ, so
-    the sport prefix prevents cross-sport collisions)."""
+    perspective_team) — MLB ``shap_game_<game_id>.csv`` where game_id is
+    ``YYYYMMDD_AWAY@HOME``; NBA uses the identical convention since
+    2026-10-31 (``shap_game_20261030_CHA@WAS.csv``). NFL/NHL emit the same
+    schema as ``{sport}_shap_game_<game_id>.csv`` (game_id namespaces differ,
+    so the sport prefix prevents cross-sport collisions). ``legacy_id`` is
+    the pre-rename NBA ESPN-numeric id: when the MLB-style file misses, the
+    loader falls back to ``nba_shap_game_<legacy_id>.csv`` so history cards
+    keep their expanders until retention ages those files out."""
     s = normalize_sport_key(sport if sport is not None else get_sport())
     prefix = {"mlb": "shap_game", "nfl": "nfl_shap_game",
-              "nhl": "nhl_shap_game", "nba": "nba_shap_game"}.get(s, "shap_game")
+              "nhl": "nhl_shap_game", "nba": "shap_game"}.get(s, "shap_game")
     cfg = get_source_config()
     # Serve the game's OWN dated file only. SHAP files embed their date in
     # the game_id, so a date-rewritten id would silently attribute a
@@ -3144,6 +3150,11 @@ def load_shap(game_id: str, date_str: str,
             data, _ = _fetch_bytes(f"{prefix}_{new_gid}.csv", **cfg, sport=s)
             if data is not None:
                 return pd.read_csv(io.BytesIO(data))
+    if s == "nba" and legacy_id:
+        data, _ = _fetch_bytes(f"nba_shap_game_{legacy_id}.csv",
+                               **cfg, sport=s)
+        if data is not None:
+            return pd.read_csv(io.BytesIO(data))
     return pd.DataFrame()
 
 
@@ -4743,7 +4754,17 @@ def load_nba_board_games(date_str: str) -> pd.DataFrame:
                     day[col] = cur.mask(blank, fill)
                 hs = pd.to_numeric(day["home_score"], errors="coerce")
                 as_ = pd.to_numeric(day["away_score"], errors="coerce")
-                decided = hs.notna() & as_.notna()
+                # State-keyed finality (MLB parity, 2026-10-31): scores
+                # alone never finalize a row. The pipeline labels underway
+                # games Live and nulls running scores at the door, but a
+                # stale artifact may still carry a frozen partial score -
+                # finalizing on score presence would grade a mid-game
+                # snapshot as a final result. Live rows keep their status
+                # (and their frozen pre-tip probabilities) until a true
+                # final lands in the history fill.
+                live = day["game_status"].astype(str).str.lower().isin(
+                    ["live", "in"])
+                decided = hs.notna() & as_.notna() & ~live
                 home_win = pd.Series(float("nan"), index=day.index, dtype="float64")
                 home_win[decided & (hs > as_)] = 1.0
                 home_win[decided & (hs < as_)] = 0.0

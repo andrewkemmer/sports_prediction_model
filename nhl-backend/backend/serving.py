@@ -161,6 +161,31 @@ def write_moneyline_json(path, slate_df: pd.DataFrame, p_home: np.ndarray,
         if path.exists():
             prior = json.loads(path.read_text())
             new_ids = {str(x.get("game_id") or "") for x in games}
+            prior_by_id = {str(g.get("game_id") or ""): g
+                           for g in (prior.get("games") or [])
+                           if isinstance(g, dict)}
+            # First-published wins (NFL parity, 2026-10-31): ids this run
+            # re-prices keep their locked pre-game probabilities, so an
+            # evening re-run can never re-price a live game mid-game.
+            # First publication of the date (no prior row) prices fresh.
+            for g in games:
+                if not isinstance(g, dict):
+                    continue
+                if board_date and str(g.get("game_date") or "") != board_date:
+                    continue
+                pg = prior_by_id.get(str(g.get("game_id") or ""))
+                if not pg or str(pg.get("game_date") or "") != str(g.get("game_date") or ""):
+                    continue
+                try:
+                    shown = float(pg["home_win_prob_model"])
+                except (KeyError, TypeError, ValueError):
+                    continue
+                if shown != shown:
+                    continue
+                g["home_win_prob_model"] = shown
+                g["away_win_prob_model"] = 1.0 - shown
+                g["model_pick"] = (g.get("home_team") if shown >= 0.5
+                                    else g.get("away_team"))
             preserved = [g for g in (prior.get("games") or [])
                          if isinstance(g, dict)
                          and str(g.get("game_id") or "") not in new_ids
@@ -429,6 +454,52 @@ def write_markets_csv(path, meta_path, oof_rows: pd.DataFrame,
                 preserved = prior[~prior["game_id"].astype(str).isin(new_ids)]
                 if len(preserved):
                     out = pd.concat([preserved, out], ignore_index=True)
+                # First-published wins for OVERLAPPING ids (NFL parity,
+                # 2026-10-31): a same-day re-run must not re-price a live
+                # game's legs mid-game. Prior kind='slate' rows for the same
+                # gameday contribute their model-output columns; identifiers,
+                # scores/frame flags, fit stats and live market-line columns
+                # always come from the fresh row.
+                try:
+                    _leg_prefixes = ("mu_", "fair_", "p_", "pred_", "derived_")
+                    _live_cols = {"spread_line", "total_line", "has_offer"}
+                    _leg_cols = [c for c in out.columns
+                                 if c.startswith(_leg_prefixes)
+                                 and c in prior.columns
+                                 and c not in _live_cols
+                                 and not c.endswith("_offered")]
+                    if _leg_cols and "gameday" in prior.columns \
+                            and "gameday" in out.columns:
+                        _pgd = pd.to_datetime(prior["gameday"],
+                                             errors="coerce").dt.strftime("%Y-%m-%d")
+                        _ogd = pd.to_datetime(out["gameday"],
+                                             errors="coerce").dt.strftime("%Y-%m-%d")
+                        _okind = (out["kind"].astype(str) == "slate"
+                                  if "kind" in out.columns
+                                  else pd.Series([True] * len(out),
+                                                 index=out.index))
+                        _prior_rows = {}
+                        for _pi, _prow in prior.iterrows():
+                            _gid = str(_prow["game_id"])
+                            if _gid not in new_ids or _gid in _prior_rows:
+                                continue
+                            _prior_rows[_gid] = (_pgd.loc[_pi], _prow)
+                        _frozen_n = 0
+                        for _oi in out.index[_okind]:
+                            _gid = str(out.at[_oi, "game_id"])
+                            _hit = _prior_rows.get(_gid)
+                            if _hit is None or _hit[0] != _ogd.loc[_oi]:
+                                continue
+                            for _c in _leg_cols:
+                                try:
+                                    _v = float(_hit[1][_c])
+                                except (TypeError, ValueError):
+                                    continue
+                                if _v == _v:
+                                    out.at[_oi, _c] = _v
+                            _frozen_n += 1
+                except Exception:
+                    pass
     except Exception:
         pass
     # Normalize legacy in-memory spellings before selecting the published

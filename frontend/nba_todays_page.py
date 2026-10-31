@@ -177,11 +177,21 @@ def _nba_mirror_card_html(game: pd.Series, player_row=None, run_html: str = "") 
             f'{pregame}{player_block}{venue}{run_html}{banner}</div>')
 
 
+def _nba_shap_key(row) -> str:
+    """MLB-style SHAP key: ``YYYYMMDD_<AWAY>@<HOME>`` (the filename the
+    backend writes since 2026-10-31, identical to MLB's convention)."""
+    date = str(row.get("game_date", "") or "")[:10].replace("-", "")
+    away = str(row.get("away_team", "") or "").strip()
+    home = str(row.get("home_team", "") or "").strip()
+    return f"{date}_{away}@{home}"
+
+
 def _nba_shap_expander(row) -> None:
+    key = _nba_shap_key(row)
     gid = _widget_key(row)
     date = str(row.get("game_date", "") or "").replace("-", "")
-    with st.expander(f"📈 SHAP Features — {gid}", expanded=False):
-        frame = utils.load_shap(gid, date, sport="nba")
+    with st.expander(f"📈 SHAP Features — {key}", expanded=False):
+        frame = utils.load_shap(key, date, sport="nba", legacy_id=gid)
         if frame.empty:
             st.caption("No SHAP file found for this game.")
             return

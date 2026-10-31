@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import logging
 from datetime import date, timedelta
+from pathlib import Path
 from zoneinfo import ZoneInfo
 
 import pandas as pd
@@ -143,6 +144,69 @@ def _canon_team(code) -> str:
         return _TEAM_ALIASES.get(str(code).strip().upper(), str(code).strip())
     except Exception:
         return str(code)
+
+
+def freeze_published_probs(slate: pd.DataFrame, target_date_str: str,
+                           delivery_dir, file_prefix: str = "todays_games"
+                           ) -> pd.DataFrame:
+    """Carry first-published probabilities onto already-published slate games.
+
+    NFL parity (2026-10-31): a same-day re-run must not re-price a game that
+    is already underway - the board's price was locked at first pitch, and
+    the dated board file is overwritten in place, so without this the
+    evening run silently displaces the locked numbers. Games in the prior
+    same-date ``<prefix>_<date>.csv`` keep their published probabilities /
+    pick / edges; never-published games price fresh. First run of the day
+    (no prior file) is a strict no-op. Never raises: a corrupt prior file
+    degrades to today's behavior (fresh pricing), never a red run.
+    """
+    if slate is None or slate.empty or "game_id" not in slate.columns:
+        return slate
+    path = Path(delivery_dir) / f"{file_prefix}_{target_date_str}.csv"
+    if not path.exists():
+        return slate
+    try:
+        prev = pd.read_csv(path)
+    except Exception as e:
+        logger.warning("Probability freeze: could not read %s: %s",
+                       path.name, e)
+        return slate
+    if prev.empty or "game_id" not in prev.columns:
+        return slate
+    keep = [c for c in ("home_win_prob_model", "away_win_prob_model",
+                         "model_pick", "edge_home", "edge_away")
+            if c in prev.columns and c in slate.columns]
+    if not keep:
+        return slate
+    prev = prev.drop_duplicates("game_id").set_index("game_id")
+    slate = slate.copy()
+    slate["game_id"] = slate["game_id"].astype(str)
+    frozen = 0
+    for idx, row in slate.iterrows():
+        gid = row["game_id"]
+        if gid not in prev.index:
+            continue
+        n_kept = 0
+        for c in keep:
+            new = prev.loc[gid, c]
+            if c == "model_pick":
+                if isinstance(new, str) and new.strip():
+                    slate.at[idx, c] = new
+                    n_kept += 1
+            else:
+                try:
+                    v = float(new)
+                except (TypeError, ValueError):
+                    continue
+                if v == v:
+                    slate.at[idx, c] = v
+                    n_kept += 1
+        if n_kept:
+            frozen += 1
+    if frozen:
+        logger.info("Probability freeze: %d/%d slate games carry "
+                    "first-published pre-game prices", frozen, len(slate))
+    return slate
 
 
 def apply_official_results(games: pd.DataFrame,

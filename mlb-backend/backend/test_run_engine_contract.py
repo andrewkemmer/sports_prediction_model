@@ -1309,3 +1309,78 @@ def test_distribution_cli_defines_crps_helpers_before_calling_main():
             runpy.run_path(str(source), run_name="__main__")
     finally:
         sys.settrace(previous_trace)
+
+
+def _frozen_slate_row(game_id, shown, pick):
+    return {"game_id": game_id, "game_date": "2026-09-18",
+            "home_team": "NYY", "away_team": "BOS",
+            "home_win_prob_model": shown,
+            "away_win_prob_model": 1.0 - shown,
+            "model_pick": pick, "edge_home": 0.05, "edge_away": -0.05}
+
+
+def test_evening_rerun_keeps_first_published_probs(tmp_path):
+    """NFL parity (2026-10-31): a same-day re-run must not re-price an
+    already-published game mid-game. Published ids keep their locked
+    pre-game numbers; never-published ids price fresh; a first run with no
+    prior file is a strict no-op."""
+    from results import freeze_published_probs
+    prior = pd.DataFrame([
+        _frozen_slate_row("20260918_NYY@BOS", 0.62, "NYY"),
+    ])
+    prior.to_csv(tmp_path / "todays_games_20260918.csv", index=False)
+    slate = pd.DataFrame([
+        _frozen_slate_row("20260918_NYY@BOS", 0.99, "BOS"),
+        _frozen_slate_row("20260918_TB@NYY", 0.55, "TB"),
+    ])
+    out = freeze_published_probs(slate, "20260918", tmp_path)
+    row = out.loc[out["game_id"] == "20260918_NYY@BOS"].iloc[0]
+    assert row["home_win_prob_model"] == 0.62
+    assert row["model_pick"] == "NYY"
+    fresh = out.loc[out["game_id"] == "20260918_TB@NYY"].iloc[0]
+    assert fresh["home_win_prob_model"] == 0.55
+
+
+def test_first_run_with_no_prior_file_prices_fresh(tmp_path):
+    from results import freeze_published_probs
+    slate = pd.DataFrame([_frozen_slate_row("20260918_NYY@BOS", 0.62, "NYY")])
+    out = freeze_published_probs(slate, "20260918", tmp_path)
+    assert out.loc[0, "home_win_prob_model"] == 0.62
+
+
+def _frozen_market_frame(rows):
+    import distributions as re
+    frame = pd.DataFrame(rows)
+    for c in re.MARKET_COLUMNS_V3:
+        if c not in frame.columns:
+            frame[c] = 0.5
+    for c in ("game_id", "home_team", "away_team"):
+        if c not in frame.columns:
+            frame[c] = "x"
+    return frame
+
+
+def test_markets_rerun_keeps_first_published_legs(tmp_path):
+    """NFL parity (2026-10-31): a same-day re-run must not re-price an
+    already-published slate game's legs. First publication wins per game_pk;
+    never-published games price fresh; identifiers and scores always come
+    from the fresh row."""
+    import distributions as re
+    base = {"game_date": "2026-09-18", "kind": "slate",
+            "home_team": "NYY", "away_team": "BOS",
+            "home_score": float("nan"), "away_score": float("nan"),
+            "total_runs": float("nan"), "home_expected_runs": 4.0,
+            "away_expected_runs": 4.2}
+    row1 = dict(base, game_pk=101, p_over_7_5=0.51, fair_total=8.5)
+    re.persist_markets(_frozen_market_frame([row1]), "20260918", {},
+                        out_dir=tmp_path)
+    row1b = dict(base, game_pk=101, p_over_7_5=0.99, fair_total=99.0)
+    row2 = dict(base, game_pk=102, p_over_7_5=0.52, fair_total=9.5)
+    re.persist_markets(_frozen_market_frame([row1b, row2]), "20260918", {},
+                        out_dir=tmp_path)
+    out = pd.read_csv(tmp_path / "run_engine_markets_20260918.csv")
+    live = out[out["game_pk"].astype(str) == "101"].iloc[0]
+    assert live["p_over_7_5"] == 0.51
+    assert live["fair_total"] == 8.5
+    fresh = out[out["game_pk"].astype(str) == "102"].iloc[0]
+    assert fresh["p_over_7_5"] == 0.52

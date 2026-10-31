@@ -711,6 +711,24 @@ def is_underway(game_state, detail="") -> bool:
     return is_underway_detail(detail)
 
 
+def is_final_state(game_state, detail="") -> bool:
+    """Whether a schedule row describes a game that has actually finished.
+
+    MLB parity: state, not score presence, decides finality. ``post`` is the
+    league's own final flag; the detail text ("Final", "Final/OT") is the
+    fallback for rows whose state is missing. Anything else - including a
+    row that merely carries two non-null scores - is not final by this
+    predicate's hand, so a frozen mid-game score can never be finalized by
+    a downstream ``scores-present`` check alone.
+    """
+    state = str(game_state or "").strip().lower()
+    if state == "post":
+        return True
+    if state in ("pre", "in"):
+        return False
+    return "final" in str(detail or "").lower()
+
+
 def _utc_iso(stamp) -> str:
     """A UTC instant as ``...Z``, or "" when there is no instant to report.
 

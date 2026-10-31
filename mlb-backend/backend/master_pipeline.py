@@ -982,6 +982,15 @@ def _carry_forward_slate_details(slate: pd.DataFrame, target_date_str: str) -> p
     return slate
 
 
+def _freeze_published_probs(slate: pd.DataFrame,
+                            target_date_str: str,
+                            delivery_dir=None) -> pd.DataFrame:
+    """Board freeze (NFL parity) - implemented once in results.py."""
+    from results import freeze_published_probs
+    root = delivery_dir if delivery_dir is not None else DATA_DELIVERY_DIR
+    return freeze_published_probs(slate, target_date_str, root, "todays_games")
+
+
 def _nearest_slate_pk(legs, start_et) -> Optional[int]:
     """Nearest StatsAPI game_pk for a slate row by first-pitch time.
 
@@ -2707,6 +2716,12 @@ def run_daily_pipeline(
                 "all-NaN (imputed by existing paths), prediction continues", exc)
 
         target_games = predict_games(best_models, target_games)
+
+        # First-published wins (NFL parity, 2026-10-31): games this date
+        # already published keep their locked pre-game probabilities, so an
+        # evening re-run prices only never-published games and can never
+        # re-price a live game mid-game.
+        target_games = _freeze_published_probs(target_games, target_date_str)
 
         # 5. Write artifacts
         logger.info("Step 5: Writing artifacts")

@@ -2445,6 +2445,25 @@ def trainable_games(games: pd.DataFrame) -> pd.DataFrame:
         return pd.DataFrame()
     out = games.copy()
     settled = out[out.home_score.notna() & out.away_score.notna()]
+    # State-keyed finality (MLB parity): scores alone do not settle a game.
+    # The ESPN door already nulls running scores, so scores-present implies
+    # final today - but a stale or hand-built frame carrying a frozen partial
+    # score must never become a training label. Rows with positive underway
+    # evidence are excluded even when both scores are present; frames that
+    # predate the game_state column keep today's behavior (default True).
+    if "game_state" in settled.columns or "game_status_detail" in settled.columns:
+        _st = (settled["game_state"] if "game_state" in settled.columns
+               else pd.Series([None] * len(settled), index=settled.index))
+        _dt = (settled["game_status_detail"].astype(str)
+               if "game_status_detail" in settled.columns
+               else pd.Series([""] * len(settled), index=settled.index))
+        _live = pd.Series(
+            [bool(sources.is_underway(s, d)) for s, d in zip(_st, _dt)],
+            index=settled.index)
+        if _live.any():
+            logger.info("trainable_games: excluding %d score-carrying but "
+                        "underway game(s) from training", int(_live.sum()))
+            settled = settled[~_live].copy()
     has_lines = settled.get("nba_game_id", pd.Series("", index=settled.index))
     keep = settled[has_lines.astype(str).str.len() > 0]
     missing = settled[has_lines.astype(str).str.len() == 0]

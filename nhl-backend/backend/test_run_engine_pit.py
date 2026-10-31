@@ -1222,6 +1222,38 @@ def test_markets_writer_publishes_the_full_support_totals_pmf(tmp_path):
     assert meta["columns"] == len(out.columns)
 
 
+def test_markets_rerun_keeps_first_published_legs(tmp_path):
+    """NFL parity (2026-10-31): a same-day re-run must not re-price an
+    already-published slate game's legs - fair totals, means and grid legs
+    stand, while never-published ids price fresh."""
+    def _slate_row(gid, date, fair, mu, leg):
+        row = {c: np.nan for c in serving_mod.MARKETS_BASE_COLS}
+        row.update({"kind": "slate", "game_id": gid, "gameday": date,
+                    "home_team": "BOS", "away_team": "TOR",
+                    "fair_total": fair, "mu_h": mu, "mu_a": mu,
+                    "p_home_win": 0.6, "p_away_win": 0.4})
+        row[f"p_over_{config.TOTAL_GRID[0]}"] = leg
+        return row
+    oof = pd.DataFrame([{c: np.nan for c in serving_mod.MARKETS_BASE_COLS}])
+    oof["kind"] = "oof"
+    csv_p = tmp_path / "nhl_run_engine_markets_20261009.csv"
+    meta_p = tmp_path / "nhl_run_engine_markets_20261009.meta.json"
+    slate1 = pd.DataFrame([_slate_row("live1", "2026-10-09", 5.5, 3.0, 0.51)])
+    serving_mod.write_markets_csv(csv_p, meta_p, oof, slate1, {"v": 1})
+    slate2 = pd.DataFrame([_slate_row("live1", "2026-10-09", 9.5, 9.0, 0.99),
+                           _slate_row("new2", "2026-10-09", 6.5, 3.2, 0.52)])
+    serving_mod.write_markets_csv(csv_p, meta_p, oof, slate2, {"v": 1})
+    out = pd.read_csv(csv_p)
+    live = out[(out["kind"] == "slate")
+               & (out["game_id"] == "live1")].iloc[0]
+    assert live["fair_total"] == 5.5
+    assert live["mu_h"] == 3.0
+    assert live[f"p_over_{config.TOTAL_GRID[0]}"] == 0.51
+    new = out[(out["kind"] == "slate")
+              & (out["game_id"] == "new2")].iloc[0]
+    assert new["fair_total"] == 6.5
+
+
 def test_fair_line_aliases_pick_the_nearest_half_line():
     frame = _mc_frame()
     assert np.all(np.mod(frame.fair_total, 1.) == .5)
@@ -1866,11 +1898,52 @@ def test_moneyline_record_is_one_exact_board_date():
             run_date="2026-10-09")
         assert rec3["slate_date"] == "2026-10-09"
         # Off-date prior rows are not re-inherited; the same-date row IS
-        # preserved (publication stands) and this run's price replaces it
-        # for ids it re-prices.
+        # preserved (publication stands) - and since 2026-10-31, ids this
+        # run re-prices keep the prior locked price (first-published wins),
+        # never the fresh re-price.
         ids = {g["game_id"] for g in rec3["games"]}
         assert "carry" not in ids
         assert all(g["game_date"] == "2026-10-09" for g in rec3["games"])
+
+
+def test_moneyline_rerun_keeps_first_published_price():
+    """NFL parity (2026-10-31): a same-day re-run must not re-price an
+    already-published game - the locked pre-game numbers stand, the pick is
+    recomputed from them, and never-published ids price fresh."""
+    import tempfile
+    with tempfile.TemporaryDirectory() as td:
+        path = Path(td) / "nhl_moneyline_v1_20261009.json"
+        slate = pd.DataFrame([
+            {"game_id": "live1", "gameday": "2026-10-09",
+             "home_team": "BOS", "away_team": "TOR"},
+            {"game_id": "fresh1", "gameday": "2026-10-09",
+             "home_team": "BOS", "away_team": "TOR"},
+        ])
+        rec1 = serving_mod.write_moneyline_json(
+            path, slate, np.array([0.60, 0.55]), np.array([0.62, 0.54]),
+            {}, {}, run_date="2026-10-09")
+        assert [g["home_win_prob_model"] for g in rec1["games"]] == [0.62, 0.54]
+        rec2 = serving_mod.write_moneyline_json(
+            path, slate, np.array([0.99, 0.10]), np.array([0.98, 0.12]),
+            {}, {}, run_date="2026-10-09")
+        by_id = {g["game_id"]: g for g in rec2["games"]}
+        assert by_id["live1"]["home_win_prob_model"] == 0.62
+        assert by_id["live1"]["away_win_prob_model"] == pytest.approx(0.38)
+        assert by_id["live1"]["model_pick"] == "BOS"
+        assert by_id["fresh1"]["home_win_prob_model"] == 0.54
+        # A game the prior file never published still prices fresh.
+        slate2 = pd.DataFrame([
+            {"game_id": "live1", "gameday": "2026-10-09",
+             "home_team": "BOS", "away_team": "TOR"},
+            {"game_id": "new2", "gameday": "2026-10-09",
+             "home_team": "BOS", "away_team": "TOR"},
+        ])
+        rec3 = serving_mod.write_moneyline_json(
+            path, slate2, np.array([0.01, 0.77]), np.array([0.02, 0.76]),
+            {}, {}, run_date="2026-10-09")
+        by_id3 = {g["game_id"]: g for g in rec3["games"]}
+        assert by_id3["live1"]["home_win_prob_model"] == 0.62
+        assert by_id3["new2"]["home_win_prob_model"] == 0.76
 
 
 def test_goalie_matchup_record_is_one_exact_board_date():

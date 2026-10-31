@@ -815,7 +815,11 @@ PLAYER_RAPM_AGG_CSV = "nba_player_rapm_lineups_{date}.csv"
 PLAYER_RATING_SOURCE = os.environ.get("NBA_PLAYER_RATING_SOURCE", "darko")
 FEATURE_JSON = "nba_feature_v1_{date}.json"
 MODEL_MONITOR_JSON = "nba_model_monitor_{date}.json"
-SHAP_GAME_PREFIX = "nba_shap_game"
+# MLB convention (2026-10-31): per-game SHAP files are keyed by the card
+# itself - shap_game_<YYYYMMDD>_<AWAY>@<HOME>.csv - so the expander resolves
+# the same way in every sport. Legacy nba_shap_game_<espn_id>.csv files age
+# out via retention; the frontend loader still falls back to them.
+SHAP_GAME_PREFIX = "shap_game"
 MODEL_BUNDLE = MODELS_DIR / "nba_ensemble_latest.joblib"
 OOF_STORE_CSV = RUN_DIAGNOSTICS_DIR / "nba_oof_store.csv"  # residue, not delivery
 FEATURE_SELECTION_JSON = "nba_feature_selection_{date}.json"

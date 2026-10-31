@@ -163,8 +163,16 @@ def write_moneyline_json(path, slate: pd.DataFrame, p_home, p_home_cal,
         shown = cal_p if cal_p is not None else raw_p
         pick = None if shown is None else (game.get("home_team") if shown >= 0.5 else game.get("away_team"))
         hs, as_ = game.get("home_score"), game.get("away_score")
-        final = pd.notna(hs) and pd.notna(as_)
         detail = str(game.get("game_status_detail", "") or "")
+        state = game.get("game_state")
+        underway = sources.is_underway(state, detail)
+        state_known = str(state or "").strip().lower() in ("pre", "in", "post")
+        # State-keyed finality (MLB parity): scores alone finalize a row
+        # only when there is no state evidence either way (stateless legacy
+        # rows keep today's behavior). Any positive underway signal wins
+        # over scores, so a frozen mid-game score renders Live, never Final.
+        final = (pd.notna(hs) and pd.notna(as_) and not underway
+                 and (sources.is_final_state(state, detail) or not state_known))
         postponed = sources.is_postponed_detail(detail)
         row = {
             "game_id": str(game.get("game_id", "")),
@@ -181,13 +189,13 @@ def write_moneyline_json(path, slate: pd.DataFrame, p_home, p_home_cal,
             # event keeps its id, moves to the new date and settles there, so it
             # reappears on the card for the day it is actually played.
             # "Live" is the same honesty for a game already underway: the
-            # slate excludes those before they reach a card, but a stale or
-            # hand-built frame must never render a mid-game row as PRE-GAME.
-            # The frontend already renders a LIVE pill for this status.
+            # slate carries those (MLB parity, 2026-10-31) with frozen
+            # pre-tip probabilities, and the status order above guarantees a
+            # mid-game row renders Live even when it carries a frozen
+            # partial score. The frontend already renders a LIVE pill.
             "game_status": ("Postponed" if postponed else
+                            "Live" if underway else
                             "Final" if final else
-                            "Live" if sources.is_underway(game.get("game_state"),
-                                                           detail) else
                             (game.get("game_status") or "Scheduled")),
             "game_status_detail": detail,
             "home_score": _clean(hs), "away_score": _clean(as_),

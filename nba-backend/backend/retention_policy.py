@@ -58,6 +58,10 @@ FAMILY_POLICY = (
     FamilyPolicy("player_matchup", "nba_player_leader_matchup_", 10, True),
     FamilyPolicy("markets_monitor", "nba_run_engine_monitor_", None, False),
     FamilyPolicy("shap_game", "nba_shap_game_", None, True, 10),
+    # MLB convention (2026-10-31): shap_game_<YYYYMMDD>_<AWAY>@<HOME>.csv.
+    # The legacy numeric-id prefix keeps its entry so existing files age out
+    # under the same rules instead of falling through to "stale".
+    FamilyPolicy("shap_game", "shap_game_", None, True, 10),
     FamilyPolicy("rfe_trace", "nba_feature_selection_", 10, True),
     FamilyPolicy("rfe_workbook", "nba_feature_workbook_", 10, True),
     FamilyPolicy("run_engine_feature_drift", "nba_run_engine_feature_drift_", 10, True),
@@ -65,7 +69,7 @@ FAMILY_POLICY = (
 )
 _COMPACT = re.compile(r"_(\d{8})")
 _ISO = re.compile(r"_(\d{4}-\d{2}-\d{2})")
-_SHAP = re.compile(r"nba_shap_game_(\d{8})_")
+_SHAP = re.compile(r"(?:nba_)?shap_game_(\d{8})_")
 
 
 def local_name(rel: str) -> str:
