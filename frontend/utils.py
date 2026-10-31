@@ -4712,6 +4712,53 @@ def _nba_published_slate_rows(date_str: str) -> list[dict]:
     return list(rows.values())
 
 
+def _nba_frozen_missing_slate_rows(date_str: str, covered_ids) -> pd.DataFrame:
+    """Frozen first-publication rows for games a date's slate never carried.
+
+    The rolling-window family walk recovers games a same-day re-run dropped,
+    but it cannot recover a game whose ONLY publication happened in a run
+    that already priced past its tipoff: the 2026-10-30 CHA@WAS 7:00 PM ET
+    opener is absent from every ``nba_moneyline_v1_*`` file because that
+    date's run landed at 00:45Z the next day, after the game had started.
+    The game WAS priced pre-game — the frozen first-publication store
+    (``nba_production_cards_history``) holds it at ``game_state == 'pre'``
+    with its as-published probabilities and pick, priced once and never
+    mutated. The board serves that row: MLB parity, where
+    ``todays_games_<date>.csv`` is the whole day's point-in-time slate and
+    the settled result overlays afterwards.
+
+    Only game ids the dated published slate does not already carry are
+    returned, so published rows stay byte-identical. A row without a decided
+    result comes back ``Scheduled`` — the store only prices pre-game cards,
+    and the caller's retained-history overlay is what finalizes one.
+    """
+    requested = str(date_str or "").replace("-", "")
+    if len(requested) != 8 or not requested.isdigit():
+        return pd.DataFrame()
+    covered = {str(g) for g in ([] if covered_ids is None else covered_ids)
+               if str(g)}
+    try:
+        store = _load_cards_store("nba")
+        day = _cards_store_to_board_frame(store, requested, sport="nba")
+    except Exception:
+        return pd.DataFrame()
+    if day is None or day.empty or "game_id" not in day.columns:
+        return pd.DataFrame()
+    missing = day[~day["game_id"].astype(str).isin(covered)]
+    if missing.empty:
+        return pd.DataFrame()
+    missing = missing.copy()
+    if {"home_score", "away_score"}.issubset(missing.columns):
+        decided = (
+            pd.to_numeric(missing["home_score"], errors="coerce").notna()
+            & pd.to_numeric(missing["away_score"], errors="coerce").notna()
+        )
+        missing.loc[~decided, "game_status"] = "Scheduled"
+    else:
+        missing["game_status"] = "Scheduled"
+    return missing.reset_index(drop=True)
+
+
 def load_nba_board_games(date_str: str) -> pd.DataFrame:
     """NBA game board for a date — the MLB ``todays_games_<date>.csv`` /
     NFL ``load_nfl_board_games`` structural twin over the NBA families.
@@ -4720,8 +4767,11 @@ def load_nba_board_games(date_str: str) -> pd.DataFrame:
       1. DATED PUBLISHED SLATE: this date's own rows across the
          ``nba_moneyline_v1_*`` family (``_nba_published_slate_rows``)
          — the production SLATE predictions as published, never an OOF
-         re-price. The records freeze at ``pre`` (Scheduled), so the settled
-         result (score/status) fills display-only from the retained
+         re-price. Games the date's family never carried (a run that priced
+         past their tipoff never republished them) fill from the frozen
+         first-publication store via ``_nba_frozen_missing_slate_rows``.
+         The records freeze at ``pre`` (Scheduled), so the settled result
+         (score/status) fills display-only from the retained
          prediction-history OUTCOME columns (scores only — its OOF probs
          never touch the card) and the grade derives from the PUBLISHED
          pick against that result (the as-first-published grade).
@@ -4737,6 +4787,18 @@ def load_nba_board_games(date_str: str) -> pd.DataFrame:
     if rows:
         day = nba_moneyline_to_frame({"games": rows})
         if not day.empty:
+            # Frozen first-publication fill (MLB parity): a game the date's
+            # publications never carried — because the only run that priced
+            # it landed after its tipoff — still has its pre-game card in
+            # the frozen store. Only missing ids are added; published rows
+            # stay untouched, and the history overlay below settles it.
+            try:
+                extra = _nba_frozen_missing_slate_rows(
+                    requested, day["game_id"].astype(str))
+            except Exception:
+                extra = pd.DataFrame()
+            if extra is not None and not extra.empty:
+                day = pd.concat([day, extra], ignore_index=True, sort=False)
             try:
                 hist = load_nfl_prediction_history("nba")
             except Exception:

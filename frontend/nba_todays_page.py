@@ -346,6 +346,14 @@ def run() -> None:
                 if players is not None and len(players):
                     hit = players[players.game_id.astype(str) == str(game.get("game_id", ""))]
                     if len(hit): player_row = hit.iloc[0].to_dict()
+                if player_row is None and pd.notna(game.get("p_home_name")):
+                    # A frozen first-publication row carries its own
+                    # point-in-time leaders (the per-date player artifact
+                    # only ever covers the live slate) — MLB parity: the
+                    # card's own probables, never a current-day lookup.
+                    player_row = {k: game.get(k) for k in (
+                        "p_home_name", "p_home_ppg", "p_home_apg",
+                        "p_away_name", "p_away_ppg", "p_away_apg")}
                 st.markdown(_nba_mirror_card_html(game, player_row, run_html), unsafe_allow_html=True)
                 _nba_shap_expander(game)
     st.caption("Model outputs are point-in-time — only data available before each game's scheduled tipoff was used. See README for methodology.")

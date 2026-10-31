@@ -400,6 +400,71 @@ def test_player_empty_state_renders_em_dash() -> None:
     assert "PPG —" in html and "APG —" in html
 
 
+def test_a_game_missing_from_the_published_slate_serves_its_frozen_pre_game_card(
+        monkeypatch: pytest.MonkeyPatch) -> None:
+    """The 2026-10-30 CHA@WAS shape, verbatim.
+
+    That date's only moneyline publication landed at 00:45Z the next day —
+    after the 7:00 PM ET opener tipped — so no ``nba_moneyline_v1_*`` file
+    ever carried it and the rolling family walk cannot recover it. The
+    frozen first-publication store priced the game pre-game and the
+    retained history settles it, so the board must render the card with the
+    frozen pre-game probabilities, the Final score and the published grade.
+    """
+    published = _moneyline_record()["games"][0]
+    missing_id = "0029900099"
+
+    def _store_row(gid, away, home, p_home, pick, start):
+        return {
+            "game_id": gid, "game_date": DATE_ISO,
+            "home_team": home, "away_team": away,
+            "p_home_win": p_home, "p_away_win": 1.0 - p_home,
+            "model_pick": pick, "game_state": "pre",
+            "start_time_utc": start, "venue": "Capital One Arena",
+            "home_record": "0-0", "away_record": "0-0",
+            "home_score": None, "away_score": None,
+            "p_home_name": "Home Leader", "p_home_ppg": 20.0,
+            "p_home_apg": 5.0, "p_away_name": "Away Leader",
+            "p_away_ppg": 24.0, "p_away_apg": 6.0,
+        }
+
+    store = pd.DataFrame([
+        _store_row(published["game_id"], "BOS", "ATL", 0.64, "ATL",
+                   published["start_time_utc"]),
+        _store_row(missing_id, "CHA", "WAS", 0.42, "CHA",
+                   "2099-01-01T23:00:00Z"),
+    ])
+    history = pd.DataFrame([{
+        "game_id": missing_id, "game_date": DATE_ISO,
+        "home_team": "WAS", "away_team": "CHA",
+        "home_score": 95, "away_score": 79, "home_win": 1.0,
+        "home_win_prob_model": 0.42,
+        "home_win_prob_model_calibrated": 0.42,
+        "away_win_prob_model": 0.58, "model_pick": "CHA",
+        "actual_winner": "WAS", "correct": False,
+    }])
+    monkeypatch.setattr(utils, "_nba_published_slate_rows",
+                        lambda _date: [published])
+    monkeypatch.setattr(utils, "_load_cards_store", lambda _sport=None: store)
+    monkeypatch.setattr(utils, "load_nfl_prediction_history",
+                        lambda _sport=None: history)
+
+    board = utils.load_nba_board_games(DATE).set_index("game_id")
+
+    assert set(board.index) == {published["game_id"], missing_id}
+    row = board.loc[missing_id]
+    assert row["game_status"] == "Final"
+    assert float(row["home_score"]) == 95.0
+    assert float(row["away_score"]) == 79.0
+    assert float(row["home_win_prob_model"]) == pytest.approx(0.42)
+    assert float(row["away_win_prob_model"]) == pytest.approx(0.58)
+    assert row["model_pick"] == "CHA"
+    assert row["p_home_name"] == "Home Leader"
+    # The published row stays the date's own pre-game artifact row — the
+    # frozen store only fills the ids the slate lost.
+    assert board.loc[published["game_id"], "game_status"] == "Scheduled"
+
+
 def test_nba_todays_games_app_dispatches_and_renders_player(nba_artifacts) -> None:
     app = _run_page("todays_games.py")
     text = _all_text(app)
