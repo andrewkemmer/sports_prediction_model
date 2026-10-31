@@ -13,7 +13,6 @@ lightgbm, or shap (heavy ML stays in the backend).
 
 from __future__ import annotations
 
-import hashlib
 import io
 import json
 import logging
@@ -4920,31 +4919,6 @@ def load_nba_run_engine_markets(sport: str | None = "nba") -> tuple[pd.DataFrame
         except Exception:
             continue
     return pd.DataFrame(), None
-
-
-def nba_markets_vintage(date_str: str | None, sport: str | None = "nba") -> str:
-    """One-line provenance for diagnostics captions.
-
-    Names the EXACT bytes the tables below were computed from: filename,
-    fetch source (the loader is remote-first, so the page can render a
-    newer GitHub generation than local disk holds, or vice versa), content
-    hash and size. A re-pushed artifact silently moves every calibration
-    number on the page — this makes the move visible. Empty string when
-    the artifact is unavailable (callers append it to their caption).
-    """
-    if not date_str:
-        return ""
-    fname = f"nba_run_engine_markets_{date_str}.csv"
-    try:
-        raw, source = _fetch_bytes(fname, **get_source_config(),
-                                   sport=(sport or "nba"))
-    except Exception:
-        return ""
-    if raw is None:
-        return ""
-    sha = hashlib.sha256(raw).hexdigest()[:12]
-    return (f" \u00b7 `{fname}` \u00b7 {source} \u00b7 sha {sha} \u00b7 "
-            f"{len(raw) / 1e6:.1f} MB")
 
 
 def load_nba_run_engine_monitor(sport: str | None = "nba") -> dict | None:
