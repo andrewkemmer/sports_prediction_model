@@ -751,9 +751,6 @@ def run() -> None:
     # Diagnostics — the SAME five tabs as MLB
     # ------------------------------------------------------------------
     st.markdown("### Diagnostics")
-    st.caption(f"OOF artifact: {date_str} · {len(decided):,} decided games · "
-               "historical performance uses OOF predictions only"
-               f"{utils.nba_markets_vintage(date_str)}")
     if decided.empty:
         st.warning(
             "No decided OOF rows in nba_run_engine_markets for this date — "
