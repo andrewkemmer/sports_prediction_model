@@ -131,7 +131,10 @@ RFE_MAX_STEPS = 120
 # source since PLAYER_RATING_SOURCE defaulted to darko; the name now says
 # what the column is). Values are UNCHANGED - a pure rename - but every
 # consumer reads names, so rebuild features, OOF and refits together.
-FEATURE_SET_VERSION = "nba-prod-v3.3-dpm"
+# v3.4 adopts the crossmatch D arm (2026-10-31): the eleven team-level
+# OFF/DEF/pace features with expected-minutes weights replace the nine
+# position-segmented pl_dpm_*. Rebuild features, OOF and refits together.
+FEATURE_SET_VERSION = "nba-prod-v3.4-xmatch"
 
 #: The raw per-side metrics behind the diff contract. Every ``*_diff`` in the
 #: list below is a home-minus-away comparison of a ladder statistic; the
@@ -231,19 +234,21 @@ MONEYLINE_FEATURE_COLS = [
     "event_live_tov_rate_diff", "event_and_in_rate_diff",
     "event_shot_distance_diff", "event_possessions_diff",
     "event_shooting_fouls_diff", "event_q4_points_diff",
-    # Position-segmented projected-lineup impact - the NBA mirror of
-    # MLB's lineup_woba_* trio, one per position, with sides retained:
-    #   pl_dpm_{pos}_home / _away : the projected lineup's DARKO DPM
-    #                               at that position, home side / away side
-    #   pl_dpm_{pos}_diff         : home minus away
-    # Built over the WHOLE decided frame (MLB's lineup_agg construction),
-    # strictly point-in-time on both axes: ratings sum only games STRICTLY
-    # BEFORE each target, and a player designated Out/Doubtful/Recovery in
-    # the last pre-tipoff report is removed from THAT game's pool only - his
-    # rating survives on every prior game he actually played.
-    "pl_dpm_c_away", "pl_dpm_c_home", "pl_dpm_c_diff",
-    "pl_dpm_f_away", "pl_dpm_f_home", "pl_dpm_f_diff",
-    "pl_dpm_g_away", "pl_dpm_g_home", "pl_dpm_g_diff",
+    # Cross-matched team offense/defense - ADOPTED 2026-10-31 (D arm).
+    # Replaces the nine position-segmented pl_dpm_* (retired to candidates).
+    # Team-level OFF/DEF blends, pace-scaled to points/game with the
+    # projected-game pace, plus the two cross-matched nets:
+    #   pl_o_dpm_{home,away,diff}, pl_d_dpm_{home,away,diff} : pace-scaled
+    #   projected_game_pace_{total,home,away}               : tempo triplet
+    #   pl_net_o_{home,away} : (home_OFF - away_DEF) x s and mirror
+    # Built over the WHOLE decided frame, strictly point-in-time on both
+    # axes: ratings sum only games STRICTLY BEFORE each target, and a
+    # player designated Out/Doubtful/Recovery in the last pre-tipoff
+    # report is removed from THAT game's pool only.
+    "pl_o_dpm_home", "pl_o_dpm_away", "pl_o_dpm_diff",
+    "pl_d_dpm_home", "pl_d_dpm_away", "pl_d_dpm_diff",
+    "projected_game_pace_total", "projected_game_pace_home",
+    "projected_game_pace_away", "pl_net_o_home", "pl_net_o_away",
     # Star-out availability: the B arm adopted 2026-10-26. The diffs serve the
     # linear member; the raw sides are tree-only (RAW_PER_SIDE_COLS).
     *STAR_OUT_FEATURE_COLS,
@@ -355,6 +360,10 @@ RAW_PER_SIDE_COLS = frozenset({
   # side-specific thresholds.
   | {f"star_out_impact_{s}" for s in ("away", "home")}
   | {f"star_out_weight_share_{s}" for s in ("away", "home")}
+  | {f"pl_o_dpm_{s}" for s in ("away", "home")}
+  | {f"pl_d_dpm_{s}" for s in ("away", "home")}
+  | {"projected_game_pace_home", "projected_game_pace_away",
+     "pl_net_o_home", "pl_net_o_away"}
   | {f"lineup_rapm_{stat}_{s}" for stat in ("top3", "mean", "std")
      for s in ("away", "home")})
 RFE_CANDIDATE_COLS = [c for c in NBA_CANDIDATE_COLS
@@ -1006,11 +1015,12 @@ PLAYER_POSITION_WEIGHT_SPLIT = True
 #: except the top-k cut, and the rating itself are unchanged - only the
 #: opportunity weight moves from trailing to expected. ``1``/``true``/``yes``
 #: enables; any other value (default) restores trailing-only weights.
-#: ADOPTED DEFAULT 2026-10-29: the expected-minutes A/B failed its gate
-#: (B-A paired t -0.85, ECE doubled 0.009 -> 0.017), so production prices
-#: trailing actual minutes. The flag stays as the opt-in trial switch.
+#: ADOPTED 2026-10-31 (D arm of the crossmatch walk-forward): expected-
+#: minutes weights beat trailing-only weights in isolation (D-B paired
+#: t -2.62, E-C t -2.14) with AUC 0.7419 -> 0.7445. Production prices
+#: expected minutes where DARKO projects them, trailing otherwise.
 PLAYER_USE_DARKO_EXPECTED_MINUTES = str(
-    os.environ.get("NBA_USE_DARKO_EXPECTED_MINUTES", "0")).lower() in {
+    os.environ.get("NBA_USE_DARKO_EXPECTED_MINUTES", "1")).lower() in {
     "1", "true", "yes"}
 
 PLAYER_RAPM_MIN_MINUTES = 50
@@ -1150,20 +1160,24 @@ PLAYER_EPM_DESIGNATION_PLAY_RATE: dict = {
 #: a same-day 18:00 report gate a 19:30 game.
 PLAYER_EPM_INJURY_CUTOFF = "tipoff"   # or "prior_end_of_day"
 
-#: The nine position-segmented projected-lineup features - per position, the
-#: away side, the home side and the difference. These are contract members;
-#: the star-out six beside them were promoted on 2026-10-26. The available-
-#: lineup impact nine below remain candidates: their C/D arms did not clear
-#: the tail gate.
+#: The eleven cross-matched team features (ADOPTED 2026-10-31, D arm).
+#: Contract members; the retired nine pl_dpm_* stay registered in
+#: KNOWN_FEATURE_COLS via the legacy view below so old frames still parse.
+CROSSMATCH_FEATURE_COLS: list[str] = [
+    "pl_o_dpm_home", "pl_o_dpm_away", "pl_o_dpm_diff",
+    "pl_d_dpm_home", "pl_d_dpm_away", "pl_d_dpm_diff",
+    "projected_game_pace_total", "projected_game_pace_home",
+    "projected_game_pace_away", "pl_net_o_home", "pl_net_o_away",
+]
+LEGACY_PL_DPM_FEATURE_COLS: list[str] = [
+    f"pl_dpm_{p}_{s}" for p in ("c", "f", "g")
+    for s in ("away", "home", "diff")]
 #:
 #: The distribution model (and the run-engine monitor) must use the SAME
 #: production feature set as the binary moneyline - so this is NOT a second
-#: definition of the nine: it is a filtered VIEW of MONEYLINE_FEATURE_COLS
-#: above, in that list's own per-position order (``c_away, c_home, c_diff``,
-#: then ``f_*``, then ``g_*``). A stem renamed in the contract renames here
-#: by construction; the two lists cannot drift apart.
+#: definition: it is a filtered VIEW of MONEYLINE_FEATURE_COLS above.
 PLAYER_RAPM_POSITION_FEATURE_COLS: list[str] = [
-    c for c in MONEYLINE_FEATURE_COLS if c.startswith("pl_dpm_")]
+    c for c in MONEYLINE_FEATURE_COLS if c in set(CROSSMATCH_FEATURE_COLS)]
 
 #: Star-out availability features are declared with the contract above. They
 #: were candidates before the 2026-10-26 B-arm adoption; the lineup-impact nine
@@ -1228,7 +1242,8 @@ KNOWN_FEATURE_COLS = list(dict.fromkeys(
     MONEYLINE_FEATURE_COLS + RFE_CANDIDATE_COLS
     + PLAYER_RAPM_POSITION_FEATURE_COLS + STINT_RAPM_FEATURE_COLS
     + SCHED_DENSITY_COLS + STAR_OUT_FEATURE_COLS
-    + LINEUP_RAPM_IMPACT_FEATURE_COLS + SPLIT_OD_RAPM_FEATURE_COLS))
+    + LINEUP_RAPM_IMPACT_FEATURE_COLS + SPLIT_OD_RAPM_FEATURE_COLS
+    + LEGACY_PL_DPM_FEATURE_COLS))
 #: How far the injury-stint table may trail the decided frame before the
 #: staleness tripwire fires, mirroring MLB's IL_STINT_MAX_LAG_DAYS. Offseason
 #: legitimately leaves a long gap with no absences recorded, so the bar is

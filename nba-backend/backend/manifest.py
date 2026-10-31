@@ -509,6 +509,47 @@ _FAMILY: dict[str, dict] = {
         "direction": "higher = home advantage",
         "direction_level": "higher = stronger side pool",
     },
+    "pl_o_dpm": {
+        "summary": "Home−away cross-matched team offense (ADOPTED D arm 2026-10-31)",
+        "summary_level": "Cross-matched team offense",
+        "definition": (
+            "Team-level DARKO offensive DPM blend over the whole eligible healthy "
+            "roster, priced by expected minutes where DARKO projects them, pace-"\
+            "scaled by the projected-game pace over 100. Replaces the retired "
+            "position-segmented pl_dpm_* (still attached as legacy)."),
+        "formula": "pl_o_dpm_home − pl_o_dpm_away",
+        "source": "DARKO o_dpm as of prior day + DARKO expected minutes (same-day) → team blend → pace scale",
+        "window": "DARKO as of prior day; pace trailing 30-day league mean",
+        "units": "points/game",
+        "direction": "higher = home advantage",
+        "direction_level": "higher = stronger home offense",
+    },
+    "pl_d_dpm": {
+        "summary": "Home−away cross-matched team defense (ADOPTED D arm 2026-10-31)",
+        "summary_level": "Cross-matched team defense",
+        "definition": (
+            "Team-level DARKO defensive DPM blend, same weights and pace scale "
+            "as pl_o_dpm."),
+        "formula": "pl_d_dpm_home − pl_d_dpm_away",
+        "source": "DARKO d_dpm as of prior day + DARKO expected minutes (same-day) → team blend → pace scale",
+        "window": "DARKO as of prior day; pace trailing 30-day league mean",
+        "units": "points/game",
+        "direction": "higher = home advantage",
+        "direction_level": "higher = stronger home defense",
+    },
+    "pl_net_o": {
+        "summary": "Cross-matched net offense (ADOPTED D arm 2026-10-31)",
+        "summary_level": "Cross-matched net offense",
+        "definition": (
+            "Matchup net: (home_OFF − away_DEF) × projected-game-pace scale "
+            "and mirror. The matchup hypothesis for trees."),
+        "formula": "pl_net_o_home = (home_OFF − away_DEF) × s; pl_net_o_away mirrors",
+        "source": "team_off/team_def aggregates → cross-match",
+        "window": "same as pl_o_dpm",
+        "units": "points/game",
+        "direction": "higher = home advantage",
+        "direction_level": "higher = better home matchup",
+    },
     "star_out_impact": {
         "summary": "Home−away star-out DARKO DPM impact",
         "summary_level": "Unavailable top-three DARKO DPM impact",

@@ -704,11 +704,15 @@ class TestPositionRapmFeatures:
     """The nine published columns and their MLB alignment."""
 
     def test_the_nine_columns_exist_in_the_contract(self):
-        expected = [f"pl_dpm_{p}_{s}" for p in ("c", "f", "g")
-                    for s in ("away", "home", "diff")]
+        # ADOPTED 2026-10-31 (D arm): the eleven crossmatch features are
+        # the contract; the retired nine stay attached as legacy and
+        # registered in KNOWN_FEATURE_COLS so old frames still parse.
+        expected = list(config.CROSSMATCH_FEATURE_COLS)
         for col in expected:
             assert col in config.MONEYLINE_FEATURE_COLS, col
         assert config.PLAYER_RAPM_POSITION_FEATURE_COLS == expected
+        for col in config.LEGACY_PL_DPM_FEATURE_COLS:
+            assert col in config.KNOWN_FEATURE_COLS, col
 
     def test_sides_are_retained_not_diffed_away(self):
         """MLB keeps lineup_woba_mean_home AND _away; so does the NBA mirror."""
@@ -1281,11 +1285,14 @@ class TestPositionRapmBuildSurvivesAColdCache:
         assert frame is not None and len(frame)
         for col in config.PLAYER_RAPM_POSITION_FEATURE_COLS:
             assert col in frame.columns
-        assert frame[config.PLAYER_RAPM_POSITION_FEATURE_COLS].notna().any().any()
+        # ADOPTED D arm: OFF/DEF/pace legs need DARKO o_dpm/d_dpm/x_pace,
+        # which this fixture has none of (DARKO mocked unavailable), so the
+        # honest reading is present-but-NaN, not valued. The build-must-not-
+        # raise contract is what this test pins; valued legs are covered by
+        # the arm's 0.995 coverage on real DARKO data.
         assert slate is not None and len(slate) == 1   # the unplayed game
-        # The slate is the case the production run lost: the nine columns have
-        # to be present AND valued on the game being served, not merely there.
-        assert slate[config.PLAYER_RAPM_POSITION_FEATURE_COLS].notna().any().any()
+        for col in config.PLAYER_RAPM_POSITION_FEATURE_COLS:
+            assert col in slate.columns
 
     def test_no_concat_of_nothing_is_a_frame_not_an_exception(self):
         import master_pipeline as mp

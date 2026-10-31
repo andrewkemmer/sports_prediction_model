@@ -63,7 +63,9 @@ AGG_COLUMNS = ["gameday", "team", "pool_size", "healthy_size",
                # PIT star availability (see _project_team): the top-three
                # prior-MPG reference set is fixed BEFORE the availability
                # filter, so an out star stays in the denominator.
-               "star_out_impact", "star_out_weight_share"] + [
+               "star_out_impact", "star_out_weight_share",
+               # Team-level OFF/DEF/PACE blends (ADOPTED 2026-10-31, D arm).
+               "team_off", "team_def", "team_pace"] + [
     f"pl_dpm_{p.lower()}" for p in config.PLAYER_EPM_POSITIONS] + [
     f"pl_srapm_{stem}_{p.lower()}"
     for stem in ("net", "off", "def")
@@ -143,6 +145,14 @@ POSITION_RAPM_FEATURES = [
     f"pl_dpm_{position}_{side}"
     for position in _POSITION_PUBLISHED_ORDER
     for side in ("away", "home", "diff")]
+
+#: Cross-matched team features (ADOPTED 2026-10-31, D arm). Per-team
+#: sources are the team_off/team_def/team_pace aggregates above; the
+#: published eleven pace-scale the OFF/DEF legs by the projected-game
+#: pace and add the two cross-matched nets. League-average pace is the
+#: trailing 30-day mean of team_pace, exactly as the arm built it.
+CROSSMATCH_SOURCES = ["team_off", "team_def", "team_pace"]
+CROSSMATCH_FEATURES = list(config.CROSSMATCH_FEATURE_COLS)
 
 #: Stint-RAPM sources per team-game: net/offense/defense segment blends.
 #: Published as net sides + diff (nine, mirroring the game-level family)
@@ -1084,6 +1094,24 @@ def _project_team(work: pd.DataFrame, team: str, gameday, stints,
         if diagnostics is not None:
             for key, value in stats.items():
                 diagnostics[key] = diagnostics.get(key, 0) + value
+    # TEAM OFF/DEF/PACE blends (ADOPTED 2026-10-31, D arm): the whole
+    # eligible healthy roster pooled at team level, priced by the SAME
+    # final opportunity weights (expected minutes where DARKO projects
+    # them, trailing otherwise, plus next-man-up absorption) as every
+    # other aggregate. Mirrors the arm's _team_blends: NaN ratings fill
+    # 0 in the numerator with zero weight already removed, so a
+    # rating-less member contributes role but no rating.
+    _wts = pd.to_numeric(healthy["_w"], errors="coerce").fillna(0.0)
+    _den = float(_wts.sum())
+    def _tblend(col: str) -> float:
+        if col not in healthy.columns or not _den:
+            return np.nan
+        v = pd.to_numeric(healthy[col], errors="coerce")
+        if not v.notna().any():
+            return np.nan
+        return float((_wts.to_numpy() * v.fillna(0.0).to_numpy()).sum() / _den)
+    team_off, team_def, team_pace = (_tblend("o_dpm"), _tblend("d_dpm"),
+                                     _tblend("x_pace"))
     projected = healthy.head(top_k)
     w_sum = float(projected["_w"].sum())
 
@@ -1197,6 +1225,9 @@ def _project_team(work: pd.DataFrame, team: str, gameday, stints,
         "lineup_rapm_rest_count": rest_count,
         "star_out_impact": star_out_impact,
         "star_out_weight_share": star_out_weight_share,
+        "team_off": team_off,
+        "team_def": team_def,
+        "team_pace": team_pace,
         **segmented,
         **eligible,
     }
@@ -1290,7 +1321,7 @@ def project_lineup_features(ratings: pd.DataFrame,
                             reweight: str = "waterfall",
                             diagnostics: dict | None = None,
                             ) -> tuple[pd.DataFrame, pd.DataFrame]:
-    """Designations -> projection -> the nine + six: THE production path.
+    """Designations -> projection -> the eleven + six: THE production path.
 
     One function, so the training build, the slate build and every A/B harness
     resolve a team's lineup number in exactly one place. They did not, and the
@@ -1302,8 +1333,9 @@ def project_lineup_features(ratings: pd.DataFrame,
     ``reweight`` defaults to the pipeline's mode deliberately: the default is
     the shipping behaviour, and an experimental override has to say so.
 
-    Returns ``(frame, aggregates)`` - the input frame with the fifteen
-    columns attached, and the per-(game, team) projection that produced them.
+    Returns ``(frame, aggregates)`` - the input frame with the eleven
+    crossmatch plus six star-out columns attached (legacy nine still
+    attached beside them), and the per-(game, team) projection.
     Nothing is dropped and no row is filtered: the caller keeps its own
     game split, because slicing here would hide which rows failed the join.
     """
@@ -1318,6 +1350,7 @@ def project_lineup_features(ratings: pd.DataFrame,
     aggregates = projected_lineup(rated, games=games, reweight=reweight,
                                   diagnostics=diagnostics)
     frame = attach_position_rapm(games, aggregates)
+    frame = attach_crossmatch_features(frame, aggregates)
     return attach_star_out_features(frame, aggregates), aggregates
 
 
@@ -1400,6 +1433,82 @@ def attach_position_rapm(slate: pd.DataFrame,
             out[f"_eligible_{column}_diff"] = np.minimum(away_elig, home_elig)
     drop = [c for c in out.columns if c.startswith("_home_") or c.startswith("_away_")]
     return out.drop(columns=drop)
+
+
+def attach_crossmatch_features(slate: pd.DataFrame,
+                               aggregates: pd.DataFrame) -> pd.DataFrame:
+    """Attach the eleven cross-matched team features (ADOPTED D arm).
+
+    Same join grain and always-create rule as :func:`attach_position_rapm`.
+    Per-team OFF/DEF/PACE come from the team_off/team_def/team_pace
+    aggregates; the published legs pace-scale OFF/DEF by the
+    projected-game pace (home x away / trailing-30d league mean, over 100)
+    and add the two cross-matched nets (home_OFF - away_DEF and mirror).
+    One scaler everywhere: both OFF/DEF legs use the projected GAME pace,
+    never each team's own pace, so diff stays exactly home - away.
+    """
+    out = slate.copy() if slate is not None else pd.DataFrame()
+    for column in CROSSMATCH_FEATURES:
+        out[column] = np.nan
+    if out.empty or aggregates is None or not len(aggregates):
+        return out
+    if "gameday" not in out.columns:
+        return out
+    aggs = aggregates.copy()
+    aggs["gameday"] = pd.to_datetime(aggs["gameday"], errors="coerce")
+    for col in CROSSMATCH_SOURCES:
+        if col not in aggs.columns:
+            return out
+    pace_by_day = aggs.groupby("gameday")["team_pace"].mean()
+
+    def _league_avg(gd) -> float:
+        try:
+            gd = pd.Timestamp(gd)
+        except Exception:  # noqa: BLE001
+            return np.nan
+        lo = gd - pd.Timedelta(days=30)
+        w = pace_by_day[(pace_by_day.index >= lo)
+                        & (pace_by_day.index < gd)]
+        return float(w.mean()) if len(w) else np.nan
+    lookup = {(pd.Timestamp(g), str(t)): (o, d, p)
+              for g, t, o, d, p in zip(aggs.gameday, aggs.team.astype(str),
+                                      aggs.team_off, aggs.team_def,
+                                      aggs.team_pace)}
+    out["gameday"] = pd.to_datetime(out["gameday"], errors="coerce")
+    teams_h = (out["home_team"].astype(str) if "home_team" in out.columns
+               else pd.Series([""] * len(out), index=out.index))
+    teams_a = (out["away_team"].astype(str) if "away_team" in out.columns
+               else pd.Series([""] * len(out), index=out.index))
+    for col in ("pl_o_dpm_home", "pl_o_dpm_away", "pl_d_dpm_home",
+                "pl_d_dpm_away", "projected_game_pace_home",
+                "projected_game_pace_away", "projected_game_pace_total",
+                "pl_net_o_home", "pl_net_o_away", "pl_o_dpm_diff",
+                "pl_d_dpm_diff"):
+        if col not in out.columns:
+            out[col] = np.nan
+    for i, (gd, h, a) in enumerate(zip(out["gameday"], teams_h, teams_a)):
+        try:
+            ho, hd, hp = lookup.get((pd.Timestamp(gd), str(h)),
+                                    (np.nan, np.nan, np.nan))
+            ao, ad, ap = lookup.get((pd.Timestamp(gd), str(a)),
+                                    (np.nan, np.nan, np.nan))
+            la = _league_avg(gd)
+            tot = hp * ap / la if la == la and la and hp == hp and ap == ap else np.nan
+            s = tot / 100.0 if tot == tot else np.nan
+            out.at[out.index[i], "projected_game_pace_home"] = hp
+            out.at[out.index[i], "projected_game_pace_away"] = ap
+            out.at[out.index[i], "projected_game_pace_total"] = tot
+            out.at[out.index[i], "pl_o_dpm_home"] = ho * s if ho == ho and s == s else np.nan
+            out.at[out.index[i], "pl_o_dpm_away"] = ao * s if ao == ao and s == s else np.nan
+            out.at[out.index[i], "pl_d_dpm_home"] = hd * s if hd == hd and s == s else np.nan
+            out.at[out.index[i], "pl_d_dpm_away"] = ad * s if ad == ad and s == s else np.nan
+            out.at[out.index[i], "pl_net_o_home"] = ((ho - ad) * s if ho == ho and ad == ad and s == s else np.nan)
+            out.at[out.index[i], "pl_net_o_away"] = ((ao - hd) * s if ao == ao and hd == hd and s == s else np.nan)
+        except Exception:  # noqa: BLE001 - one bad row never fails a slate
+            continue
+    out["pl_o_dpm_diff"] = out["pl_o_dpm_home"] - out["pl_o_dpm_away"]
+    out["pl_d_dpm_diff"] = out["pl_d_dpm_home"] - out["pl_d_dpm_away"]
+    return out
 
 
 def attach_stint_rapm(slate: pd.DataFrame,

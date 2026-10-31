@@ -1120,7 +1120,7 @@ def _refresh_designation_archive(games: pd.DataFrame, cache_dir=None,
 def _build_position_rapm_features(facts, games: pd.DataFrame,
                                  cache_dir: Path | None = None
                                  ) -> tuple[pd.DataFrame | None, pd.DataFrame | None]:
-    """The nine ``pl_dpm_*`` and six ``star_out_*`` features over the WHOLE
+    """The eleven crossmatch and six ``star_out_*`` features over the WHOLE
     decided frame, plus slate.
 
     This is MLB's ``lineup_agg`` construction, translated: ratings are built
@@ -1143,7 +1143,7 @@ def _build_position_rapm_features(facts, games: pd.DataFrame,
       rating his prior games earned him - the removal is a fact about one
       game, the rating is a fact about the games he played.
 
-    Returns ``(frame_features, slate_features)``: the fifteen columns attached
+    Returns ``(frame_features, slate_features)``: the seventeen columns attached
     to the decided frame and to the pending slate, or ``(None, None)`` when
     the inputs cannot support the build - a missing artifact family is a
     degraded run, not a failed one.

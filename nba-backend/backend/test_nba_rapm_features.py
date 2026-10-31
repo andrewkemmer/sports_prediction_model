@@ -1915,7 +1915,9 @@ def test_production_position_features_and_rating_writer_share_dated_rosters(tmp_
     expected_ratings = rapm.build_player_rapm(games_frame, slate.gameday, roster_history=history)
     aggregates = proj.projected_lineup(expected_ratings.rename(columns={"target_date": "gameday"}), games=slate)
     expected = proj.attach_star_out_features(
-        proj.attach_position_rapm(slate, aggregates), aggregates)
+        proj.attach_crossmatch_features(
+            proj.attach_position_rapm(slate, aggregates), aggregates),
+        aggregates)
     assert decided is None
     pd.testing.assert_frame_equal(pending, expected)
     assert np.isfinite(pending.pl_dpm_g_diff).all()
