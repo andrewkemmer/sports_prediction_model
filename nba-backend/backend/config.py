@@ -392,6 +392,7 @@ RAW_PER_SIDE_COLS = frozenset({
   # paired level in this contract.
   | {f"pl_o_pts_{s}" for s in ("away", "home")}
   | {f"star_out_pts_{s}" for s in ("away", "home")}
+  | {f"pl_fg_pct_{s}" for s in ("away", "home")}
   | {f"pl_o_dpm_{s}" for s in ("away", "home")}
   | {f"pl_d_dpm_{s}" for s in ("away", "home")}
   | {"projected_game_pace_home", "projected_game_pace_away",
@@ -1284,6 +1285,15 @@ SPLIT_OD_RAPM_FEATURE_COLS = (
 # O_PTS_FEATURE_COLS lives with the contract above, next to
 # STAR_OUT_FEATURE_COLS (adopted 2026-11-01, v3.5).
 
+# Expected-FG% features (TRIAL ONLY - NOT in MONEYLINE_FEATURE_COLS, so
+# production never serves them until a walk-forward verdict clears the
+# gate). Team expected field-goal percentage: the minutes-weighted MEAN
+# (a rate, not a sum) of per-player DARKO x_fg_pct over the priced
+# healthy eligible members at final opportunity weights. Arm B adds
+# these three to the contract; no star leg in v1 (see ab_fg_pct.py).
+FG_PCT_FEATURE_COLS: list[str] = (
+    [f"pl_fg_pct_{side}" for side in ("away", "home", "diff")])
+
 # Schedule-density family (TRIAL ONLY, 2026-10-18 density trial — NOT in
 # MONEYLINE_FEATURE_COLS, so production never serves it until a
 # walk-forward verdict clears the 2.5 gate). Column order: the 3-in-4 and
@@ -1300,6 +1310,7 @@ KNOWN_FEATURE_COLS = list(dict.fromkeys(
     + SCHED_DENSITY_COLS + STAR_OUT_FEATURE_COLS
     + LINEUP_RAPM_IMPACT_FEATURE_COLS + SPLIT_OD_RAPM_FEATURE_COLS
     + O_PTS_FEATURE_COLS
+    + FG_PCT_FEATURE_COLS
     + LEGACY_PL_DPM_FEATURE_COLS))
 #: How far the injury-stint table may trail the decided frame before the
 #: staleness tripwire fires, mirroring MLB's IL_STINT_MAX_LAG_DAYS. Offseason

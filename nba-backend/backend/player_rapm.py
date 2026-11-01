@@ -96,7 +96,7 @@ logger = logging.getLogger(__name__)
 
 _DARKO_HISTORY_COLS = ["player_key", "date", "dpm", "o_dpm", "d_dpm", "box_dpm",
                        "on_off_dpm", "x_minutes", "x_pace", "x_pts_100",
-                       "seconds_played"]
+                       "x_fg_pct", "seconds_played"]
 
 
 def _player_key(series: pd.Series) -> pd.Series:
@@ -157,7 +157,7 @@ def apply_darko_rating(ratings: pd.DataFrame, history: pd.DataFrame) -> pd.DataF
     # Offense/defense components ride the SAME asof row as the total, so an
     # O/D blend prices exactly the members the total blend prices. Attached
     # raw (no gating): consumers decide the fallback, mirroring rapm_shrunk.
-    for _col in ("o_dpm", "d_dpm", "x_pace", "x_pts_100"):
+    for _col in ("o_dpm", "d_dpm", "x_pace", "x_pts_100", "x_fg_pct"):
         if _col in merged.columns:
             _vals = pd.Series(np.nan, index=out.index)
             _vals.iloc[merged["_pos"].to_numpy()] = pd.to_numeric(

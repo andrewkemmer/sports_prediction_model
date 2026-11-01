@@ -69,7 +69,7 @@ AGG_COLUMNS = ["gameday", "team", "pool_size", "healthy_size",
                # Team-level expected-points blends (ADOPTED 2026-11-01, O-PTS
                # arm): the additive points aggregate plus the star-out
                # points aggregate. Served through attach_o_pts_features.
-               "team_o_pts", "star_out_pts"] + [
+               "team_o_pts", "star_out_pts", "team_fg_pct"] + [
     f"pl_dpm_{p.lower()}" for p in config.PLAYER_EPM_POSITIONS] + [
     f"pl_srapm_{stem}_{p.lower()}"
     for stem in ("net", "off", "def")
@@ -164,6 +164,13 @@ CROSSMATCH_FEATURES = list(config.CROSSMATCH_FEATURE_COLS)
 #: (THE production path) through :func:`attach_o_pts_features`.
 O_PTS_SOURCES = ["team_o_pts", "star_out_pts"]
 O_PTS_FEATURES = list(config.O_PTS_FEATURE_COLS)
+
+#: Expected-FG% team features (TRIAL 2026-11-01, FG arm). Per-team source
+#: is the team_fg_pct aggregate above; the published three are sides plus
+#: diff. Trial-only: the harness calls :func:`attach_fg_pct_features` -
+#: the production path never attaches them.
+FG_PCT_SOURCES = ["team_fg_pct"]
+FG_PCT_FEATURES = list(config.FG_PCT_FEATURE_COLS)
 
 #: Stint-RAPM sources per team-game: net/offense/defense segment blends.
 #: Published as net sides + diff (nine, mirroring the game-level family)
@@ -905,6 +912,32 @@ def _team_o_pts(healthy: pd.DataFrame, ppm: pd.Series | None) -> float:
     return float((w.to_numpy() * r.fillna(0.0).to_numpy()).sum())
 
 
+def _team_fg_pct(healthy: pd.DataFrame, fg: pd.Series | None) -> float:
+    """Minutes-weighted mean expected FG% over priced members (TRIAL FG arm).
+
+    ``healthy`` carries the FINAL opportunity weights (``_w``, expected
+    minutes where DARKO projects them, trailing otherwise, plus
+    next-man-up absorption under waterfall); ``fg`` is the per-player
+    expected FG% aligned to the pre-availability pool's index. The
+    denominator is priced-members-only weight: an unpriced member leaves
+    both numerator and denominator (a 0% fill would punish thinly-projected
+    pools; league-average fill would invent information). NaN when no
+    healthy member carries a finite projection - the refusal semantics of
+    ``_team_o_pts``, as a mean instead of a sum.
+    """
+    if healthy is None or not len(healthy) or fg is None:
+        return np.nan
+    w = pd.to_numeric(healthy["_w"], errors="coerce").fillna(0.0)
+    r = pd.to_numeric(fg.reindex(healthy.index), errors="coerce")
+    priced = r.notna() & (w > 0)
+    if not bool(priced.any()):
+        return np.nan
+    den = float(w[priced].sum())
+    if not den:
+        return np.nan
+    return float((w[priced].to_numpy() * r[priced].to_numpy()).sum() / den)
+
+
 def _star_out_aggregates(latest: pd.DataFrame) -> tuple[float, float]:
     """Unavailable talent and unavailable role share among the top three.
 
@@ -1250,6 +1283,17 @@ def _project_team(work: pd.DataFrame, team: str, gameday, stints,
     # the healthy subset inherits by index. NaN when no healthy member
     # carries a finite rate (the refusal semantics of ``_tblend``).
     team_o_pts = _team_o_pts(healthy, _ppm_all)
+    # EXPECTED-FG% blend (TRIAL 2026-11-01, FG arm): a RATE, so the team
+    # aggregate is a minutes-weighted MEAN over priced members only - not
+    # the _tblend zero-fill (0% is not replacement level for shooting).
+    # Unpriced members leave both numerator and denominator (documented);
+    # NaN when no healthy member carries a finite projection. The raw
+    # x_fg_pct rides the ratings frame beside x_pts_100, so no per-minute
+    # conversion: the pace term O-PTS needs does not exist for a rate.
+    _fg_all = (pd.to_numeric(latest["x_fg_pct"], errors="coerce")
+               if "x_fg_pct" in latest.columns
+               else pd.Series(np.nan, index=latest.index))
+    team_fg_pct = _team_fg_pct(healthy, _fg_all)
     projected = healthy.head(top_k)
     w_sum = float(projected["_w"].sum())
 
@@ -1368,6 +1412,7 @@ def _project_team(work: pd.DataFrame, team: str, gameday, stints,
         "team_pace": team_pace,
         "team_o_pts": team_o_pts,
         "star_out_pts": star_out_pts,
+        "team_fg_pct": team_fg_pct,
         **segmented,
         **eligible,
     }
@@ -1685,6 +1730,38 @@ def attach_o_pts_features(slate: pd.DataFrame,
         out[f"{stem}_diff"] = out[home] - out[away]
     drop = [c for c in out.columns
             if c.startswith("_home_") or c.startswith("_away_")]
+    return out.drop(columns=drop)
+
+
+def attach_fg_pct_features(slate: pd.DataFrame,
+                           aggregates: pd.DataFrame) -> pd.DataFrame:
+    """Attach the three expected-FG% features (TRIAL FG arm only).
+
+    ``pl_fg_pct_{away,home,diff}`` (minutes-weighted mean expected FG%
+    over priced healthy members) resolved per side from the team_fg_pct
+    aggregate and differenced home-minus-away. Same join grain and
+    always-create rule as :func:`attach_o_pts_features`. Deliberately
+    NOT called by :func:`project_lineup_features`: the production path
+    serves the contract, and a trial family joins the contract only
+    through a walk-forward verdict, never through a shared code path.
+    """
+    out = slate.copy() if slate is not None else pd.DataFrame()
+    for column in FG_PCT_FEATURES:
+        out[column] = np.nan
+    if out.empty or aggregates is None or not len(aggregates):
+        return out
+    if "gameday" not in out.columns:
+        return out
+    out = _attach_sides(out, aggregates, FG_PCT_SOURCES)
+    away = "_away_team_fg_pct"
+    home = "_home_team_fg_pct"
+    drop = [c for c in out.columns
+            if c.startswith("_home_") or c.startswith("_away_")]
+    if away not in out.columns or home not in out.columns:
+        return out.drop(columns=drop)
+    out["pl_fg_pct_away"] = out[away]
+    out["pl_fg_pct_home"] = out[home]
+    out["pl_fg_pct_diff"] = out[home] - out[away]
     return out.drop(columns=drop)
 
 

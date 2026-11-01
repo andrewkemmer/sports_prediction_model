@@ -25,12 +25,12 @@ BASE = "https://www.darko.app"
 KEEP = ["nba_id", "date", "season", "seconds_played", "future_game",
         "team_name", "opp_id", "tm_id", "dpm", "o_dpm", "d_dpm", "box_dpm",
         "box_odpm", "box_ddpm", "on_off_dpm", "bayes_rapm_total", "x_minutes",
-        "x_pace", "x_pts_100", "x_ast_100"]
+        "x_pace", "x_pts_100", "x_ast_100", "x_fg_pct"]
 
 NUMERIC = ["nba_id", "season", "seconds_played", "future_game",
            "opp_id", "tm_id", "dpm", "o_dpm", "d_dpm", "box_dpm", "box_odpm",
            "box_ddpm", "on_off_dpm", "bayes_rapm_total", "x_minutes",
-           "x_pace", "x_pts_100", "x_ast_100"]
+           "x_pace", "x_pts_100", "x_ast_100", "x_fg_pct"]
 
 
 def _fetch_payload(url: str) -> dict:
