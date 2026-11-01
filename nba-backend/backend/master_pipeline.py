@@ -1120,7 +1120,7 @@ def _refresh_designation_archive(games: pd.DataFrame, cache_dir=None,
 def _build_position_rapm_features(facts, games: pd.DataFrame,
                                  cache_dir: Path | None = None
                                  ) -> tuple[pd.DataFrame | None, pd.DataFrame | None]:
-    """The eleven crossmatch and six ``star_out_*`` features over the WHOLE
+    """The eleven crossmatch, six ``star_out_*`` and six O-PTS features over the WHOLE
     decided frame, plus slate.
 
     This is MLB's ``lineup_agg`` construction, translated: ratings are built
@@ -1255,7 +1255,8 @@ def _build_position_rapm_features(facts, games: pd.DataFrame,
     # the harnesses), so they are not applied here first: the assignment is
     # idempotent, but it is a per-row Python loop over the whole rating frame
     # and paying for it twice to no effect is how a 52-minute phase becomes
-    # 55. The nine and the six are attached to the WHOLE frame in one place,
+    # 55. The nine, the star-out six and the O-PTS six are attached to the
+    # WHOLE frame in one place,
     # then split, so the decided rows and the slate rows cannot be built by
     # two slightly different sequences.
     attached, aggregates = proj_mod.project_lineup_features(
@@ -1859,8 +1860,9 @@ def run(run_date: str | None = None, out_dir: str | Path | None = None,
     logger.info("game feature build: %.0fs (%d decided game(s), %d column(s))",
                 time.perf_counter() - _features_started, len(settled),
                 len(game_df.columns))
-    # The nine position-segmented lineup features and the six star-out
-    # availability features, built across the WHOLE decided frame the way MLB's
+    # The nine position-segmented lineup features, the six star-out
+    # availability features and the six O-PTS expected-points features, built
+    # across the WHOLE decided frame the way MLB's
     # lineup_agg is, and attached to the slate for scoring. Before the
     # walk-forward: the features are part of the contract
     # now, so the OOF metrics the run publishes are the metrics OF the
@@ -1870,12 +1872,13 @@ def run(run_date: str | None = None, out_dir: str | Path | None = None,
     # artifact, not a broken one.
     _pl_started = time.perf_counter()
     _projected_cols = [*config.PLAYER_RAPM_POSITION_FEATURE_COLS,
-                       *config.STAR_OUT_FEATURE_COLS]
+                       *config.STAR_OUT_FEATURE_COLS,
+                       *config.O_PTS_FEATURE_COLS]
     try:
         _pl_frame, _pl_slate = _build_position_rapm_features(facts, games)
     except Exception as exc:  # noqa: BLE001
         logger.warning("projected-lineup feature build failed after %.0fs "
-                       "(%s); the fifteen columns will be NaN on this run",
+                       "(%s); the twenty-one columns will be NaN on this run",
                        time.perf_counter() - _pl_started, exc)
         _pl_frame = _pl_slate = None
     else:
@@ -1885,7 +1888,7 @@ def run(run_date: str | None = None, out_dir: str | Path | None = None,
                     len(_pl_frame) if _pl_frame is not None else 0,
                     len(_projected_cols))
     if _pl_frame is not None and len(_pl_frame):
-        # ``build_game_features`` pre-creates the fifteen projected-lineup
+        # ``build_game_features`` pre-creates the twenty-one projected-lineup
         # columns (all-NaN, the always-create rule in _attach_contract). Drop
         # them first: merged on top of them the bare names would keep the NaN
         # versions and the real values would land in suffixed copies nobody
@@ -1918,6 +1921,10 @@ def run(run_date: str | None = None, out_dir: str | Path | None = None,
             game_df[config.STAR_OUT_FEATURE_COLS[0]].notna().sum())
         logger.info("star-out features attached: %d/%d decided rows carry "
                     "them", _star_attached, len(game_df))
+        _opts_attached = int(
+            game_df[config.O_PTS_FEATURE_COLS[0]].notna().sum())
+        logger.info("o-pts features attached: %d/%d decided rows carry "
+                    "them", _opts_attached, len(game_df))
         if _pl_attached < len(game_df):
             # An unattached row is NaN on all nine position columns, and
             # a bare fraction does not say WHY. The pool gates

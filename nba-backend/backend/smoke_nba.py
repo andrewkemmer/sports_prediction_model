@@ -195,6 +195,20 @@ FEATURE_UPSTREAM.update({
     for side in ("home", "away", "diff")
 })
 
+# The six O-PTS expected-points columns (adopted 2026-11-01): the same
+# ratings and designation archive, but DARKO x_pts_100 x pace priced by
+# expected minutes and summed, plus the unavailable-top-three points leg.
+_O_PTS_UPSTREAM = (
+    f"{UPSTREAM_SEASON_LOG} player lines -> DARKO expected points summed "
+    f"over the projected lineup ({UPSTREAM_INJURY_REPORT})"
+)
+FEATURE_UPSTREAM.update({
+    f"{stem}_{side}": (_O_PTS_UPSTREAM if side == "diff"
+                       else f"{_O_PTS_UPSTREAM} ({side} side)")
+    for stem in ("pl_o_pts", "star_out_pts")
+    for side in ("home", "away", "diff")
+})
+
 
 def declared_features() -> list[str]:
     """Every feature the model contract declares, plus the RFE pool."""
@@ -242,11 +256,13 @@ def run(min_coverage: float, pbp_games: int, out_dir: str | None) -> int:
     built = features.build_game_features(settled, facts.team_stats,
                                          facts.team_events)
     # Exercise the production projected-lineup build as well, not all-NaN
-    # placeholders. The six star-out columns are served by the same build.
+    # placeholders. The six star-out and six O-PTS columns are served by
+    # the same build.
     import master_pipeline
     rapm, _ = master_pipeline._build_position_rapm_features(facts, games)
     projected = [*config.PLAYER_RAPM_POSITION_FEATURE_COLS,
-                 *config.STAR_OUT_FEATURE_COLS]
+                 *config.STAR_OUT_FEATURE_COLS,
+                 *config.O_PTS_FEATURE_COLS]
     if rapm is not None and len(rapm):
         built = built.drop(columns=projected, errors="ignore").merge(
             rapm[["game_id", *projected]],

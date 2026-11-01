@@ -3,6 +3,10 @@
 Standalone NBA moneyline and totals/spread backend structurally mirroring the
 MLB/NFL/NHL production contracts.
 
+## O-PTS expected-points promotion — 2026-11-01
+
+Current representation: **nba-prod-v3.5-opts**. The moneyline contract now serves **85 columns**: the previous 79 plus the six pl_o_pts_* / star_out_pts_* expected-points features from the B arm (additive team expected points from DARKO x_pts_100 x pace blended by expected minutes, plus the star-out points leg). Walk-forward verdict: B full-window paired t -2.04, edge-vs-close (>3%) slice t -2.40 — both under the 2.5 adopt bar, so this ships as an owner-directive override with the re-test standing, not a gate pass. C significantly worsened the baseline and stays out. Rebuild features, OOF and refits together; the served bundle must be refit on the widened contract before these columns move a prediction.
+
 ## Star-out availability promotion — 2026-10-26
 
 Current representation: **`nba-prod-v3.2-star-out`**. The moneyline contract

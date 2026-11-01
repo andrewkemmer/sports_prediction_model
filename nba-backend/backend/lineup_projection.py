@@ -65,7 +65,11 @@ AGG_COLUMNS = ["gameday", "team", "pool_size", "healthy_size",
                # filter, so an out star stays in the denominator.
                "star_out_impact", "star_out_weight_share",
                # Team-level OFF/DEF/PACE blends (ADOPTED 2026-10-31, D arm).
-               "team_off", "team_def", "team_pace"] + [
+               "team_off", "team_def", "team_pace",
+               # Team-level expected-points blends (ADOPTED 2026-11-01, O-PTS
+               # arm): the additive points aggregate plus the star-out
+               # points aggregate. Served through attach_o_pts_features.
+               "team_o_pts", "star_out_pts"] + [
     f"pl_dpm_{p.lower()}" for p in config.PLAYER_EPM_POSITIONS] + [
     f"pl_srapm_{stem}_{p.lower()}"
     for stem in ("net", "off", "def")
@@ -153,6 +157,13 @@ POSITION_RAPM_FEATURES = [
 #: trailing 30-day mean of team_pace, exactly as the arm built it.
 CROSSMATCH_SOURCES = ["team_off", "team_def", "team_pace"]
 CROSSMATCH_FEATURES = list(config.CROSSMATCH_FEATURE_COLS)
+
+#: Expected-points team features (ADOPTED 2026-11-01, O-PTS arm). Per-team
+#: sources are the team_o_pts/star_out_pts aggregates above; the published
+#: six are sides plus diff per family. Served by ``project_lineup_features``
+#: (THE production path) through :func:`attach_o_pts_features`.
+O_PTS_SOURCES = ["team_o_pts", "star_out_pts"]
+O_PTS_FEATURES = list(config.O_PTS_FEATURE_COLS)
 
 #: Stint-RAPM sources per team-game: net/offense/defense segment blends.
 #: Published as net sides + diff (nine, mirroring the game-level family)
@@ -754,33 +765,56 @@ def _next_man_up_absorption(healthy: pd.DataFrame,
     return absorbed, stats
 
 
-def _star_out_aggregates(latest: pd.DataFrame) -> tuple[float, float]:
-    """Unavailable talent and unavailable role share among the top three.
+def _pts_per_minute(frame: pd.DataFrame) -> pd.Series:
+    """Per-player expected scoring rate (points per minute) for the O-PTS arm.
 
-    The reference set is built from ``latest`` - the ELIGIBLE pool BEFORE
-    availability is applied - so an out star remains in the denominator and
-    the next healthy man does NOT replace him. That distinction is the whole
-    feature: a top-three built from the healthy pool would read near zero
-    exactly when a star is missing.
-
-    Membership is the rating pool's, not the 18-man roster's: the same
-    prior-minutes floor and recency gate that decide who can be priced decide
-    who can be a "star" here. ``prior_minutes_per_game`` is the weight, in
-    keeping with every other lineup aggregate. When the top three carry no
-    measurable per-game weight (the opening-week case), equal weights are the
-    honest fallback, mirroring ``_blend``. A rating-less member contributes no
-    rating but still contributes role weight, so ``star_out_weight_share``
-    survives even when ``star_out_impact`` is undefined.
-
-    Returns ``(impact, share)``; both are NaN only when there is no eligible
-    player at all.
+    ``x_pts_100`` (DARKO expected points per 100 possessions, attached by
+    ``apply_darko_rating`` via the strictly-prior asof join) times the
+    player's expected possessions per minute: ``x_pace`` (same DARKO row)
+    possessions per 48 minutes, over 48. The pace fallback chain is the
+    frame's own finite mean, then 100.0 (league-average pace) - never a
+    teammate's rate, never the game being priced. A player with no finite
+    ``x_pts_100`` carries NaN: unpriced in points terms, contributing
+    nothing to the sums (documented, not zero-filled into meaning).
     """
-    if latest is None or not len(latest):
-        return np.nan, np.nan
-    ref = latest.copy()
-    # Role weight is expected minutes where known (pre-game projection for
-    # THIS game), trailing per-game minutes otherwise - never gated on the
-    # rating, so a rating-less member still counts toward weight share.
+    idx = frame.index if frame is not None else pd.Index([])
+    nan = pd.Series(np.nan, index=idx, dtype=float)
+    if frame is None or not len(frame):
+        return nan
+    if "x_pts_100" in frame.columns:
+        rate = pd.to_numeric(frame["x_pts_100"], errors="coerce") / 100.0
+    else:
+        rate = nan
+    if "x_pace" in frame.columns:
+        pace = pd.to_numeric(frame["x_pace"], errors="coerce")
+    else:
+        pace = nan
+    if bool(pace.notna().any()):
+        pace_fill = float(pace.mean())
+    else:
+        pace_fill = 100.0
+    pace = pace.fillna(pace_fill)
+    ppm = pd.to_numeric(rate, errors="coerce") * pd.to_numeric(
+        pace, errors="coerce") / 48.0
+    return pd.to_numeric(ppm, errors="coerce")
+
+
+def _top_three_reference(ref: pd.DataFrame):
+    """The PIT star-availability reference set, shared by both aggregates.
+
+    The top three of the ELIGIBLE pool BEFORE the availability filter, by
+    expected-minutes weight (pre-game projection for THIS game, trailing
+    otherwise), then trailing minutes, rating, player_id - the exact order
+    ``_star_out_aggregates`` has always used. Factored out so the points
+    leg (``_star_out_pts``) prices precisely the members the DPM leg
+    prices: one definition of "the top three", two currencies.
+    Returns ``(top, w, total)`` - the top-three frame, its weight vector
+    and the weight total (equal-weight fallback when the pool carries no
+    measurable per-game weight, mirroring the opening-week case).
+    """
+    empty = (pd.DataFrame(), np.zeros(0), 0.0)
+    if ref is None or not len(ref):
+        return empty
     weights = pd.to_numeric(ref.get("prior_minutes_per_game"),
                             errors="coerce")
     if weights is None:
@@ -812,12 +846,97 @@ def _star_out_aggregates(latest: pd.DataFrame) -> tuple[float, float]:
     top = order.sort_values(["_w", "_minutes", "_rating", "_pid"],
                             ascending=[False, False, False, True]).head(3)
     if top.empty:
-        return np.nan, np.nan
+        return empty
     w = top["_w"].to_numpy(dtype=float)
     total = float(w.sum())
     if total <= 0:
         w = np.ones(len(top), dtype=float)
         total = float(len(top))
+    return top, w, total
+
+
+def _star_out_pts(latest: pd.DataFrame, ppm: pd.Series | None) -> float:
+    """Expected points of the unavailable top-three members (O-PTS arm).
+
+    The same reference set ``_star_out_aggregates`` reads (pre-availability
+    top three, so an out star stays in the denominator), priced in the
+    points currency: each OUT member's reference weight times his expected
+    scoring rate. 0.0 when nobody is out (the reference set exists, so - as
+    with impact - this is informative, not missing); NaN only when there
+    is no eligible player at all. An out member with no finite rate
+    contributes no points - the same honest gap the impact leg has for an
+    unrated out star, covered there by the weight-share leg and here logged
+    as priced-share coverage by the harness.
+    """
+    if latest is None or not len(latest):
+        return np.nan
+    top, w, total = _top_three_reference(latest)
+    if not len(top):
+        return np.nan
+    available = (top["is_available"].astype(bool).to_numpy()
+                 if "is_available" in top.columns
+                 else np.ones(len(top), dtype=bool))
+    out = ~available
+    if not out.any():
+        return 0.0
+    if ppm is None:
+        return 0.0
+    r = pd.to_numeric(ppm.reindex(top.index), errors="coerce"
+                      ).to_numpy(dtype=float)
+    return float((w * np.where(np.isfinite(r), r, 0.0) * out).sum())
+
+
+def _team_o_pts(healthy: pd.DataFrame, ppm: pd.Series | None) -> float:
+    """Additive team expected points (TRIAL O-PTS arm).
+
+    ``healthy`` carries the FINAL opportunity weights (``_w``, expected
+    minutes where DARKO projects them, trailing otherwise, plus
+    next-man-up absorption under waterfall); ``ppm`` is the per-player
+    expected scoring rate aligned to the pre-availability pool's index.
+    NaN when no healthy member carries a finite rate - the refusal
+    semantics of the rate blends, not a zero.
+    """
+    if healthy is None or not len(healthy) or ppm is None:
+        return np.nan
+    w = pd.to_numeric(healthy["_w"], errors="coerce").fillna(0.0)
+    r = pd.to_numeric(ppm.reindex(healthy.index), errors="coerce")
+    if not bool(r.notna().any()):
+        return np.nan
+    return float((w.to_numpy() * r.fillna(0.0).to_numpy()).sum())
+
+
+def _star_out_aggregates(latest: pd.DataFrame) -> tuple[float, float]:
+    """Unavailable talent and unavailable role share among the top three.
+
+    The reference set is built from ``latest`` - the ELIGIBLE pool BEFORE
+    availability is applied - so an out star remains in the denominator and
+    the next healthy man does NOT replace him. That distinction is the whole
+    feature: a top-three built from the healthy pool would read near zero
+    exactly when a star is missing.
+
+    Membership is the rating pool's, not the 18-man roster's: the same
+    prior-minutes floor and recency gate that decide who can be priced decide
+    who can be a "star" here. ``prior_minutes_per_game`` is the weight, in
+    keeping with every other lineup aggregate. When the top three carry no
+    measurable per-game weight (the opening-week case), equal weights are the
+    honest fallback, mirroring ``_blend``. A rating-less member contributes no
+    rating but still contributes role weight, so ``star_out_weight_share``
+    survives even when ``star_out_impact`` is undefined.
+
+    Returns ``(impact, share)``; both are NaN only when there is no eligible
+    player at all.
+    """
+    # Role weight is expected minutes where known (pre-game projection for
+    # THIS game), trailing per-game minutes otherwise - never gated on the
+    # rating, so a rating-less member still counts toward weight share.
+    # The reference-set construction lives in ``_top_three_reference`` so
+    # the points leg prices exactly these members; the arithmetic below is
+    # unchanged.
+    if latest is None or not len(latest):
+        return np.nan, np.nan
+    top, w, total = _top_three_reference(latest.copy())
+    if not len(top):
+        return np.nan, np.nan
     available = (top["is_available"].astype(bool).to_numpy()
                  if "is_available" in top.columns
                  else np.ones(len(top), dtype=bool))
@@ -1008,6 +1127,12 @@ def _project_team(work: pd.DataFrame, team: str, gameday, stints,
     # honestly: with no reference set there is no top three to report on, and
     # that row is the season opener's structural hole, not a filing.
     star_out_impact, star_out_weight_share = _star_out_aggregates(latest)
+    # Points leg of the same reference set (TRIAL O-PTS arm): priced here -
+    # beside impact/share - because the healthy-empty refusal below returns
+    # before the team blends are computed, and a fully-depleted pool is
+    # the MOST informative reading of this column (never NaN'd away).
+    _ppm_all = _pts_per_minute(latest)
+    star_out_pts = _star_out_pts(latest, _ppm_all)
 
     healthy = latest[latest.is_available.astype(bool)]
     healthy_size = len(healthy)
@@ -1026,6 +1151,7 @@ def _project_team(work: pd.DataFrame, team: str, gameday, stints,
                 "lineup_rapm_std": np.nan, "lineup_rapm_rest_count": np.nan,
                 "star_out_impact": star_out_impact,
                 "star_out_weight_share": star_out_weight_share,
+                "star_out_pts": star_out_pts,
                 **{f"pl_dpm_{p.lower()}_eligible": 0.0
                    for p in config.PLAYER_EPM_POSITIONS}}
 
@@ -1112,6 +1238,18 @@ def _project_team(work: pd.DataFrame, team: str, gameday, stints,
         return float((_wts.to_numpy() * v.fillna(0.0).to_numpy()).sum() / _den)
     team_off, team_def, team_pace = (_tblend("o_dpm"), _tblend("d_dpm"),
                                      _tblend("x_pace"))
+    # EXPECTED-POINTS blends (TRIAL 2026-11-01, O-PTS arm): points are
+    # ADDITIVE, so the team aggregate is a SUM, not a minutes-weighted
+    # mean. Each healthy member's FINAL opportunity weight (expected
+    # minutes where DARKO projects them, trailing otherwise, plus
+    # next-man-up absorption under waterfall) times his own expected
+    # scoring rate prices the minutes he is actually expected to play:
+    # an absorbed out star's minutes are repriced at his survivor's
+    # (lower) rate, which is what next-man-up means in points. Computed
+    # on the same ``latest`` rates the star-out leg already priced above;
+    # the healthy subset inherits by index. NaN when no healthy member
+    # carries a finite rate (the refusal semantics of ``_tblend``).
+    team_o_pts = _team_o_pts(healthy, _ppm_all)
     projected = healthy.head(top_k)
     w_sum = float(projected["_w"].sum())
 
@@ -1228,6 +1366,8 @@ def _project_team(work: pd.DataFrame, team: str, gameday, stints,
         "team_off": team_off,
         "team_def": team_def,
         "team_pace": team_pace,
+        "team_o_pts": team_o_pts,
+        "star_out_pts": star_out_pts,
         **segmented,
         **eligible,
     }
@@ -1321,7 +1461,7 @@ def project_lineup_features(ratings: pd.DataFrame,
                             reweight: str = "waterfall",
                             diagnostics: dict | None = None,
                             ) -> tuple[pd.DataFrame, pd.DataFrame]:
-    """Designations -> projection -> the eleven + six: THE production path.
+    """Designations -> projection -> the eleven + six + six: THE production path.
 
     One function, so the training build, the slate build and every A/B harness
     resolve a team's lineup number in exactly one place. They did not, and the
@@ -1334,8 +1474,8 @@ def project_lineup_features(ratings: pd.DataFrame,
     the shipping behaviour, and an experimental override has to say so.
 
     Returns ``(frame, aggregates)`` - the input frame with the eleven
-    crossmatch plus six star-out columns attached (legacy nine still
-    attached beside them), and the per-(game, team) projection.
+    crossmatch, six star-out and six O-PTS columns attached (legacy nine
+    still attached beside them), and the per-(game, team) projection.
     Nothing is dropped and no row is filtered: the caller keeps its own
     game split, because slicing here would hide which rows failed the join.
     """
@@ -1351,6 +1491,7 @@ def project_lineup_features(ratings: pd.DataFrame,
                                   diagnostics=diagnostics)
     frame = attach_position_rapm(games, aggregates)
     frame = attach_crossmatch_features(frame, aggregates)
+    frame = attach_o_pts_features(frame, aggregates)
     return attach_star_out_features(frame, aggregates), aggregates
 
 
@@ -1509,6 +1650,42 @@ def attach_crossmatch_features(slate: pd.DataFrame,
     out["pl_o_dpm_diff"] = out["pl_o_dpm_home"] - out["pl_o_dpm_away"]
     out["pl_d_dpm_diff"] = out["pl_d_dpm_home"] - out["pl_d_dpm_away"]
     return out
+
+
+def attach_o_pts_features(slate: pd.DataFrame,
+                          aggregates: pd.DataFrame) -> pd.DataFrame:
+    """Attach the six expected-points features (ADOPTED O-PTS arm).
+
+    ``pl_o_pts_{away,home,diff}`` (additive team expected points) and
+    ``star_out_pts_{away,home,diff}`` (expected points of the unavailable
+    top-three members), resolved per side from the team_o_pts/star_out_pts
+    aggregates and differenced home-minus-away. Same join grain and
+    always-create rule as :func:`attach_star_out_features`. Called by
+    :func:`project_lineup_features`: adopted 2026-11-01 by owner directive
+    (paired t -2.04 full-window / -2.40 on the edge-vs-close slice, under
+    the 2.5 bar - a directive override, not a gate pass).
+    """
+    out = slate.copy() if slate is not None else pd.DataFrame()
+    for column in O_PTS_FEATURES:
+        out[column] = np.nan
+    if out.empty or aggregates is None or not len(aggregates):
+        return out
+    if "gameday" not in out.columns:
+        return out
+    out = _attach_sides(out, aggregates, O_PTS_SOURCES)
+    _names = {"team_o_pts": "pl_o_pts", "star_out_pts": "star_out_pts"}
+    for source in O_PTS_SOURCES:
+        away = f"_away_{source}"
+        home = f"_home_{source}"
+        if away not in out.columns or home not in out.columns:
+            continue
+        stem = _names[source]
+        out[f"{stem}_away"] = out[away]
+        out[f"{stem}_home"] = out[home]
+        out[f"{stem}_diff"] = out[home] - out[away]
+    drop = [c for c in out.columns
+            if c.startswith("_home_") or c.startswith("_away_")]
+    return out.drop(columns=drop)
 
 
 def attach_stint_rapm(slate: pd.DataFrame,

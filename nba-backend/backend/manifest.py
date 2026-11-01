@@ -586,6 +586,35 @@ _FAMILY: dict[str, dict] = {
         "direction_level": ("higher = larger share of that side's top-three "
                             "minutes unavailable"),
     },
+    "pl_o_pts": {
+        "summary": "Home−away team expected points (ADOPTED B arm 2026-11-01)",
+        "summary_level": "Team expected points",
+        "definition": (
+            "Additive team expected points: DARKO x_pts_100 scaled by pace "
+            "to a per-minute rate, summed over the healthy eligible roster "
+            "at final opportunity (expected-minutes) weights. Absorbed "
+            "out-star minutes reprice at the survivor's rate by construction."),
+        "formula": "pl_o_pts_home − pl_o_pts_away",
+        "source": "DARKO x_pts_100 + expected minutes + expected pace (same-day), strictly-prior designations",
+        "window": "DARKO as of prior day; last pre-tipoff report",
+        "units": "points/game",
+        "direction": "higher = home advantage",
+        "direction_level": "higher = stronger home expected scoring",
+    },
+    "star_out_pts": {
+        "summary": "Home−away unavailable top-three expected points (ADOPTED B arm 2026-11-01)",
+        "summary_level": "Unavailable top-three expected points",
+        "definition": (
+            "Expected points of the OUT top-three reference members (the "
+            "same pre-availability top-three the star_out_* legs read); "
+            "0.0 when nobody is out."),
+        "formula": "star_out_pts_home − star_out_pts_away",
+        "source": "same as pl_o_pts, unavailable top-three leg",
+        "window": "same as pl_o_pts",
+        "units": "points/game",
+        "direction": "higher = home has more expected scoring unavailable (worse for home)",
+        "direction_level": "higher = more expected scoring unavailable for that side",
+    },
 }
 
 _STANDALONE = {

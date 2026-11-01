@@ -134,7 +134,14 @@ RFE_MAX_STEPS = 120
 # v3.4 adopts the crossmatch D arm (2026-10-31): the eleven team-level
 # OFF/DEF/pace features with expected-minutes weights replace the nine
 # position-segmented pl_dpm_*. Rebuild features, OOF and refits together.
-FEATURE_SET_VERSION = "nba-prod-v3.4-xmatch"
+# v3.5 adopts the six O-PTS expected-points features (the B arm, 2026-11-01,
+# by owner directive): additive team expected points (DARKO x_pts_100 x pace
+# blended by expected minutes) plus the star-out points leg, sides + diff.
+# Paired walk-forward: full-window t -2.04, edge-vs-close (>3%) slice t -2.40
+# - both under the 2.5 adopt bar, so this is a directive override, not a
+# gate pass; C significantly worsened and stays out. Rebuild features, OOF
+# and refits together - this widens the binary contract to 85.
+FEATURE_SET_VERSION = "nba-prod-v3.5-opts"
 
 #: The raw per-side metrics behind the diff contract. Every ``*_diff`` in the
 #: list below is a home-minus-away comparison of a ladder statistic; the
@@ -204,6 +211,22 @@ STAR_OUT_FEATURE_COLS: list[str] = (
     + [f"star_out_weight_share_{side}"
        for side in ("away", "home", "diff")])
 
+#: Expected-points features (ADOPTED 2026-11-01, B arm, by owner directive -
+#: full-window paired t -2.04 and edge-slice t -2.40, both under the 2.5 bar,
+#: so this ships as a directive override with the re-test standing). Additive
+#: team expected points from DARKO x_pts_100 x pace blended by expected
+#: minutes, plus the star-out points leg:
+#:   pl_o_pts_{away,home,diff}     : team expected points (SUM over healthy
+#:                                   eligible, final opportunity weights x
+#:                                   per-minute scoring rate)
+#:   star_out_pts_{away,home,diff} : expected points of the OUT top-three
+#:                                   reference members (0.0 when nobody out)
+#: Arm B adds these six to the contract; the rejected C arm would have
+#: replaced the eleven (pl_o_dpm/pl_d_dpm/star_out_impact/pl_net_o).
+O_PTS_FEATURE_COLS: list[str] = (
+    [f"pl_o_pts_{side}" for side in ("away", "home", "diff")]
+    + [f"star_out_pts_{side}" for side in ("away", "home", "diff")])
+
 # One authoritative moneyline feature contract.  Every model, monitor,
 # manifest, and run-line regressor projects this list.
 #
@@ -252,6 +275,10 @@ MONEYLINE_FEATURE_COLS = [
     # Star-out availability: the B arm adopted 2026-10-26. The diffs serve the
     # linear member; the raw sides are tree-only (RAW_PER_SIDE_COLS).
     *STAR_OUT_FEATURE_COLS,
+    # Expected points: the B arm adopted 2026-11-01 by owner directive
+    # (paired t -2.04 full / -2.40 edge slice, under the 2.5 bar). The diffs
+    # serve the linear member; the raw sides are tree-only (RAW_PER_SIDE_COLS).
+    *O_PTS_FEATURE_COLS,
 ]
 
 #: The trailing statistics the play-by-play rollup contributes, and the window
@@ -360,6 +387,11 @@ RAW_PER_SIDE_COLS = frozenset({
   # side-specific thresholds.
   | {f"star_out_impact_{s}" for s in ("away", "home")}
   | {f"star_out_weight_share_{s}" for s in ("away", "home")}
+  # The O-PTS family (adopted 2026-11-01) publishes both sides plus a diff. The diffs
+  # serve every family; the raw sides are tree-only, matching every other
+  # paired level in this contract.
+  | {f"pl_o_pts_{s}" for s in ("away", "home")}
+  | {f"star_out_pts_{s}" for s in ("away", "home")}
   | {f"pl_o_dpm_{s}" for s in ("away", "home")}
   | {f"pl_d_dpm_{s}" for s in ("away", "home")}
   | {"projected_game_pace_home", "projected_game_pace_away",
@@ -663,6 +695,27 @@ XGBOOST_EARLY_STOP_MIN_ROWS = 30
 # and both other finalists lost tune on a majority of seeds (up to +34.3
 # bps, t +2.88) - the screen edge reversed under pairing, the 09-29/10-03
 # pattern. Both members' params stand.
+#
+# FULL FROM-SCRATCH RETUNE 2026-10-31 (owner directive: every hyperparameter
+# free for xgboost and lightgbm, machine-stable n_jobs=1/num_threads=1 on
+# every fit). Harness nba_full_retune_oct31.py + nba_retune_run_oct31.py
+# (untracked scratch, verdict in nba_retune_oct31/verdict.json): frame
+# rebuilt offline from the warm cache, positions cache-only (3947 settled
+# rows, 86 folds, 79 features - the 10-21 tune frame's twin; the ~75-game
+# gap to shipped is the 10-21..30 window absent from this machine's cache).
+# Noise floor first (xgb 15.2 bps tune / 275 sealed, lgb 19.7 / 234.4,
+# seeds 42-46; sealed = last-4-fold all-provisional-postseason rows,
+# unmasked per the 10-04 precedent). 30-trial TPE screens on folds[:-4]
+# seed 42 over the full spaces (xgb: depth/leaves/grow_policy/colsample_
+# bylevel/max_bin free; lgb: +feature_fraction_bynode/max_bin/extra_trees);
+# top-3 verified paired vs the incumbent re-run at the same seed, seeds
+# 42/43/44, tune + sealed. XGBoost REJECTED: best trial26 (lossguide d4,
+# lr 0.0228, max_leaves 56) tune +15.2/-4.6/+14.0 bps vs the 15.2 floor
+# with sealed negative on every seed; other finalists worse. LightGBM
+# REJECTED: screen-best wins tune on all 3 seeds (+4.6/+16.0/+14.2) but
+# loses sealed on 2/3 (-179/-261/+20); other finalists lose tune outright.
+# No served-gate run: no candidate cleared pairing (10-21 stop rule).
+# Both members' params stand.
 LIGHTGBM_PARAMS = {
     # 2026-10-04 from-scratch winner (scratch/nba_tune.py, stage "verify"):
     # supersedes the 2026-10-03 trial28, which beat 2026-10-01 the same way.
@@ -1228,6 +1281,9 @@ SPLIT_OD_RAPM_FEATURE_COLS = (
        for position in ("c", "f", "g")
        for side in ("away", "home", "diff")])
 
+# O_PTS_FEATURE_COLS lives with the contract above, next to
+# STAR_OUT_FEATURE_COLS (adopted 2026-11-01, v3.5).
+
 # Schedule-density family (TRIAL ONLY, 2026-10-18 density trial — NOT in
 # MONEYLINE_FEATURE_COLS, so production never serves it until a
 # walk-forward verdict clears the 2.5 gate). Column order: the 3-in-4 and
@@ -1243,6 +1299,7 @@ KNOWN_FEATURE_COLS = list(dict.fromkeys(
     + PLAYER_RAPM_POSITION_FEATURE_COLS + STINT_RAPM_FEATURE_COLS
     + SCHED_DENSITY_COLS + STAR_OUT_FEATURE_COLS
     + LINEUP_RAPM_IMPACT_FEATURE_COLS + SPLIT_OD_RAPM_FEATURE_COLS
+    + O_PTS_FEATURE_COLS
     + LEGACY_PL_DPM_FEATURE_COLS))
 #: How far the injury-stint table may trail the decided frame before the
 #: staleness tripwire fires, mirroring MLB's IL_STINT_MAX_LAG_DAYS. Offseason
