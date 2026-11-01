@@ -157,10 +157,13 @@ MIN_VAL_FOLD_GAMES = 15    # ordinary OOF validation minimum; final tail retaine
 # yards legs join them; the 12 legacy EPA legs, 6 pace-projection/game
 # columns, 3 net columns and 6 unscaled yards legs retire to the
 # trial-candidate pool (still generated, still documented, still
-# pool-routed). The walk-forward verdict is a directive override: F vs the
-# A-subset dLL -0.001508, se 0.001112, z=-1.36, under the |1.5| adopt bar,
-# and never trialed against the 103-wide production universe it replaces,
-# so the re-test stands.
+# pool-routed). The walk-forward verdict favored F: F vs the A-subset
+# dLL -0.001508 (reduces logloss), se 0.001112, z=-1.36 - directionally
+# favorable but short of the -1.5 adopt gate, so adopted by owner directive.
+# F was never trialed against the 103-wide production universe it replaces,
+# so the re-test stands. (E arm, unscaled yards: dLL +0.000293, worse -
+# corroborates deleting the unscaled legs in v10.1. F also led all arms on
+# ECE at 3.31%.)
 # v10.1 drops the unscaled legs from the code (2026-11-01, owner-directed):
 # the 27 legacy structural legs are deleted outright - not served, not
 # trialed, not manifested. The served pace legs take the original clean
