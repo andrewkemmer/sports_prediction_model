@@ -1,6 +1,6 @@
 {
- "created_utc": "2026-11-01T07:14:32.917503+00:00",
- "feature_set_version": "nfl-prod-v10.0-f",
+ "created_utc": "2026-11-01T14:16:03.412289+00:00",
+ "feature_set_version": "nfl-prod-v10.1-clean",
  "manifest": {
   "elo_diff": {
    "description": "Home minus away pre-game Elo rating",
@@ -779,9 +779,9 @@
    ],
    "feature_version": 10
   },
-  "pl_epa_qb_scaled_home": {
+  "pl_epa_qb_home": {
    "description": "Home team's pace-scaled lineup quality",
-   "definition": "The home team's unscaled pl_epa_qb leg x s_game",
+   "definition": "The home team's pl_epa_qb leg x s_game",
    "source": "projected-lineup EPA legs x expected-game pace scaler",
    "lookback": "8 player-games; 21-calendar-day roster window",
    "aggregation": "pace-scaled EPA/game (one scaler both sides)",
@@ -793,9 +793,9 @@
    ],
    "feature_version": 1
   },
-  "pl_epa_qb_scaled_away": {
+  "pl_epa_qb_away": {
    "description": "Away team's pace-scaled lineup quality",
-   "definition": "The away team's unscaled pl_epa_qb leg x s_game",
+   "definition": "The away team's pl_epa_qb leg x s_game",
    "source": "projected-lineup EPA legs x expected-game pace scaler",
    "lookback": "8 player-games; 21-calendar-day roster window",
    "aggregation": "pace-scaled EPA/game (one scaler both sides)",
@@ -807,9 +807,9 @@
    ],
    "feature_version": 1
   },
-  "pl_epa_qb_scaled_diff": {
-   "description": "Home minus away pace-scaled pl_epa_qb quality",
-   "definition": "pl_epa_qb_scaled_home - pl_epa_qb_scaled_away",
+  "pl_epa_qb_diff": {
+   "description": "Home minus away pace pl_epa_qb quality",
+   "definition": "pl_epa_qb_home - pl_epa_qb_away",
    "source": "projected-lineup EPA legs x expected-game pace scaler",
    "lookback": "8 player-games; 21-calendar-day roster window",
    "aggregation": "pace-scaled EPA/game diff (one scaler both sides)",
@@ -823,9 +823,9 @@
    ],
    "feature_version": 1
   },
-  "pl_epa_wr_scaled_home": {
+  "pl_epa_wr_home": {
    "description": "Home team's pace-scaled lineup quality",
-   "definition": "The home team's unscaled pl_epa_wr leg x s_game",
+   "definition": "The home team's pl_epa_wr leg x s_game",
    "source": "projected-lineup EPA legs x expected-game pace scaler",
    "lookback": "8 player-games; 21-calendar-day roster window",
    "aggregation": "pace-scaled EPA/game (one scaler both sides)",
@@ -837,9 +837,9 @@
    ],
    "feature_version": 1
   },
-  "pl_epa_wr_scaled_away": {
+  "pl_epa_wr_away": {
    "description": "Away team's pace-scaled lineup quality",
-   "definition": "The away team's unscaled pl_epa_wr leg x s_game",
+   "definition": "The away team's pl_epa_wr leg x s_game",
    "source": "projected-lineup EPA legs x expected-game pace scaler",
    "lookback": "8 player-games; 21-calendar-day roster window",
    "aggregation": "pace-scaled EPA/game (one scaler both sides)",
@@ -851,9 +851,9 @@
    ],
    "feature_version": 1
   },
-  "pl_epa_wr_scaled_diff": {
-   "description": "Home minus away pace-scaled pl_epa_wr quality",
-   "definition": "pl_epa_wr_scaled_home - pl_epa_wr_scaled_away",
+  "pl_epa_wr_diff": {
+   "description": "Home minus away pace pl_epa_wr quality",
+   "definition": "pl_epa_wr_home - pl_epa_wr_away",
    "source": "projected-lineup EPA legs x expected-game pace scaler",
    "lookback": "8 player-games; 21-calendar-day roster window",
    "aggregation": "pace-scaled EPA/game diff (one scaler both sides)",
@@ -867,9 +867,9 @@
    ],
    "feature_version": 1
   },
-  "pl_epa_te_scaled_home": {
+  "pl_epa_te_home": {
    "description": "Home team's pace-scaled lineup quality",
-   "definition": "The home team's unscaled pl_epa_te leg x s_game",
+   "definition": "The home team's pl_epa_te leg x s_game",
    "source": "projected-lineup EPA legs x expected-game pace scaler",
    "lookback": "8 player-games; 21-calendar-day roster window",
    "aggregation": "pace-scaled EPA/game (one scaler both sides)",
@@ -881,9 +881,9 @@
    ],
    "feature_version": 1
   },
-  "pl_epa_te_scaled_away": {
+  "pl_epa_te_away": {
    "description": "Away team's pace-scaled lineup quality",
-   "definition": "The away team's unscaled pl_epa_te leg x s_game",
+   "definition": "The away team's pl_epa_te leg x s_game",
    "source": "projected-lineup EPA legs x expected-game pace scaler",
    "lookback": "8 player-games; 21-calendar-day roster window",
    "aggregation": "pace-scaled EPA/game (one scaler both sides)",
@@ -895,9 +895,9 @@
    ],
    "feature_version": 1
   },
-  "pl_epa_te_scaled_diff": {
-   "description": "Home minus away pace-scaled pl_epa_te quality",
-   "definition": "pl_epa_te_scaled_home - pl_epa_te_scaled_away",
+  "pl_epa_te_diff": {
+   "description": "Home minus away pace pl_epa_te quality",
+   "definition": "pl_epa_te_home - pl_epa_te_away",
    "source": "projected-lineup EPA legs x expected-game pace scaler",
    "lookback": "8 player-games; 21-calendar-day roster window",
    "aggregation": "pace-scaled EPA/game diff (one scaler both sides)",
@@ -911,9 +911,9 @@
    ],
    "feature_version": 1
   },
-  "pl_epa_rb_scaled_home": {
+  "pl_epa_rb_home": {
    "description": "Home team's pace-scaled lineup quality",
-   "definition": "The home team's unscaled pl_epa_rb leg x s_game",
+   "definition": "The home team's pl_epa_rb leg x s_game",
    "source": "projected-lineup EPA legs x expected-game pace scaler",
    "lookback": "8 player-games; 21-calendar-day roster window",
    "aggregation": "pace-scaled EPA/game (one scaler both sides)",
@@ -925,9 +925,9 @@
    ],
    "feature_version": 1
   },
-  "pl_epa_rb_scaled_away": {
+  "pl_epa_rb_away": {
    "description": "Away team's pace-scaled lineup quality",
-   "definition": "The away team's unscaled pl_epa_rb leg x s_game",
+   "definition": "The away team's pl_epa_rb leg x s_game",
    "source": "projected-lineup EPA legs x expected-game pace scaler",
    "lookback": "8 player-games; 21-calendar-day roster window",
    "aggregation": "pace-scaled EPA/game (one scaler both sides)",
@@ -939,9 +939,9 @@
    ],
    "feature_version": 1
   },
-  "pl_epa_rb_scaled_diff": {
-   "description": "Home minus away pace-scaled pl_epa_rb quality",
-   "definition": "pl_epa_rb_scaled_home - pl_epa_rb_scaled_away",
+  "pl_epa_rb_diff": {
+   "description": "Home minus away pace pl_epa_rb quality",
+   "definition": "pl_epa_rb_home - pl_epa_rb_away",
    "source": "projected-lineup EPA legs x expected-game pace scaler",
    "lookback": "8 player-games; 21-calendar-day roster window",
    "aggregation": "pace-scaled EPA/game diff (one scaler both sides)",
@@ -955,9 +955,9 @@
    ],
    "feature_version": 1
   },
-  "pl_exp_pass_yds_scaled_home": {
+  "pl_exp_pass_yds_home": {
    "description": "The home team's Pace-scaled projected-lineup gross passing yards",
-   "definition": "the unscaled pl_exp_pass_yds leg x s_game",
+   "definition": "the projected-lineup pl_exp_pass_yds leg x s_game",
    "source": "projected-lineup passing legs x expected-game pace scaler",
    "lookback": "8 player-games; 4 trailing games (sides); 30d (pace)",
    "aggregation": "pace-scaled yards/game (one scaler both sides)",
@@ -969,9 +969,9 @@
    ],
    "feature_version": 11
   },
-  "pl_exp_pass_yds_scaled_away": {
+  "pl_exp_pass_yds_away": {
    "description": "The away team's Pace-scaled projected-lineup gross passing yards",
-   "definition": "the unscaled pl_exp_pass_yds leg x s_game",
+   "definition": "the projected-lineup pl_exp_pass_yds leg x s_game",
    "source": "projected-lineup passing legs x expected-game pace scaler",
    "lookback": "8 player-games; 4 trailing games (sides); 30d (pace)",
    "aggregation": "pace-scaled yards/game (one scaler both sides)",
@@ -983,9 +983,9 @@
    ],
    "feature_version": 11
   },
-  "pl_exp_pass_yds_scaled_diff": {
+  "pl_exp_pass_yds_diff": {
    "description": "Home minus away Pace-scaled projected-lineup gross passing yards",
-   "definition": "pl_exp_pass_yds_scaled_home - pl_exp_pass_yds_scaled_away",
+   "definition": "pl_exp_pass_yds_home - pl_exp_pass_yds_away",
    "source": "projected-lineup passing legs x expected-game pace scaler",
    "lookback": "8 player-games; 4 trailing games (sides); 30d (pace)",
    "aggregation": "pace-scaled yards/game (one scaler both sides)",
@@ -999,9 +999,9 @@
    ],
    "feature_version": 11
   },
-  "pl_exp_rush_yds_scaled_home": {
+  "pl_exp_rush_yds_home": {
    "description": "The home team's Pace-scaled projected-lineup rushing yards",
-   "definition": "the unscaled pl_exp_rush_yds leg x s_game",
+   "definition": "the projected-lineup pl_exp_rush_yds leg x s_game",
    "source": "projected-lineup rushing legs x expected-game pace scaler",
    "lookback": "8 player-games; 4 trailing games (sides); 30d (pace)",
    "aggregation": "pace-scaled yards/game (one scaler both sides)",
@@ -1013,9 +1013,9 @@
    ],
    "feature_version": 11
   },
-  "pl_exp_rush_yds_scaled_away": {
+  "pl_exp_rush_yds_away": {
    "description": "The away team's Pace-scaled projected-lineup rushing yards",
-   "definition": "the unscaled pl_exp_rush_yds leg x s_game",
+   "definition": "the projected-lineup pl_exp_rush_yds leg x s_game",
    "source": "projected-lineup rushing legs x expected-game pace scaler",
    "lookback": "8 player-games; 4 trailing games (sides); 30d (pace)",
    "aggregation": "pace-scaled yards/game (one scaler both sides)",
@@ -1027,9 +1027,9 @@
    ],
    "feature_version": 11
   },
-  "pl_exp_rush_yds_scaled_diff": {
+  "pl_exp_rush_yds_diff": {
    "description": "Home minus away Pace-scaled projected-lineup rushing yards",
-   "definition": "pl_exp_rush_yds_scaled_home - pl_exp_rush_yds_scaled_away",
+   "definition": "pl_exp_rush_yds_home - pl_exp_rush_yds_away",
    "source": "projected-lineup rushing legs x expected-game pace scaler",
    "lookback": "8 player-games; 4 trailing games (sides); 30d (pace)",
    "aggregation": "pace-scaled yards/game (one scaler both sides)",
@@ -1178,24 +1178,24 @@
   "rest_days_away",
   "pace_plays_min_home",
   "pace_plays_min_away",
-  "pl_epa_qb_scaled_home",
-  "pl_epa_qb_scaled_away",
-  "pl_epa_qb_scaled_diff",
-  "pl_epa_wr_scaled_home",
-  "pl_epa_wr_scaled_away",
-  "pl_epa_wr_scaled_diff",
-  "pl_epa_te_scaled_home",
-  "pl_epa_te_scaled_away",
-  "pl_epa_te_scaled_diff",
-  "pl_epa_rb_scaled_home",
-  "pl_epa_rb_scaled_away",
-  "pl_epa_rb_scaled_diff",
-  "pl_exp_pass_yds_scaled_home",
-  "pl_exp_pass_yds_scaled_away",
-  "pl_exp_pass_yds_scaled_diff",
-  "pl_exp_rush_yds_scaled_home",
-  "pl_exp_rush_yds_scaled_away",
-  "pl_exp_rush_yds_scaled_diff",
+  "pl_epa_qb_home",
+  "pl_epa_qb_away",
+  "pl_epa_qb_diff",
+  "pl_epa_wr_home",
+  "pl_epa_wr_away",
+  "pl_epa_wr_diff",
+  "pl_epa_te_home",
+  "pl_epa_te_away",
+  "pl_epa_te_diff",
+  "pl_epa_rb_home",
+  "pl_epa_rb_away",
+  "pl_epa_rb_diff",
+  "pl_exp_pass_yds_home",
+  "pl_exp_pass_yds_away",
+  "pl_exp_pass_yds_diff",
+  "pl_exp_rush_yds_home",
+  "pl_exp_rush_yds_away",
+  "pl_exp_rush_yds_diff",
   "inj_ol_out_home",
   "inj_ol_out_away",
   "inj_ol_out_diff",
@@ -1491,126 +1491,126 @@
    "std": 0.08836978064089585
   },
   {
-   "feature": "pl_epa_qb_scaled_home",
+   "feature": "pl_epa_qb_home",
    "n_games": 2869,
    "coverage_pct": 97.94,
    "mean": 0.9766605956894056,
    "std": 4.473069342929984
   },
   {
-   "feature": "pl_epa_qb_scaled_away",
+   "feature": "pl_epa_qb_away",
    "n_games": 2869,
    "coverage_pct": 97.98,
    "mean": 0.9504974440438483,
    "std": 4.431224850205098
   },
   {
-   "feature": "pl_epa_qb_scaled_diff",
+   "feature": "pl_epa_qb_diff",
    "n_games": 2869,
    "coverage_pct": 96.9,
    "mean": 0.022495547685157748,
    "std": 6.117487977996313
   },
   {
-   "feature": "pl_epa_wr_scaled_home",
+   "feature": "pl_epa_wr_home",
    "n_games": 2869,
    "coverage_pct": 99.06,
    "mean": 4.948165599950299,
    "std": 3.510048299273779
   },
   {
-   "feature": "pl_epa_wr_scaled_away",
+   "feature": "pl_epa_wr_away",
    "n_games": 2869,
    "coverage_pct": 99.02,
    "mean": 4.915967210318095,
    "std": 3.5206334258995176
   },
   {
-   "feature": "pl_epa_wr_scaled_diff",
+   "feature": "pl_epa_wr_diff",
    "n_games": 2869,
    "coverage_pct": 99.02,
    "mean": 0.033297911976344796,
    "std": 4.739693796165479
   },
   {
-   "feature": "pl_epa_te_scaled_home",
+   "feature": "pl_epa_te_home",
    "n_games": 2869,
    "coverage_pct": 98.33,
    "mean": 1.725658580194263,
    "std": 1.8109929732755312
   },
   {
-   "feature": "pl_epa_te_scaled_away",
+   "feature": "pl_epa_te_away",
    "n_games": 2869,
    "coverage_pct": 98.26,
    "mean": 1.6793963712724675,
    "std": 1.7703451251106406
   },
   {
-   "feature": "pl_epa_te_scaled_diff",
+   "feature": "pl_epa_te_diff",
    "n_games": 2869,
    "coverage_pct": 97.53,
    "mean": 0.04893275812385762,
    "std": 2.514890500069957
   },
   {
-   "feature": "pl_epa_rb_scaled_home",
+   "feature": "pl_epa_rb_home",
    "n_games": 2869,
    "coverage_pct": 99.06,
    "mean": -1.629687084437205,
    "std": 2.592516247100889
   },
   {
-   "feature": "pl_epa_rb_scaled_away",
+   "feature": "pl_epa_rb_away",
    "n_games": 2869,
    "coverage_pct": 99.02,
    "mean": -1.653987440515753,
    "std": 2.5253953242053098
   },
   {
-   "feature": "pl_epa_rb_scaled_diff",
+   "feature": "pl_epa_rb_diff",
    "n_games": 2869,
    "coverage_pct": 99.02,
    "mean": 0.024860472536452956,
    "std": 3.6562895608336574
   },
   {
-   "feature": "pl_exp_pass_yds_scaled_home",
+   "feature": "pl_exp_pass_yds_home",
    "n_games": 2869,
    "coverage_pct": 97.98,
    "mean": 242.76341710404026,
    "std": 61.34492977500021
   },
   {
-   "feature": "pl_exp_pass_yds_scaled_away",
+   "feature": "pl_exp_pass_yds_away",
    "n_games": 2869,
    "coverage_pct": 97.87,
    "mean": 243.69659093918628,
    "std": 58.72160418194109
   },
   {
-   "feature": "pl_exp_pass_yds_scaled_diff",
+   "feature": "pl_exp_pass_yds_diff",
    "n_games": 2869,
    "coverage_pct": 96.83,
    "mean": -0.8593880509931278,
    "std": 73.21513004141957
   },
   {
-   "feature": "pl_exp_rush_yds_scaled_home",
+   "feature": "pl_exp_rush_yds_home",
    "n_games": 2869,
    "coverage_pct": 99.06,
    "mean": 125.10798353644101,
    "std": 35.44130065676279
   },
   {
-   "feature": "pl_exp_rush_yds_scaled_away",
+   "feature": "pl_exp_rush_yds_away",
    "n_games": 2869,
    "coverage_pct": 99.06,
    "mean": 125.9264403453258,
    "std": 35.938293602365526
   },
   {
-   "feature": "pl_exp_rush_yds_scaled_diff",
+   "feature": "pl_exp_rush_yds_diff",
    "n_games": 2869,
    "coverage_pct": 99.06,
    "mean": -0.8184568088848011,
@@ -1798,7 +1798,7 @@
   }
  },
  "config": {
-  "feature_set_version": "nfl-prod-v10.0-f",
+  "feature_set_version": "nfl-prod-v10.1-clean",
   "warmup_seasons": [
    2016
   ],
@@ -1880,24 +1880,24 @@
     "rest_days_away",
     "pace_plays_min_home",
     "pace_plays_min_away",
-    "pl_epa_qb_scaled_home",
-    "pl_epa_qb_scaled_away",
-    "pl_epa_qb_scaled_diff",
-    "pl_epa_wr_scaled_home",
-    "pl_epa_wr_scaled_away",
-    "pl_epa_wr_scaled_diff",
-    "pl_epa_te_scaled_home",
-    "pl_epa_te_scaled_away",
-    "pl_epa_te_scaled_diff",
-    "pl_epa_rb_scaled_home",
-    "pl_epa_rb_scaled_away",
-    "pl_epa_rb_scaled_diff",
-    "pl_exp_pass_yds_scaled_home",
-    "pl_exp_pass_yds_scaled_away",
-    "pl_exp_pass_yds_scaled_diff",
-    "pl_exp_rush_yds_scaled_home",
-    "pl_exp_rush_yds_scaled_away",
-    "pl_exp_rush_yds_scaled_diff",
+    "pl_epa_qb_home",
+    "pl_epa_qb_away",
+    "pl_epa_qb_diff",
+    "pl_epa_wr_home",
+    "pl_epa_wr_away",
+    "pl_epa_wr_diff",
+    "pl_epa_te_home",
+    "pl_epa_te_away",
+    "pl_epa_te_diff",
+    "pl_epa_rb_home",
+    "pl_epa_rb_away",
+    "pl_epa_rb_diff",
+    "pl_exp_pass_yds_home",
+    "pl_exp_pass_yds_away",
+    "pl_exp_pass_yds_diff",
+    "pl_exp_rush_yds_home",
+    "pl_exp_rush_yds_away",
+    "pl_exp_rush_yds_diff",
     "inj_ol_out_home",
     "inj_ol_out_away",
     "inj_ol_out_diff",
