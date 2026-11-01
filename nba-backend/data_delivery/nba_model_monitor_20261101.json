@@ -1,5 +1,5 @@
 {
- "created_utc": "2026-11-01T06:18:03.778120+00:00",
+ "created_utc": "2026-11-01T08:14:01.986785+00:00",
  "date": "20261101",
  "version": "v2026.11.01",
  "config": {
@@ -9813,51 +9813,49 @@
   },
   "projected_game_pace_away": {
    "name": "projected_game_pace_away",
-   "summary": "projected_game_pace_away",
-   "definition": "No detailed metadata authored yet.",
-   "formula": "\u2014",
-   "source": "\u2014",
-   "window": "\u2014",
-   "units": "\u2014",
-   "direction": "\u2014",
+   "summary": "Projected team pace \u2014 away team",
+   "definition": "Each side trailing minutes-weighted DARKO x_pace blend (team_pace aggregate) read as of gameday; the served game pace is home x away over the trailing-30-day league mean. The same projected pace scales the OFF/DEF legs (over 100), so diffs stay exactly home - away. Adopted with the D arm 2026-10-31.",
+   "formula": "home x away / trailing-30d league mean of team_pace",
+   "source": "DARKO x_pace + expected minutes (same-day), team aggregates",
+   "window": "trailing blend as of gameday; 30-day league mean",
+   "units": "possessions per 48 minutes",
+   "direction": "higher = faster expected tempo for the away side (level column)",
    "members": [
     "xgboost",
-    "lightgbm",
-    "elasticnet"
+    "lightgbm"
    ],
-   "tooltip": "What: No detailed metadata authored yet.\nFormula: \u2014\nSource: \u2014\nWindow: \u2014 \u00b7 Units: \u2014\nDirection: \u2014\nConsumed by: xgboost, lightgbm, elasticnet"
+   "tooltip": "What: Each side trailing minutes-weighted DARKO x_pace blend (team_pace aggregate) read as of gameday; the served game pace is home x away over the trailing-30-day league mean. The same projected pace scales the OFF/DEF legs (over 100), so diffs stay exactly home - away. Adopted with the D arm 2026-10-31.\nFormula: home x away / trailing-30d league mean of team_pace\nSource: DARKO x_pace + expected minutes (same-day), team aggregates\nWindow: trailing blend as of gameday; 30-day league mean \u00b7 Units: possessions per 48 minutes\nDirection: higher = faster expected tempo for the away side (level column)\nConsumed by: xgboost, lightgbm"
   },
   "projected_game_pace_home": {
    "name": "projected_game_pace_home",
-   "summary": "projected_game_pace_home",
-   "definition": "No detailed metadata authored yet.",
-   "formula": "\u2014",
-   "source": "\u2014",
-   "window": "\u2014",
-   "units": "\u2014",
-   "direction": "\u2014",
+   "summary": "Projected team pace \u2014 home team",
+   "definition": "Each side trailing minutes-weighted DARKO x_pace blend (team_pace aggregate) read as of gameday; the served game pace is home x away over the trailing-30-day league mean. The same projected pace scales the OFF/DEF legs (over 100), so diffs stay exactly home - away. Adopted with the D arm 2026-10-31.",
+   "formula": "home x away / trailing-30d league mean of team_pace",
+   "source": "DARKO x_pace + expected minutes (same-day), team aggregates",
+   "window": "trailing blend as of gameday; 30-day league mean",
+   "units": "possessions per 48 minutes",
+   "direction": "higher = faster expected tempo for the home side (level column)",
    "members": [
     "xgboost",
-    "lightgbm",
-    "elasticnet"
+    "lightgbm"
    ],
-   "tooltip": "What: No detailed metadata authored yet.\nFormula: \u2014\nSource: \u2014\nWindow: \u2014 \u00b7 Units: \u2014\nDirection: \u2014\nConsumed by: xgboost, lightgbm, elasticnet"
+   "tooltip": "What: Each side trailing minutes-weighted DARKO x_pace blend (team_pace aggregate) read as of gameday; the served game pace is home x away over the trailing-30-day league mean. The same projected pace scales the OFF/DEF legs (over 100), so diffs stay exactly home - away. Adopted with the D arm 2026-10-31.\nFormula: home x away / trailing-30d league mean of team_pace\nSource: DARKO x_pace + expected minutes (same-day), team aggregates\nWindow: trailing blend as of gameday; 30-day league mean \u00b7 Units: possessions per 48 minutes\nDirection: higher = faster expected tempo for the home side (level column)\nConsumed by: xgboost, lightgbm"
   },
   "projected_game_pace_total": {
    "name": "projected_game_pace_total",
-   "summary": "projected_game_pace_total",
-   "definition": "No detailed metadata authored yet.",
-   "formula": "\u2014",
-   "source": "\u2014",
-   "window": "\u2014",
-   "units": "\u2014",
-   "direction": "\u2014",
+   "summary": "Projected game pace: home x away over trailing league mean",
+   "definition": "Home team_pace x away team_pace over the trailing-30-day league mean, where each side pace is its trailing minutes-weighted DARKO x_pace blend as of gameday. Adopted with the D arm 2026-10-31.",
+   "formula": "projected_game_pace_home x projected_game_pace_away / trailing-30d league mean",
+   "source": "DARKO x_pace + expected minutes (same-day), team aggregates",
+   "window": "trailing blend as of gameday; 30-day league mean",
+   "units": "possessions per 48 minutes",
+   "direction": "higher = faster expected tempo (style, not quality)",
    "members": [
     "xgboost",
     "lightgbm",
     "elasticnet"
    ],
-   "tooltip": "What: No detailed metadata authored yet.\nFormula: \u2014\nSource: \u2014\nWindow: \u2014 \u00b7 Units: \u2014\nDirection: \u2014\nConsumed by: xgboost, lightgbm, elasticnet"
+   "tooltip": "What: Home team_pace x away team_pace over the trailing-30-day league mean, where each side pace is its trailing minutes-weighted DARKO x_pace blend as of gameday. Adopted with the D arm 2026-10-31.\nFormula: projected_game_pace_home x projected_game_pace_away / trailing-30d league mean\nSource: DARKO x_pace + expected minutes (same-day), team aggregates\nWindow: trailing blend as of gameday; 30-day league mean \u00b7 Units: possessions per 48 minutes\nDirection: higher = faster expected tempo (style, not quality)\nConsumed by: xgboost, lightgbm, elasticnet"
   },
   "rest_days_away": {
    "name": "rest_days_away",
