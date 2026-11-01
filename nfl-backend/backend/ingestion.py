@@ -317,7 +317,9 @@ SCHEDULE_CACHE_VERSION = "v3"
 PBP_NEEDS = [
     "game_id", "posteam", "defteam", "yards_gained", "epa", "qb_epa",
     "game_seconds_remaining", "interception", "fumble_lost",
-    "passing_yards", "pass_attempt", "sack", "penalty", "penalty_yards",
+    "passing_yards", "pass_attempt", "sack", "qb_hit", "penalty", "penalty_yards",
+    # 2026-11-01 trench family: qb_hit absorbed per dropback (the higher-
+    # frequency pressure sibling of sacks); guarded absent downstream.
     "penalty_team", "third_down_converted", "third_down_failed",
     "yardline_100", "touchdown", "field_goal_result", "drive",
     # 2026-09-22 candidate-pool expansion (pbp feature family): passing depth /
@@ -357,7 +359,9 @@ PBP_NEEDS = [
 # columns (qtr/down/ydstogo/goal_to_go/score_differential/half_seconds_
 # remaining) behind the platoon rollups; "v5" adds player-role IDs and
 # opportunity flags for per-position projected-lineup EPA features.
-PBP_CACHE_VERSION = "v6"
+# "v7" adds "qb_hit" for the trench family (guarded absent in
+# features._add_pbp_metrics, so older caches degrade to all-NaN).
+PBP_CACHE_VERSION = "v7"
 
 
 def load_pbp(seasons: list[int] | None = None,

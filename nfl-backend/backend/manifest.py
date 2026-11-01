@@ -49,6 +49,18 @@ def _build_candidate_manifest() -> None:
             "Trailing EPA allowed per play",
             "Per-team EWM/rolling mean of mean EPA allowed per play on the team's defensive snaps (nflverse epa over defteam snaps; lower = stingier defense)",
             "defense"),
+        "dl_prwr": (
+            "Trailing DL pass-rush win rate",
+            "Per-team trailing mean of defensive pressure generated per opponent dropback (sack OR QB hit at play level; 94.6% of sacks also carry a hit flag, so summed rates would double-count)",
+            "pass rush"),
+        "pbwr_edge": (
+            "Trailing net pass-block-win matchup edge",
+            "Team own shrunk prior OL clean-pocket rate minus the opponent shrunk prior DL pressure rate, both strictly prior (positive = this team QB walks into a cleaner pocket than the opposing rush usually allows); the served diff is (home OL - away DL) - (away OL - home DL)",
+            "matchup"),
+        "trench_edge": (
+            "Trailing net trench-pressure edge",
+            "Opponent shrunk prior sacks-generated rate minus the team own shrunk prior sacks-allowed rate, both strictly prior (positive = this team QB walks into more pressure than his line usually allows)",
+            "matchup"),
         "epa_play_opp_adj": (
             "Trailing opponent-adjusted EPA per play",
             "Per-game offensive EPA per play rescaled by the PRIOR quality of the defense faced: epa_play + (prior expanding league mean of def EPA allowed − the opponent's shrunk shift(1) halflife-EWM of def EPA allowed, weight n/(n+OPP_ADJ_SHRINKAGE) with n = the opponent's full-timeline prior games — prior seasons included, never season-reset); production against a good defense counts more, against a bad one less",
@@ -80,6 +92,14 @@ def _build_candidate_manifest() -> None:
         "sack_rate": (
             "Trailing sack rate",
             "Per-team trailing mean of sacks / dropbacks — pressure allowed (offensive line)",
+            "protection"),
+        "def_sack_rate": (
+            "Trailing sacks generated per opponent dropback",
+            "Per-team trailing mean of sacks generated / opponent dropbacks faced on the team defensive snaps - pass-rush pressure generated (defensive line)",
+            "protection"),
+        "qb_hit_rate": (
+            "Trailing QB hits absorbed per dropback",
+            "Per-team trailing mean of QB hits absorbed / dropbacks - pressure allowed beyond sacks (offensive line; needs pbp cache v7)",
             "protection"),
         "dropback_rate": (
             "Trailing dropback rate",
@@ -1111,6 +1131,15 @@ _RFE_PROMOTED = [
     "pbp_def_epa_play_ewm_diff",
     "pbp_def_epa_play_ewm_home",
     "pbp_def_epa_play_ewm_away",
+    # PBWR adoption (2026-11-01, owner-directed A/B/B_raw/C/C_raw trial).
+    # B_raw led on point estimate on the full sample (dLL -0.000391,
+    # se 0.000601) and the SI-market edge>5% slice (-0.000806); C carried
+    # only the edge slice (-0.001247) and hurt the full sample (+0.000363).
+    # Adopt the 3 matchup legs (diff + raw sides) as the PBWR representative;
+    # the DL rush legs stay triable candidates.
+    "pbp_pbwr_edge_ewm_diff",
+    "pbp_pbwr_edge_ewm_home",
+    "pbp_pbwr_edge_ewm_away",
 ]
 for _name in _RFE_PROMOTED:
     _entry = CANDIDATE_MANIFEST.pop(_name, None)
@@ -1119,6 +1148,33 @@ for _name in _RFE_PROMOTED:
     _entry["candidate"] = False
     _entry["feature_version"] = 4
     FEATURE_MANIFEST[_name] = _entry
+
+
+# DVOA challenger trial pool (2026-11-01, unvalidated): the 12
+# defense-adjusted lineup legs. Pool-only candidates; documented here
+# (trial space) AND in FEATURE_MANIFEST (serving reference) until a
+# verdict adopts or drops them.
+for _base in ("pl_dvoa_qb", "pl_dvoa_wr", "pl_dvoa_te", "pl_dvoa_rb"):
+    for _rep in ("home", "away", "diff"):
+        _name = f"{_base}_{_rep}"
+        CANDIDATE_MANIFEST[_name] = {
+            "description": f"Pace {_base} {'difference' if _rep == 'diff' else _rep + ' level'}",
+            "definition": (f"{_base}_home - {_base}_away" if _rep == "diff"
+                           else f"The {_rep} team's {_base} leg x s_game"),
+            "source": "projected-lineup defense-adjusted EPA legs x expected-game pace scaler",
+            "lookback": "8 player-games; 21-calendar-day roster window",
+            "aggregation": ("pace-scaled DVOA/game diff (one scaler both sides)"
+                            if _rep == "diff" else
+                            "pace-scaled DVOA/game (one scaler both sides)"),
+            "point_in_time_rule": "s_game inputs strictly-prior; s_game NaN -> NaN",
+            "missing_value_policy": "NaN when the leg or s_game is NaN; in-model handling",
+            "representation": ("difference (all model families)" if _rep == "diff"
+                               else "raw side level (tree members)"),
+            "model_family_availability": (["linear", "tree", "mlp"] if _rep == "diff"
+                                          else ["tree"]),
+            "feature_version": 1,
+            "candidate": True,
+        }
 
 
 # The shared monitor page builds its hover text as

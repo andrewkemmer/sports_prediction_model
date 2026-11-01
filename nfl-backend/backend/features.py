@@ -211,6 +211,8 @@ def _trailing_ewm(srt: pd.DataFrame, value_col: str, halflife: float) -> np.ndar
 PBP_TRAILING_SPECS: dict[str, tuple[str, ...]] = {
     **config.PBP_CANDIDATE_TRAILING_SPECS,
     **config.PBP_OPP_ADJ_TRAILING_SPECS,
+    **config.PBP_TRENCH_TRAILING_SPECS,
+    **config.PBP_PBWR_TRAILING_SPECS,
     **config.PS_CANDIDATE_TRAILING_SPECS,
     **config.NGS_CANDIDATE_TRAILING_SPECS,
     **config.FTN_CANDIDATE_TRAILING_SPECS,
@@ -497,6 +499,59 @@ def _add_pbp_metrics(p: pd.DataFrame, g: pd.DataFrame) -> pd.DataFrame:
                           pd.MultiIndex.from_frame(g[["game_id", "posteam"]]))
                       .to_numpy())
 
+    # Defensive sacks generated: sacks by the defense per opponent dropback
+    # faced (the rush half of the trench battle; the offense half allowed is
+    # sack_rate above). Same defteam-perspective grouping as def_epa_play:
+    # the offense's pass_attempt + sack sums on those snaps reindexed to the
+    # defense's rows.
+    if {"defteam", "sack", "pass_attempt"} <= set(p.columns):
+        _d = p.dropna(subset=["defteam"])
+        _idx = pd.MultiIndex.from_frame(g[["game_id", "posteam"]])
+        _ds = (pd.to_numeric(_d["sack"], errors="coerce").fillna(0.0)
+               .groupby([_d["game_id"], _d["defteam"]]).sum()
+               .reindex(_idx).fillna(0.0))
+        _dp = (pd.to_numeric(_d["pass_attempt"], errors="coerce").fillna(0.0)
+               .groupby([_d["game_id"], _d["defteam"]]).sum()
+               .reindex(_idx).fillna(0.0))
+        _dd = _ds + _dp
+        g["def_sack_rate"] = (_ds / _dd.replace(0, np.nan)).to_numpy()
+    else:
+        g["def_sack_rate"] = np.nan
+
+    # Pass-block / pass-rush win rates (2026-11-01 trial): clean-pocket
+    # share, not a 2.5s sustain threshold (nflverse publishes no pocket
+    # time). Play-level OR semantics: measured 2024, 94.6% of sacks also
+    # carry qb_hit=1, so sack_rate + qb_hit_rate would double-count; a
+    # dropback is a WIN only when it is neither a sack nor a hit.
+    # Offense side (ol_pbwr, clean rate allowed) and defense side (dl_prwr,
+    # pressure generated per opponent dropback) share the dropback
+    # denominator definition. Absent source degrades to NaN.
+    hit = _num("qb_hit")
+    if (pa is not None and sack is not None and hit is not None
+            and dropback is not None):
+        _idx = pd.MultiIndex.from_frame(g[["game_id", "posteam"]])
+        _clean = (((pa.fillna(0.0) > 0)
+                   & (sack.fillna(0.0) <= 0)
+                   & (hit.fillna(0.0) <= 0)).astype(float))
+        _cn = (_clean.groupby([p["game_id"], p["posteam"]]).sum()
+               .reindex(_idx))
+        _cd = (dropback.fillna(0.0).groupby([p["game_id"], p["posteam"]])
+               .sum().reindex(_idx))
+        g["ol_pbwr"] = (_cn / _cd.replace(0, np.nan)).to_numpy()
+        if "defteam" in p.columns:
+            _press = (((sack.fillna(0.0) > 0)
+                       | (hit.fillna(0.0) > 0)).astype(float))
+            _pn = (_press.groupby([p["game_id"], p["defteam"]]).sum()
+                   .reindex(_idx).fillna(0.0))
+            _pd = (dropback.fillna(0.0).groupby([p["game_id"], p["defteam"]])
+                   .sum().reindex(_idx).fillna(0.0))
+            g["dl_prwr"] = (_pn / _pd.replace(0, np.nan)).to_numpy()
+        else:
+            g["dl_prwr"] = np.nan
+    else:
+        g["ol_pbwr"] = np.nan
+        g["dl_prwr"] = np.nan
+
     # Turnovers: own giveaways from the possession frame; takeaways from the
     # DEFENSIVE snaps (same play rows, defteam perspective).
     for src, out in (("interception", "_int"), ("fumble_lost", "_fumble")):
@@ -535,6 +590,9 @@ def _add_pbp_metrics(p: pd.DataFrame, g: pd.DataFrame) -> pd.DataFrame:
         g[out] = (n / dd.replace(0, np.nan)).to_numpy()
 
     _rate(sack, dropback, "sack_rate")
+    # QB hits absorbed per dropback (pbp cache v7; the higher-frequency
+    # pressure sibling of sacks). Absent source degrades to all-NaN.
+    _rate(_num("qb_hit"), dropback, "qb_hit_rate")
     _rate(dropback, plays, "dropback_rate")
     td_c = _num("third_down_converted")
     td_f = _num("third_down_failed")
@@ -656,6 +714,8 @@ PBP_AGG_COLS = ["game_id", "team", "total_yards", "n_plays", "n_plays_reg",
                 "elapsed_min",
                 "epa_play", "qb_epa_dropback", "def_epa_play", "cpoe_play", "air_yards_att",
                 "yac_epa_att", "turnovers", "takeaways", "sack_rate",
+                "def_sack_rate", "qb_hit_rate",
+                "ol_pbwr", "dl_prwr",
                 "dropback_rate", "third_down_rate", "penalty_yards_pg",
                 "penalties_pg", "redzone_td_rate", "start_field_pos",
                 "fg_accuracy", "shotgun_rate", "no_huddle_rate", "drives_pg",
@@ -987,7 +1047,139 @@ def _add_opp_adj_metrics(srt: pd.DataFrame) -> None:
                     + (league_mean - strength))
 
 
+def _add_trench_metrics(srt: pd.DataFrame) -> None:
+    """Attach the per-game net trench-pressure series to the sorted ladder IN
+    PLACE: trench_edge = (opponent's shrunk prior sacks-generated rate) -
+    (team's own shrunk prior sacks-allowed rate).
+
+    Positive = this team's QB walks into more pressure than his own line
+    usually allows. Both priors are shift(1) halflife-EWMs on their own
+    timelines shrunk toward their expanding prior league means with weight
+    n / (n + OPP_ADJ_SHRINKAGE) — the same shrinkage the opp-adj pre-pass
+    uses, so September edges sit near zero instead of screaming on two
+    games. Every input is strictly prior; the series then rides the normal
+    PBP_TRAILING_SPECS machinery (shift-of-shift, still causal). Degenerates
+    to all-NaN when either source metric is absent.
+    """
+    out = "trench_edge"
+    if not {"sack_rate", "def_sack_rate", "opponent", "team",
+            "game_id", "gameday"} <= set(srt.columns):
+        srt[out] = np.nan
+        return
+    allow = pd.to_numeric(srt["sack_rate"], errors="coerce")
+    rush = pd.to_numeric(srt["def_sack_rate"], errors="coerce")
+    if not allow.notna().any() or not rush.notna().any():
+        srt[out] = np.nan
+        return
+
+    settled = srt["for"].notna() & srt["against"].notna()
+    n_prior = (settled.groupby(srt.team, sort=False).cumsum()
+               - settled.astype(int)).to_numpy(dtype=float)
+    row_key = pd.MultiIndex.from_frame(srt[["game_id", "team"]])
+    opp_key = pd.MultiIndex.from_frame(srt[["game_id", "opponent"]])
+    n_by_row = pd.Series(n_prior, index=row_key)
+
+    def _league_mean(values: pd.Series) -> np.ndarray:
+        pr = (values.where(settled).groupby(srt.team, sort=False).ffill()
+              .groupby(srt.team, sort=False).shift(1))
+        by_day = (pr[settled]
+                  .groupby(srt.loc[settled, "gameday"], sort=True).mean())
+        return (by_day.sort_index().expanding(min_periods=1).mean()
+                .reindex(pd.DatetimeIndex(srt.gameday), method="ffill")
+                .to_numpy(dtype=float))
+
+    shrink = float(config.OPP_ADJ_SHRINKAGE)
+
+    def _shrunk(ewm_by_row: pd.Series, mean: np.ndarray,
+                nn_by_row: pd.Series) -> np.ndarray:
+        nn = nn_by_row.to_numpy(dtype=float)
+        ev = ewm_by_row.to_numpy(dtype=float)
+        ev = np.where(nn > 0, ev, mean)  # no history -> league mean, not NaN
+        w = nn / (nn + shrink)
+        return w * np.nan_to_num(ev, nan=mean) + (1.0 - w) * mean
+
+    allow_ewm = pd.Series(_trailing_ewm(srt, "sack_rate", config.EWM_HALFLIFE),
+                          index=row_key)
+    rush_ewm = pd.Series(_trailing_ewm(srt, "def_sack_rate",
+                                       config.EWM_HALFLIFE), index=row_key)
+    own_allowed = _shrunk(allow_ewm, _league_mean(allow), n_by_row)
+    opp_rush = _shrunk(rush_ewm.reindex(opp_key), _league_mean(rush),
+                       n_by_row.reindex(opp_key))
+    srt[out] = (pd.Series(opp_rush, index=srt.index).fillna(
+        pd.Series(_league_mean(rush), index=srt.index))
+        - pd.Series(own_allowed, index=srt.index).fillna(
+            pd.Series(_league_mean(allow), index=srt.index)))
+
+
 # ---------------------------------------------------------------------------
+def _add_pbwr_metrics(srt: pd.DataFrame) -> None:
+    """Attach the per-game pass-block-win matchup edge to the ladder IN PLACE.
+
+    PLACE: pbwr_edge = (team's own shrunk prior OL clean-pocket rate) -
+    (opponent's shrunk prior DL pressure-generated rate).
+
+    Positive = this team's QB walks into a cleaner pocket than the opposing
+    rush usually allows. Both priors are shift(1) halflife-EWMs on their own
+    timelines shrunk toward their expanding prior league means with weight
+    n / (n + OPP_ADJ_SHRINKAGE) -- the _add_trench_metrics convention, so
+    September edges sit near zero instead of screaming on two games. Every
+    input is strictly prior; the series then rides the normal trailing
+    machinery (shift-of-shift, still causal). The served game diff
+    (home edge minus away edge) is exactly
+    (home OL - away DL) - (away OL - home DL). Degenerates to all-NaN when
+    either source metric is absent. The raw dl_prwr per-game series stays
+    on the ladder for its own trailing spec; ol_pbwr is intermediate only.
+    """
+    out = "pbwr_edge"
+    if not {"ol_pbwr", "dl_prwr", "opponent", "team",
+            "game_id", "gameday"} <= set(srt.columns):
+        srt[out] = np.nan
+        return
+    block = pd.to_numeric(srt["ol_pbwr"], errors="coerce")
+    rush = pd.to_numeric(srt["dl_prwr"], errors="coerce")
+    if not block.notna().any() or not rush.notna().any():
+        srt[out] = np.nan
+        return
+
+    settled = srt["for"].notna() & srt["against"].notna()
+    n_prior = (settled.groupby(srt.team, sort=False).cumsum()
+               - settled.astype(int)).to_numpy(dtype=float)
+    row_key = pd.MultiIndex.from_frame(srt[["game_id", "team"]])
+    opp_key = pd.MultiIndex.from_frame(srt[["game_id", "opponent"]])
+    n_by_row = pd.Series(n_prior, index=row_key)
+
+    def _league_mean(values: pd.Series) -> np.ndarray:
+        pr = (values.where(settled).groupby(srt.team, sort=False).ffill()
+              .groupby(srt.team, sort=False).shift(1))
+        by_day = (pr[settled]
+                  .groupby(srt.loc[settled, "gameday"], sort=True).mean())
+        return (by_day.sort_index().expanding(min_periods=1).mean()
+                .reindex(pd.DatetimeIndex(srt.gameday), method="ffill")
+                .to_numpy(dtype=float))
+
+    shrink = float(config.OPP_ADJ_SHRINKAGE)
+
+    def _shrunk(ewm_by_row: pd.Series, mean: np.ndarray,
+                nn_by_row: pd.Series) -> np.ndarray:
+        nn = nn_by_row.to_numpy(dtype=float)
+        ev = ewm_by_row.to_numpy(dtype=float)
+        ev = np.where(nn > 0, ev, mean)
+        w = nn / (nn + shrink)
+        return w * np.nan_to_num(ev, nan=mean) + (1.0 - w) * mean
+
+    block_ewm = pd.Series(_trailing_ewm(srt, "ol_pbwr", config.EWM_HALFLIFE),
+                          index=row_key)
+    rush_ewm = pd.Series(_trailing_ewm(srt, "dl_prwr",
+                                       config.EWM_HALFLIFE), index=row_key)
+    own_block = _shrunk(block_ewm, _league_mean(block), n_by_row)
+    opp_rush = _shrunk(rush_ewm.reindex(opp_key), _league_mean(rush),
+                       n_by_row.reindex(opp_key))
+    srt[out] = (pd.Series(own_block, index=srt.index).fillna(
+        pd.Series(_league_mean(block), index=srt.index))
+        - pd.Series(opp_rush, index=srt.index).fillna(
+            pd.Series(_league_mean(rush), index=srt.index)))
+
+
 def team_stats_ladder(events: pd.DataFrame,
                       team_game_agg: pd.DataFrame | None = None,
                       extra_per_game: dict[str, pd.DataFrame | None] | None = None,
@@ -995,7 +1187,8 @@ def team_stats_ladder(events: pd.DataFrame,
     """Per-(game_id, team) point-in-time state: elo_entering, form_pts,
     win_pct, rest_days, ypp, ewm_net_pts, ewm_ypp, pace_plays_min,
     short_rest + the candidate-pool trailing metrics (pbp incl. the
-    opponent-adjusted EPA series, ps usage shares, ngs tracking efficiency)
+    opponent-adjusted EPA series, trench-edge pressure, ps usage shares,
+    ngs tracking efficiency)
     — every trailing value strictly-prior (asserted).
 
     ``extra_per_game`` maps a rollup name to its per-game frame; frames are
@@ -1103,6 +1296,8 @@ def team_stats_ladder(events: pd.DataFrame,
     # A metric lists the window(s) it is served at; absent source columns are
     # all-NaN per-game and degrade to all-NaN trailing (never fabricated).
     _add_opp_adj_metrics(srt)
+    _add_trench_metrics(srt)
+    _add_pbwr_metrics(srt)
     for metric, windows in PBP_TRAILING_SPECS.items():
         if metric not in srt.columns:
             for w in windows:
@@ -1619,6 +1814,10 @@ PLAYS_PROJ_COLS = ["proj_team_plays_home", "proj_team_plays_away",
 # config twin; module-local so each attach reads one source).
 EPA_PACE_SCALED_BASES: tuple[str, ...] = ("pl_epa_qb", "pl_epa_wr",
                                            "pl_epa_te", "pl_epa_rb")
+# Projected-lineup DVOA bases (challenger, unvalidated): same four lineup
+# slots, defense-adjusted rates. Trial pool only -- never the contract.
+DVOA_QUALITY_BASES: tuple[str, ...] = ("pl_dvoa_qb", "pl_dvoa_wr",
+                                       "pl_dvoa_te", "pl_dvoa_rb")
 
 
 def _attach_plays_projection(df: pd.DataFrame, ladder: pd.DataFrame,
@@ -1933,6 +2132,127 @@ def epa_opportunity_table(pbp: pd.DataFrame | None) -> pd.DataFrame:
     out = (per_play.groupby(["game_id", "posteam", "player_id"], as_index=False)
            .agg(epa=("epa", "sum"), opp=("opp", "sum"))
            .rename(columns={"posteam": "team", "epa": "epa"}))
+    return out[cols]
+
+
+# ---------------------------------------------------------------------------
+# Projected-lineup DVOA family (challenger, unvalidated): defense-adjusted
+# player value over average at the same grain as the EPA legs.
+#
+# Per play, adjusted EPA = epa + (league_mean - opp_strength), where
+# opp_strength is the opposing defense's shrunk prior EPA-allowed quality
+# entering the game -- the _add_opp_adj_metrics convention (shift(1)
+# halflife-EWM on the defense's own timeline, shrunk toward the expanding
+# prior league mean with n/(n+OPP_ADJ_SHRINKAGE)) -- computed here from
+# pbp team-game aggregates rather than the ladder. "Over average": the
+# league mean is average points allowed, so the adjustment prices what an
+# average offense would have produced against the same defense.
+# Situation (down/distance/field) baselines are explicitly out of scope:
+# this challenger isolates the DEFENSE adjustment; a full DVOA would add
+# situation-expected EPA on top (follow-up, own validation burden).
+# The per-(game, team, player) adjusted totals reuse the EPA pipeline
+# unchanged (ratings -> lineup pool -> pace scale); only the play values
+# differ, so PIT discipline is inherited, not reimplemented.
+def dvoa_opportunity_table(pbp: pd.DataFrame | None,
+                           games: pd.DataFrame | None) -> pd.DataFrame:
+    """Per-(game_id, team, player) defense-adjusted EPA and opportunities.
+
+    Same schema as epa_opportunity_table (column ``epa`` carries the
+    adjusted values) so the shared quality pipeline runs unmodified.
+    Degenerates toward raw EPA when a defense has no prior evidence
+    (full shrinkage to the league mean) and drops plays with no EPA,
+    posteam, or game date.
+    """
+    cols = ["game_id", "team", "player_id", "epa", "opp"]
+    if pbp is None or "epa" not in getattr(pbp, "columns", []):
+        return pd.DataFrame(columns=cols)
+    need = ["game_id", "posteam", "defteam", "epa", "play_id"] + \
+        [c for pair in EPA_ROLE_COLS for c in pair]
+    if any(c not in pbp.columns for c in need):
+        return pd.DataFrame(columns=cols)
+    if games is None or not {"game_id", "gameday"} <= set(games.columns):
+        return pd.DataFrame(columns=cols)
+    p = pbp.copy()
+    p["epa"] = pd.to_numeric(p["epa"], errors="coerce")
+    p = p[p["epa"].notna() & p["posteam"].notna()]
+    if p.empty:
+        return pd.DataFrame(columns=cols)
+    days = games[["game_id", "gameday"]].copy()
+    days["game_id"] = days["game_id"].astype(str)
+    days["gameday"] = pd.to_datetime(
+        days["gameday"], errors="coerce").dt.normalize()
+
+    # Team-game defensive EPA allowed per play, keyed by game date.
+    d = p.dropna(subset=["defteam"]).copy()
+    d["defteam"] = (d["defteam"].astype("string").str.strip()
+                    .map(config.canonical_team))
+    d = d.merge(days, left_on=d["game_id"].astype(str),
+                right_on="game_id", how="inner")
+    defagg = (d.groupby(["game_id", "defteam", "gameday"], as_index=False)
+              .agg(allowed=("epa", "sum"), n_plays=("epa", "size")))
+    defagg["rate"] = (defagg["allowed"]
+                      / defagg["n_plays"].where(defagg["n_plays"] > 0))
+    defagg = defagg.sort_values(["defteam", "gameday", "game_id"])
+    half = float(config.EWM_HALFLIFE)
+    defagg["prior_ewm"] = (defagg.groupby("defteam", sort=False)["rate"]
+                           .transform(lambda x: x.shift(1)
+                                      .ewm(halflife=half,
+                                           min_periods=1).mean()))
+    defagg["n_prior"] = defagg.groupby("defteam", sort=False).cumcount()
+    by_day = defagg.groupby("gameday", sort=True)["prior_ewm"].mean()
+    league_mean_by_day = by_day.sort_index().expanding(min_periods=1).mean()
+    gday = pd.to_datetime(defagg["gameday"])
+    league_mean = (league_mean_by_day.reindex(gday, method="ffill")
+                   .to_numpy(dtype=float))
+    shrink = float(config.OPP_ADJ_SHRINKAGE)
+    npr = defagg["n_prior"].to_numpy(dtype=float)
+    w = npr / (npr + shrink)
+    pe = defagg["prior_ewm"].to_numpy(dtype=float)
+    prior_filled = np.where(np.isfinite(pe), pe, league_mean)
+    strength = w * prior_filled + (1.0 - w) * league_mean
+    key = pd.MultiIndex.from_frame(defagg[["game_id", "defteam"]])
+    strength_by_row = pd.Series(strength, index=key)
+    mean_by_gameday = (pd.Series(league_mean, index=defagg.index)
+                       .groupby(defagg["gameday"]).first())
+
+    pkey = pd.MultiIndex.from_frame(pd.DataFrame({
+        "game_id": p["game_id"].astype(str),
+        "defteam": (p["defteam"].astype("string").str.strip()
+                    .map(config.canonical_team)),
+    }))
+    p_strength = strength_by_row.reindex(pkey).to_numpy(dtype=float)
+    pgday = pd.to_datetime(p.merge(days, left_on=p["game_id"].astype(str),
+                                   right_on="game_id",
+                                   how="left")["gameday"])
+    p_mean = (mean_by_gameday.reindex(pgday, method="ffill")
+              .to_numpy(dtype=float))
+    padj = np.where(np.isfinite(p_strength),
+                    p_strength, np.where(np.isfinite(p_mean), p_mean, 0.0))
+    adj = (p["epa"].to_numpy(dtype=float)
+           + np.where(np.isfinite(p_mean), p_mean - padj, 0.0))
+    p = p.assign(_adj_epa=adj)
+
+    long: list[pd.DataFrame] = []
+    for role_col, flag in EPA_ROLE_COLS:
+        s = p[["game_id", "play_id", "posteam", "_adj_epa",
+               role_col, flag]].rename(
+            columns={role_col: "player_id", flag: "opp",
+                     "_adj_epa": "epa"})
+        s["player_id"] = s["player_id"].astype("string")
+        s = s[s["player_id"].notna()
+              & ~s["player_id"].isin(["", "nan", "None"])]
+        long.append(s)
+    if not long:
+        return pd.DataFrame(columns=cols)
+    L = pd.concat(long, ignore_index=True)
+    L["opp"] = pd.to_numeric(L["opp"], errors="coerce").fillna(0.0)
+    per_play = (L.groupby(["game_id", "posteam", "player_id", "play_id"],
+                          as_index=False)
+                .agg(epa=("epa", "first"), opp=("opp", "max")))
+    out = (per_play.groupby(["game_id", "posteam", "player_id"],
+                            as_index=False)
+           .agg(epa=("epa", "sum"), opp=("opp", "sum"))
+           .rename(columns={"posteam": "team"}))
     return out[cols]
 
 
@@ -3065,6 +3385,121 @@ def _epa_quality_agg(games: pd.DataFrame, pbp: pd.DataFrame | None,
                                 phase1_caps, phase1_alpha, spill_matrix)
 
 
+def _dvoa_quality_agg(games: pd.DataFrame, pbp: pd.DataFrame | None,
+                      ps: pd.DataFrame | None,
+                      injuries: pd.DataFrame | None,
+                      roster_unavailable: pd.DataFrame | None = None,
+                      weekly_injuries: pd.DataFrame | None = None,
+                      redistribute_phase1: bool = False,
+                      phase1_caps: dict | None = None,
+                      phase1_alpha: dict | None = None,
+                      spill_matrix: pd.DataFrame | None = None
+                      ) -> pd.DataFrame:
+    """Build PIT per-position player DVOA aggregates, degrading to NaN when
+    play-by-play, player IDs/positions, or exact schedule kickoff is
+    unavailable. Same shape and PIT discipline as _epa_quality_agg; the
+    ``epa_q`` column carries defense-adjusted values.
+    """
+    empty = pd.DataFrame(columns=EPA_QUALITY_AGG_COLS)
+    obs = dvoa_opportunity_table(pbp, games)
+    if (obs.empty or ps is None
+            or not {"game_id", "team", "player_id", "position"} <= set(ps.columns)
+            or not {"game_id", "gameday", "gametime"} <= set(games.columns)):
+        return empty
+
+    days = games[["game_id", "gameday", "gametime"]].copy()
+    days["game_id"] = days["game_id"].astype(str)
+    days["gameday"] = pd.to_datetime(days["gameday"], errors="coerce").dt.normalize()
+    days["kickoff_utc"] = _kickoff_utc(days)
+    obs["game_id"] = obs["game_id"].astype(str)
+    obs["player_id"] = obs["player_id"].astype("string").str.strip()
+    obs["team"] = obs["team"].astype("string").str.strip().map(config.canonical_team)
+    obs = obs.merge(days, on="game_id", how="inner", validate="many_to_one")
+    pos = ps[["game_id", "team", "player_id", "position"]].copy()
+    pos["game_id"] = pos["game_id"].astype(str)
+    pos["team"] = pos["team"].astype("string").str.strip().map(config.canonical_team)
+    pos["player_id"] = pos["player_id"].astype("string").str.strip()
+    pos["position"] = _normalize_epa_lineup_positions(pos["position"])
+    pos = pos.dropna(subset=["player_id", "position"])
+    pos = pos[~pos["player_id"].isin(["", "nan", "none", "<na>", "null"])]
+    pos = pos.drop_duplicates(["game_id", "team", "player_id"], keep="last")
+    obs = obs.merge(pos, on=["game_id", "team", "player_id"],
+                    how="inner", validate="one_to_one")
+    obs = obs.dropna(subset=["gameday", "kickoff_utc"])
+    history = epa_quality_ratings(obs)
+    return epa_quality_team_agg(history, games, injuries, roster_unavailable,
+                                weekly_injuries, redistribute_phase1,
+                                phase1_caps, phase1_alpha, spill_matrix)
+
+
+def _attach_dvoa_quality_features(df: pd.DataFrame, agg: pd.DataFrame,
+                                  games: pd.DataFrame) -> pd.DataFrame:
+    """Serve the per-position DVOA quality columns in one concat.
+
+    Mirrors _attach_epa_quality_features; the aggregate's ``epa_q`` column
+    carries defense-adjusted values here. Unscaled legs; the pace scaler
+    overwrites them in place under the same clean names.
+    """
+    n = len(df)
+    sides: dict[str, np.ndarray] = {}
+    sched_ok = (games is not None
+                and {"game_id", "home_team", "away_team"}.issubset(
+                    set(games.columns)))
+    if agg is None or agg.empty or not sched_ok:
+        for metric in config.DVOA_QUALITY_BASES:
+            for rep in ("home", "away", "diff"):
+                sides[f"{metric}_{rep}"] = np.full(n, np.nan)
+        return pd.concat([df, pd.DataFrame(sides, index=df.index)], axis=1)
+
+    gids = df["game_id"].astype(str)
+    sched = (games[["game_id", "home_team", "away_team"]].copy()
+             .assign(game_id=lambda x: x["game_id"].astype(str))
+             .drop_duplicates("game_id").set_index("game_id"))
+    for c in ("home_team", "away_team"):
+        sched[c] = sched[c].map(config.canonical_team)
+    for metric, pos in zip(config.DVOA_QUALITY_BASES, EPA_QB_POSITIONS):
+        sub = agg.loc[agg["position"] == pos, ["game_id", "team", "epa_q"]]
+        keyed = (sub.assign(game_id=sub["game_id"].astype(str))
+                 .set_index(["game_id", "team"])["epa_q"])
+        for side, team_col in (("home", "home_team"), ("away", "away_team")):
+            idx = pd.MultiIndex.from_arrays(
+                [gids.to_numpy(), sched["home_team"].reindex(gids).to_numpy()
+                 if side == "home"
+                 else sched["away_team"].reindex(gids).to_numpy()])
+            sides[f"{metric}_{side}"] = pd.to_numeric(
+                keyed.reindex(idx), errors="coerce").to_numpy(dtype=float)
+    for metric in config.DVOA_QUALITY_BASES:
+        sides[f"{metric}_diff"] = sides[f"{metric}_home"] - sides[f"{metric}_away"]
+    return pd.concat([df, pd.DataFrame(sides, index=df.index)], axis=1)
+
+
+def _attach_dvoa_scaled(df: pd.DataFrame) -> pd.DataFrame:
+    """Scale the DVOA legs by s_game in place under the clean names.
+
+    Mirrors _attach_epa_pace_scaled for the DVOA bases: one scaler both
+    sides, diff recomputed from the scaled sides, s_game NaN propagates.
+    """
+    out = df.copy() if df is not None else pd.DataFrame()
+    for base in config.DVOA_QUALITY_BASES:
+        for rep in ("home", "away", "diff"):
+            if f"{base}_{rep}" not in out.columns:
+                out[f"{base}_{rep}"] = np.nan
+    if out.empty:
+        return out
+    s = (pd.to_numeric(out["s_game"], errors="coerce")
+         if "s_game" in out.columns
+         else pd.Series(np.nan, index=out.index))
+    for base in config.DVOA_QUALITY_BASES:
+        for rep in ("home", "away"):
+            u = (pd.to_numeric(out[f"{base}_{rep}"], errors="coerce")
+                 if f"{base}_{rep}" in out.columns
+                 else pd.Series(np.nan, index=out.index))
+            out[f"{base}_{rep}"] = u * s
+    for base in config.DVOA_QUALITY_BASES:
+        out[f"{base}_diff"] = out[f"{base}_home"] - out[f"{base}_away"]
+    return out
+
+
 def _attach_epa_quality_features(df: pd.DataFrame, agg: pd.DataFrame,
                                  games: pd.DataFrame) -> pd.DataFrame:
     """Serve the per-position quality columns in ONE concat (home/away/diff).
@@ -3606,6 +4041,14 @@ def build_game_features(games: pd.DataFrame,
         games)
     # Pace EPA legs (scaled in place over the unscaled intermediates).
     df = _attach_epa_pace_scaled(df)
+    # Projected-lineup DVOA (challenger): same pool as EPA, defense-adjusted
+    # rates; scaled in place under the clean names, reading s_game above.
+    df = _attach_dvoa_quality_features(
+        df, _dvoa_quality_agg(games, pbp, ps, injuries, roster_unavailable,
+                              weekly_injuries, redistribute_phase1,
+                              phase1_caps, phase1_alpha, spill_matrix),
+        games)
+    df = _attach_dvoa_scaled(df)
     # Projected-lineup yardage: same pool as EPA, yardage rates; scaled in
     # place over the unscaled intermediates, reading s_game above.
     df = _attach_yds_features(
@@ -3755,6 +4198,12 @@ def build_slate_features(schedule: pd.DataFrame,
                              phase1_caps, phase1_alpha, spill_matrix),
         sched)
     df = _attach_epa_pace_scaled(df)
+    df = _attach_dvoa_quality_features(
+        df, _dvoa_quality_agg(sched, pbp, ps, injuries, roster_unavailable,
+                              weekly_injuries, redistribute_phase1,
+                              phase1_caps, phase1_alpha, spill_matrix),
+        sched)
+    df = _attach_dvoa_scaled(df)
     df = _attach_yds_features(
         df, _yds_quality_agg(sched, pbp, ps, injuries, roster_unavailable,
                              weekly_injuries, redistribute_phase1,

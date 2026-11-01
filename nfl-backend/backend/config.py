@@ -170,7 +170,10 @@ MIN_VAL_FOLD_GAMES = 15    # ordinary OOF validation minimum; final tail retaine
 # names, so the production feature SET is unchanged (same values, new
 # labels). Rebuild features, OOF and refits together - old bundles keyed
 # on _scaled names no longer match. Contract stays 76 columns.
-FEATURE_SET_VERSION = "nfl-prod-v10.1-clean"
+# v10.2 adopts the 3 PBWR matchup legs (2026-11-01, owner-directed):
+# the served contract grows 76 -> 79 columns. Rebuild features,
+# OOF and refits together - old 76-wide bundles no longer match.
+FEATURE_SET_VERSION = "nfl-prod-v10.2-pbwr"
 
 # ---------------------------------------------------------------------------
 # Moneyline calibration (MLB structural parity; favored-team space ONLY)
@@ -310,6 +313,15 @@ MONEYLINE_FEATURE_COLS = [
     "def_snaps_lost_share_home", "def_snaps_lost_share_away",
     "def_snaps_lost_share_diff",
     "def_key_out_home", "def_key_out_away", "def_key_out_diff",
+    # 2026-11-01 PBWR adoption (owner-directed; A/B/B_raw/C/C_raw trial):
+    # net pass-block-win matchup edge (own OL clean-pocket rate minus the
+    # opponent DL pressure rate, both shrunk prior EWMs). The diff serves
+    # every family; the raw sides route tree-only through RAW_PER_SIDE_COLS
+    # (auto-included via CANDIDATE_FAMILIES, same rule as every raw level).
+    # B_raw led on point estimate on the full sample and the SI-market
+    # edge>5% slice; C carried only the edge slice. Contract 76 -> 79.
+    "pbp_pbwr_edge_ewm_diff",
+    "pbp_pbwr_edge_ewm_home", "pbp_pbwr_edge_ewm_away",
     "is_home",
 ]
 
@@ -353,6 +365,12 @@ PBP_CANDIDATE_TRAILING_SPECS: dict[str, tuple[str, ...]] = {
     # Pressure / playcalling (OL + tendency)
     "sack_rate": ("ewm",),
     "dropback_rate": ("ewm",),
+    # Trench family (2026-11-01 trial): defensive sacks generated per
+    # opponent dropback (the rush half of the OL-vs-DL battle; the offense
+    # half is sack_rate above) and QB hits absorbed per dropback (the
+    # higher-frequency pressure sibling; needs pbp cache v7).
+    "def_sack_rate": ("ewm",),
+    "qb_hit_rate": ("ewm",),
     # Situational strength
     "third_down_rate": ("ewm",),
     "redzone_td_rate": ("ewm",),
@@ -407,6 +425,28 @@ PBP_OPP_ADJ_METRICS: dict[str, str] = {
 # the flat window is the long-standing OPP_ADJ_WINDOW knob, finally armed).
 PBP_OPP_ADJ_TRAILING_SPECS: dict[str, tuple[str, ...]] = {
     "epa_play_opp_adj": ("ewm", "roll_opp"),
+}
+
+# Trench-edge series (2026-11-01 trial): per-game net incoming pressure
+# built on the ladder by features._add_trench_metrics from the two
+# strictly-prior EWMs (opponent shrunk def_sack_rate prior minus own
+# shrunk sack_rate-allowed prior). Trailed like every per-game metric;
+# served pbp_trench_edge_ewm_{diff,home,away} by the generic machinery.
+PBP_TRENCH_TRAILING_SPECS: dict[str, tuple[str, ...]] = {
+    "trench_edge": ("ewm",),
+}
+
+# Pass-block-win matchup (2026-11-01 trial): per-team-game OL clean-pocket
+# rate (ol_pbwr) and DL pressure-generated rate (dl_prwr) from play-level
+# OR semantics (a dropback is a win only when neither sack nor QB hit --
+# 94.6% of sacks also carry qb_hit=1, so sums would double-count). The
+# pre-pass combines shrunk prior EWMs into pbwr_edge (own OL minus
+# opponent DL); the served game diff is exactly
+# (home OL - away DL) - (away OL - home DL). Trailed like every per-game
+# metric; served pbp_pbwr_edge_ewm_diff plus the raw pbp_dl_prwr_ewm legs.
+PBP_PBWR_TRAILING_SPECS: dict[str, tuple[str, ...]] = {
+    "dl_prwr": ("ewm",),
+    "pbwr_edge": ("ewm",),
 }
 
 # FTN charting (nflreadpy.load_ftn_charting, 2022+): per-play offensive
@@ -480,6 +520,8 @@ CANDIDATE_FAMILIES: dict[str, dict[str, dict[str, tuple[str, ...]]]] = {
     "pbp": {
         "base": PBP_CANDIDATE_TRAILING_SPECS,
         "opp_adj": PBP_OPP_ADJ_TRAILING_SPECS,
+        "trench": PBP_TRENCH_TRAILING_SPECS,
+        "pbwr": PBP_PBWR_TRAILING_SPECS,
     },
     "ps": {"base": PS_CANDIDATE_TRAILING_SPECS},
     "ngs": {"base": NGS_CANDIDATE_TRAILING_SPECS},
@@ -596,6 +638,14 @@ EPA_PACE_SCALED_FEATURE_COLS: list[str] = [
     f"{base}_{rep}" for base in EPA_PACE_SCALED_BASES
     for rep in ("home", "away", "diff")
 ]
+# Projected-lineup DVOA (challenger, unvalidated trial pool only -- never
+# the production contract; the guard below deliberately excludes these).
+DVOA_QUALITY_BASES: tuple[str, ...] = ("pl_dvoa_qb", "pl_dvoa_wr",
+                                       "pl_dvoa_te", "pl_dvoa_rb")
+DVOA_SCALED_FEATURE_COLS: list[str] = [
+    f"{base}_{rep}" for base in DVOA_QUALITY_BASES
+    for rep in ("home", "away", "diff")
+]
 # Unit-fixed cross-matched net (deleted 2026-11-01 with the unscaled legs).
 if not set(EPA_PACE_SCALED_FEATURE_COLS) <= set(MONEYLINE_FEATURE_COLS):
     raise RuntimeError("pace EPA features must all be in the "
@@ -677,6 +727,7 @@ RAW_PER_SIDE_COLS = frozenset({
     | {"rest_short_home", "rest_short_away"}
     | {f"{m}_{s}" for m in STATIC_SIDE_CANDIDATES for s in ("home", "away")}
     | {f"{m}_{s}" for m in EPA_PACE_SCALED_BASES for s in ("home", "away")}
+    | {f"{m}_{s}" for m in DVOA_QUALITY_BASES for s in ("home", "away")}
     | {f"{m}_{s}" for m in YDS_SCALED_BASES for s in ("home", "away")}
     | {f"{m}_{s}" for m in INJURY_SHARE_BASES for s in ("home", "away")})
 
@@ -693,7 +744,12 @@ RFE_CANDIDATE_COLS: list[str] = list(dict.fromkeys(
        # served member now, never a trial candidate — the same exclusion the
        # PBP candidate list applies above.
        if f"{m}_{s}" not in set(MONEYLINE_FEATURE_COLS)]
-    + [f"{m}_{s}" for m in STATIC_DIFF_CANDIDATES for s in ("diff",)]))
+    + [f"{m}_{s}" for m in STATIC_DIFF_CANDIDATES for s in ("diff",)]
+    # DVOA challenger trial pool (2026-11-01, unvalidated): the 12
+    # defense-adjusted lineup legs, served home/away/diff like the EPA
+    # legs they challenge. Pool-only; never the contract.
+    + [f"{m}_{s}" for m in DVOA_QUALITY_BASES
+       for s in ("home", "away", "diff")]))
 
 # Trial / validation pool: universe first (canonical), then candidates.
 # set_feature_subset validates against the POOL, because an adopted RFE record

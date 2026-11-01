@@ -228,7 +228,7 @@ check("the four rest/travel side twins are in the served contract, out of the RF
           and c not in manifest.CANDIDATE_MANIFEST
           for c in _twins)
       # 2026-11-01 v10.1: unscaled deleted; served set unchanged at 76 clean names.
-      and len(config.MONEYLINE_FEATURE_COLS) == 76)
+      and len(config.MONEYLINE_FEATURE_COLS) == 79)
 check("rest/travel side twins route tree-only like every raw level",
       set(_twins) <= set(config.RAW_PER_SIDE_COLS)
       and all(manifest.FEATURE_MANIFEST[c]["model_family_availability"] == ["tree"]
@@ -451,7 +451,7 @@ check("all four hourly weather features are in the active contract",
       _weather_features <= set(config.MONEYLINE_FEATURE_COLS))
 check("active moneyline contract includes the 12 pace EPA lineup features",
       set(config.EPA_PACE_SCALED_FEATURE_COLS) <= set(config.MONEYLINE_FEATURE_COLS)
-      and len(config.MONEYLINE_FEATURE_COLS) == 76)
+      and len(config.MONEYLINE_FEATURE_COLS) == 79)
 
 # Coverage gate (2026-09-27 side-twin promotion, owner >99% bar): the four
 # twins must clear the bar on the OOF population (2017+, what folds evaluate
@@ -3059,7 +3059,7 @@ check("the 12 pace legs are served under clean names; unscaled lists deleted",
               and c in manifest.FEATURE_MANIFEST
               and c not in manifest.CANDIDATE_MANIFEST
               for c in _expected_epa)
-      and len(config.MONEYLINE_FEATURE_COLS) == 76)
+      and len(config.MONEYLINE_FEATURE_COLS) == 79)
 check("clean pace sides route tree-only, diffs shared",
       all(f"{base}_{side}" in config.RAW_PER_SIDE_COLS
           for base in config.EPA_PACE_SCALED_BASES for side in ("home", "away"))
@@ -3199,11 +3199,45 @@ check("the roll-window siblings were not promoted and remain triable",
       all(f"pbp_def_epa_play_roll_{s}" not in config.MONEYLINE_FEATURE_COLS
           and f"pbp_def_epa_play_roll_{s}" in config.RFE_CANDIDATE_COLS
           for s in ("diff", "home", "away")))
+# ---------------------------------------------------------------------------
+# PBWR adoption (2026-11-01, owner-directed A/B/B_raw/C/C_raw trial).
+# B_raw (raw sides) led on point estimate on the full sample (dLL
+# -0.000391, se 0.000601) and the SI-market edge>5% slice (-0.000806);
+# C carried only the edge slice (-0.001247) and hurt the full sample
+# (+0.000363). The 3 matchup legs (diff + raw sides) are adopted as the
+# PBWR representative; the DL rush legs stay triable. Gates pin structure,
+# routing, the EWM primitive, and the trial verdict numbers - not a win.
+# ---------------------------------------------------------------------------
+_promoted_pbwr = ["pbp_pbwr_edge_ewm_diff", "pbp_pbwr_edge_ewm_home",
+                  "pbp_pbwr_edge_ewm_away"]
+check("promoted PBWR columns are in the served contract and out of the RFE pool",
+      all(c in config.MONEYLINE_FEATURE_COLS
+          and c not in config.RFE_CANDIDATE_COLS
+          and c in manifest.FEATURE_MANIFEST
+          and c not in manifest.CANDIDATE_MANIFEST
+          and manifest.FEATURE_MANIFEST[c]["candidate"] is False
+          for c in _promoted_pbwr)
+      and all(c in manifest._RFE_PROMOTED for c in _promoted_pbwr)
+      and len(config.MONEYLINE_FEATURE_COLS) == 79)
+check("promoted PBWR routing matches the contract rule: sides tree-only, diff shared",
+      all(f"pbp_pbwr_edge_ewm_{side}" in config.RAW_PER_SIDE_COLS
+          and manifest.FEATURE_MANIFEST[
+              f"pbp_pbwr_edge_ewm_{side}"]["model_family_availability"] == ["tree"]
+          for side in ("home", "away"))
+      and "pbp_pbwr_edge_ewm_diff" not in config.RAW_PER_SIDE_COLS
+      and manifest.FEATURE_MANIFEST["pbp_pbwr_edge_ewm_diff"][
+          "model_family_availability"] == ["linear", "tree", "mlp"])
+check("the DL rush legs were not promoted and remain triable",
+      all(f"pbp_dl_prwr_ewm_{s}" not in config.MONEYLINE_FEATURE_COLS
+          and f"pbp_dl_prwr_ewm_{s}" in config.RFE_CANDIDATE_COLS
+          and f"pbp_dl_prwr_ewm_{s}" in manifest.CANDIDATE_MANIFEST
+          for s in ("diff", "home", "away")))
+
 check("the served contract still carries an explicit defensive quantity",
       # Before this promotion the contract held NO defensive column at all:
       # defensive quality arrived only via the opponent's Elo/win%/net-points.
       any(c.startswith("pbp_def_epa_play_") for c in config.MONEYLINE_FEATURE_COLS)
-      and len(config.MONEYLINE_FEATURE_COLS) == 76)
+      and len(config.MONEYLINE_FEATURE_COLS) == 79)
 
 # ---------------------------------------------------------------------------
 # Weekly-report injury-share family (2026-09-27 Tier B promotion, 18 cols).
@@ -4807,15 +4841,15 @@ check("injury-share share pricing unchanged for report-flagged players",
 _src_gf = inspect.getsource(feat_mod.build_game_features)
 _src_sf = inspect.getsource(feat_mod.build_slate_features)
 check("both builders thread the roster overlay into both consumption points",
-      _src_gf.count("roster_unavailable") == 4
-      and _src_sf.count("roster_unavailable") == 4
+      _src_gf.count("roster_unavailable") == 5
+      and _src_sf.count("roster_unavailable") == 5
       and "roster_unavailable" in inspect.getsource(
           feat_mod.epa_quality_team_agg)
       and "roster_unavailable" in inspect.getsource(
           feat_mod.injury_share_table))
 check("both builders thread weekly_injuries into the EPA lineups too",
-      _src_gf.count("weekly_injuries") == 4
-      and _src_sf.count("weekly_injuries") == 4
+      _src_gf.count("weekly_injuries") == 5
+      and _src_sf.count("weekly_injuries") == 5
       and "weekly_injuries" in inspect.getsource(feat_mod._epa_quality_agg)
       and "weekly_injuries" in inspect.getsource(feat_mod.epa_quality_team_agg),
       "the report-cycle channel is the only availability source in 2025/2026")
