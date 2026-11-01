@@ -1425,6 +1425,18 @@ def _attach_static_team_facts(df: pd.DataFrame,
     # is_turf_home sat at ~75% coverage in the current window (LOW_COVERAGE).
     # Substring rules classify every listed surface; truly blank/unknown
     # strings stay NaN.
+    # 2026-11-01 remote-log review (residual class, NOT a defect): after the
+    # 10-18 substring fix the current-window LOW_COVERAGE did not clear -
+    # it decayed 51.67% -> 28.33% over the 10-24..11-01 runs while the
+    # season-phase-matched prior-season baseline holds 97.6% measured.
+    # That signature is blank upstream `surface` for in-progress-season
+    # weeks (nflverse backfills the field with a lag), not a normalization
+    # miss: everything listed is classified, and the monitoring
+    # LOW_COVERAGE/INSUFFICIENT alarm firing on the unstable drop is the
+    # designed 10-08-audit behavior, not a bug. Deliberately no
+    # venue-table fallback: no sourced 2026 surfaces exist in-repo, so
+    # filling from a hand-authored table would violate the never-fabricate
+    # policy the manifest pins for this feature.
     surface = (df["surface"].astype(str).str.strip().str.lower()
                if "surface" in df.columns
                else pd.Series("", index=df.index))
