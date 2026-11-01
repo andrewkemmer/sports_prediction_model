@@ -1,5 +1,5 @@
 {
- "created_utc": "2026-11-01T08:14:01.986785+00:00",
+ "created_utc": "2026-11-01T15:45:25.597124+00:00",
  "date": "20261101",
  "version": "v2026.11.01",
  "config": {
@@ -30,8 +30,8 @@
    "play_by_play": "stats.nba.com playbyplayv3",
    "team_events": "stats.nba.com playbyplayv3"
   },
-  "play_by_play_rows": 1997143,
-  "event_rows": 8058
+  "play_by_play_rows": 1996630,
+  "event_rows": 8056
  },
  "last_retrained": "20261101",
  "last_retrained_note": "Fresh NBA model trained this run",
@@ -52,7 +52,7 @@
     "shift_se": 0.092031,
     "location_shift": true,
     "status": "ALERT",
-    "weight_pct": 0.0254,
+    "weight_pct": 0.0258,
     "n_baseline": 250,
     "n_current": 60
    },
@@ -243,7 +243,7 @@
     "psi": 0.532368,
     "psi_adjusted": 0.439368,
     "noise_floor": 0.093,
-    "mean_shift": 2.255718,
+    "mean_shift": 2.255723,
     "shift_se": 0.649734,
     "location_shift": true,
     "status": "ALERT",
@@ -363,13 +363,13 @@
  "brier_baseline": 0.2497147203812301,
  "brier_baseline_label": "Constant home-edge",
  "metrics": {
-  "auc": 0.7455998325843688,
-  "brier": 0.20302747003636848,
-  "logloss": 0.5913458503367094,
-  "ece": 0.017905979123116606,
-  "brier_calibrated": 0.20302747003636848,
-  "logloss_calibrated": 0.5913458503367094,
-  "ece_calibrated": 0.017905979123116606,
+  "auc": 0.7455988000044057,
+  "brier": 0.20302829689494556,
+  "logloss": 0.5913478062108264,
+  "ece": 0.018201344166747666,
+  "brier_calibrated": 0.20302829689494556,
+  "logloss_calibrated": 0.5913478062108264,
+  "ece_calibrated": 0.018201344166747666,
   "calibrator_gated_out": false
  },
  "calibration": {},
@@ -378,25 +378,25 @@
    "name": "xgboost",
    "weight": 0.0,
    "n_eval": 3424,
-   "auc": 0.7345766972861045,
-   "brier": 0.2072442347816522,
-   "logloss": 0.6018448428804578
+   "auc": 0.7346007908185742,
+   "brier": 0.2072437021535271,
+   "logloss": 0.6018696254582906
   },
   {
    "name": "lightgbm",
    "weight": 0.0,
    "n_eval": 3424,
-   "auc": 0.7371595239668693,
-   "brier": 0.20599697087714391,
-   "logloss": 0.5987591259381859
+   "auc": 0.7371805197594502,
+   "brier": 0.20599391351038795,
+   "logloss": 0.5986714122889887
   },
   {
    "name": "elasticnet",
    "weight": 1.0,
    "n_eval": 3424,
-   "auc": 0.7461753238170765,
-   "brier": 0.20286671724984337,
-   "logloss": 0.5909769098875821
+   "auc": 0.7461698167239404,
+   "brier": 0.20286754410842045,
+   "logloss": 0.5909788657616991
   }
  ],
  "rolling_brier": [
@@ -2682,7 +2682,7 @@
   },
   {
    "date": "2026-01-04",
-   "brier": 0.2378229591740083,
+   "brier": 0.23801175809193792,
    "games": 8
   },
   {
@@ -2692,12 +2692,12 @@
   },
   {
    "date": "2026-01-06",
-   "brier": 0.19547746489702678,
+   "brier": 0.1950307829016599,
    "games": 6
   },
   {
    "date": "2026-01-07",
-   "brier": 0.1964619062070447,
+   "brier": 0.19659444484078714,
    "games": 12
   },
   {
@@ -2707,717 +2707,717 @@
   },
   {
    "date": "2026-01-09",
-   "brier": 0.2078076384977426,
+   "brier": 0.2078861229232138,
    "games": 10
   },
   {
    "date": "2026-01-10",
-   "brier": 0.26311656372998943,
+   "brier": 0.2631063152552521,
    "games": 6
   },
   {
    "date": "2026-01-11",
-   "brier": 0.20958445460975744,
+   "brier": 0.20952990386760378,
    "games": 10
   },
   {
    "date": "2026-01-12",
-   "brier": 0.4008091601705502,
+   "brier": 0.4009289933924407,
    "games": 6
   },
   {
    "date": "2026-01-13",
-   "brier": 0.1676351832248136,
+   "brier": 0.16760335829455428,
    "games": 7
   },
   {
    "date": "2026-01-14",
-   "brier": 0.234080517441908,
+   "brier": 0.2340101700203641,
    "games": 7
   },
   {
    "date": "2026-01-15",
-   "brier": 0.18573931118320153,
+   "brier": 0.18587021762822376,
    "games": 9
   },
   {
    "date": "2026-01-16",
-   "brier": 0.1936451560868587,
+   "brier": 0.19367481024442032,
    "games": 6
   },
   {
    "date": "2026-01-17",
-   "brier": 0.21295442156686742,
+   "brier": 0.2130175960628549,
    "games": 9
   },
   {
    "date": "2026-01-18",
-   "brier": 0.20282580938605455,
+   "brier": 0.2028912626143465,
    "games": 6
   },
   {
    "date": "2026-01-19",
-   "brier": 0.18547737803346573,
+   "brier": 0.1854735255752103,
    "games": 9
   },
   {
    "date": "2026-01-20",
-   "brier": 0.3322152635546737,
+   "brier": 0.33219093916937226,
    "games": 7
   },
   {
    "date": "2026-01-21",
-   "brier": 0.12403914351288689,
+   "brier": 0.12410426756476123,
    "games": 7
   },
   {
    "date": "2026-01-22",
-   "brier": 0.24389386756725875,
+   "brier": 0.24396312958371622,
    "games": 8
   },
   {
    "date": "2026-01-23",
-   "brier": 0.295959448098365,
+   "brier": 0.2958859154577266,
    "games": 8
   },
   {
    "date": "2026-01-24",
-   "brier": 0.1936254423913216,
+   "brier": 0.19360516583008033,
    "games": 6
   },
   {
    "date": "2026-01-25",
-   "brier": 0.3246539187718856,
+   "brier": 0.32465791889659695,
    "games": 6
   },
   {
    "date": "2026-01-26",
-   "brier": 0.10525744385889109,
+   "brier": 0.10525645925486374,
    "games": 7
   },
   {
    "date": "2026-01-27",
-   "brier": 0.1211096998214187,
+   "brier": 0.12112244051528746,
    "games": 7
   },
   {
    "date": "2026-01-28",
-   "brier": 0.25550397636102756,
+   "brier": 0.2555550787909357,
    "games": 9
   },
   {
    "date": "2026-01-29",
-   "brier": 0.19059823787695718,
+   "brier": 0.1906024145303016,
    "games": 8
   },
   {
    "date": "2026-01-30",
-   "brier": 0.24200059070499336,
+   "brier": 0.24196572825618176,
    "games": 9
   },
   {
    "date": "2026-01-31",
-   "brier": 0.19086958881776458,
+   "brier": 0.1908919757098427,
    "games": 6
   },
   {
    "date": "2026-02-01",
-   "brier": 0.1308843232882543,
+   "brier": 0.1309245420450323,
    "games": 10
   },
   {
    "date": "2026-02-02",
-   "brier": 0.31626054072231136,
+   "brier": 0.31634359381328275,
    "games": 4
   },
   {
    "date": "2026-02-03",
-   "brier": 0.18434936550710224,
+   "brier": 0.18435773365038557,
    "games": 10
   },
   {
    "date": "2026-02-04",
-   "brier": 0.23242745187205513,
+   "brier": 0.2324360898598267,
    "games": 7
   },
   {
    "date": "2026-02-05",
-   "brier": 0.2621734649205877,
+   "brier": 0.26222420630445303,
    "games": 8
   },
   {
    "date": "2026-02-06",
-   "brier": 0.22590257761968488,
+   "brier": 0.22595333376472873,
    "games": 6
   },
   {
    "date": "2026-02-07",
-   "brier": 0.1425244921478498,
+   "brier": 0.14257707854219662,
    "games": 10
   },
   {
    "date": "2026-02-08",
-   "brier": 0.23797122950161254,
+   "brier": 0.23799293034107885,
    "games": 4
   },
   {
    "date": "2026-02-09",
-   "brier": 0.2000238666669263,
+   "brier": 0.20002169449677432,
    "games": 10
   },
   {
    "date": "2026-02-10",
-   "brier": 0.27378047836152347,
+   "brier": 0.2737117406135221,
    "games": 4
   },
   {
    "date": "2026-02-11",
-   "brier": 0.20558500539434674,
+   "brier": 0.20552910519584958,
    "games": 14
   },
   {
    "date": "2026-02-12",
-   "brier": 0.338536909953244,
+   "brier": 0.3386600942279869,
    "games": 3
   },
   {
    "date": "2026-02-19",
-   "brier": 0.18512597943328735,
+   "brier": 0.18514534736758165,
    "games": 10
   },
   {
    "date": "2026-02-20",
-   "brier": 0.16180194788953117,
+   "brier": 0.16178828186440058,
    "games": 9
   },
   {
    "date": "2026-02-21",
-   "brier": 0.1264148690851898,
+   "brier": 0.1264249405191867,
    "games": 6
   },
   {
    "date": "2026-02-22",
-   "brier": 0.2762526897748994,
+   "brier": 0.27625141161026373,
    "games": 11
   },
   {
    "date": "2026-02-23",
-   "brier": 0.2551611809655492,
+   "brier": 0.25515333848822425,
    "games": 3
   },
   {
    "date": "2026-02-24",
-   "brier": 0.20871020197807102,
+   "brier": 0.20871184663627484,
    "games": 11
   },
   {
    "date": "2026-02-25",
-   "brier": 0.20400349235063372,
+   "brier": 0.20401308551794692,
    "games": 6
   },
   {
    "date": "2026-02-26",
-   "brier": 0.19451277046552332,
+   "brier": 0.19450843662375386,
    "games": 10
   },
   {
    "date": "2026-02-27",
-   "brier": 0.1545989342842558,
+   "brier": 0.15464005195605166,
    "games": 5
   },
   {
    "date": "2026-02-28",
-   "brier": 0.1655416869232637,
+   "brier": 0.16552826368222706,
    "games": 5
   },
   {
    "date": "2026-03-01",
-   "brier": 0.13959618866467668,
+   "brier": 0.13962540683317456,
    "games": 11
   },
   {
    "date": "2026-03-02",
-   "brier": 0.12617907892311517,
+   "brier": 0.12614670138095524,
    "games": 4
   },
   {
    "date": "2026-03-03",
-   "brier": 0.09128714552004911,
+   "brier": 0.09133317760170365,
    "games": 10
   },
   {
    "date": "2026-03-04",
-   "brier": 0.21104595414285077,
+   "brier": 0.21108044045359642,
    "games": 6
   },
   {
    "date": "2026-03-05",
-   "brier": 0.22975384940875662,
+   "brier": 0.2297471357568801,
    "games": 9
   },
   {
    "date": "2026-03-06",
-   "brier": 0.15969568062575817,
+   "brier": 0.15973017418234195,
    "games": 7
   },
   {
    "date": "2026-03-07",
-   "brier": 0.25220235888865744,
+   "brier": 0.2522073143424353,
    "games": 6
   },
   {
    "date": "2026-03-08",
-   "brier": 0.21082606552076463,
+   "brier": 0.2108260003210745,
    "games": 10
   },
   {
    "date": "2026-03-09",
-   "brier": 0.23314776608558904,
+   "brier": 0.2330616462217565,
    "games": 5
   },
   {
    "date": "2026-03-10",
-   "brier": 0.1742610185042078,
+   "brier": 0.17423495437243794,
    "games": 11
   },
   {
    "date": "2026-03-11",
-   "brier": 0.1711477774541478,
+   "brier": 0.17112205693938287,
    "games": 6
   },
   {
    "date": "2026-03-12",
-   "brier": 0.1297478192896745,
+   "brier": 0.12977439473128818,
    "games": 9
   },
   {
    "date": "2026-03-13",
-   "brier": 0.06469773061996811,
+   "brier": 0.06468632291180984,
    "games": 8
   },
   {
    "date": "2026-03-14",
-   "brier": 0.23085992048925763,
+   "brier": 0.23083721502363574,
    "games": 7
   },
   {
    "date": "2026-03-15",
-   "brier": 0.29624942217564276,
+   "brier": 0.2962348283823411,
    "games": 7
   },
   {
    "date": "2026-03-16",
-   "brier": 0.12117428383186435,
+   "brier": 0.12122770936078958,
    "games": 8
   },
   {
    "date": "2026-03-17",
-   "brier": 0.06696518858074413,
+   "brier": 0.06696527067274297,
    "games": 8
   },
   {
    "date": "2026-03-18",
-   "brier": 0.16587111327596513,
+   "brier": 0.16590314475308626,
    "games": 9
   },
   {
    "date": "2026-03-19",
-   "brier": 0.17037969286268825,
+   "brier": 0.17041112412960957,
    "games": 8
   },
   {
    "date": "2026-03-20",
-   "brier": 0.12849165610682634,
+   "brier": 0.12847351095347895,
    "games": 6
   },
   {
    "date": "2026-03-21",
-   "brier": 0.1412940508534108,
+   "brier": 0.1413097847570195,
    "games": 10
   },
   {
    "date": "2026-03-22",
-   "brier": 0.23719453427769555,
+   "brier": 0.23716149826216734,
    "games": 5
   },
   {
    "date": "2026-03-23",
-   "brier": 0.18224296320718775,
+   "brier": 0.18228193283018224,
    "games": 10
   },
   {
    "date": "2026-03-24",
-   "brier": 0.0662371328864709,
+   "brier": 0.06631950243508637,
    "games": 4
   },
   {
    "date": "2026-03-25",
-   "brier": 0.18963467093707195,
+   "brier": 0.1896171481074632,
    "games": 12
   },
   {
    "date": "2026-03-26",
-   "brier": 0.1358738285265049,
+   "brier": 0.13577853735087536,
    "games": 3
   },
   {
    "date": "2026-03-27",
-   "brier": 0.10413362957774182,
+   "brier": 0.10413438468313922,
    "games": 10
   },
   {
    "date": "2026-03-28",
-   "brier": 0.20136850896552105,
+   "brier": 0.2013673456675448,
    "games": 6
   },
   {
    "date": "2026-03-29",
-   "brier": 0.15698469562329126,
+   "brier": 0.1569601711760679,
    "games": 9
   },
   {
    "date": "2026-03-30",
-   "brier": 0.08487504945743031,
+   "brier": 0.08493945213891507,
    "games": 8
   },
   {
    "date": "2026-03-31",
-   "brier": 0.21475226000804157,
+   "brier": 0.21477219490041194,
    "games": 7
   },
   {
    "date": "2026-04-01",
-   "brier": 0.16488506880645415,
+   "brier": 0.16486810490952566,
    "games": 9
   },
   {
    "date": "2026-04-02",
-   "brier": 0.1285281674611344,
+   "brier": 0.12845598298386385,
    "games": 6
   },
   {
    "date": "2026-04-03",
-   "brier": 0.08440851273180301,
+   "brier": 0.08436331034897003,
    "games": 9
   },
   {
    "date": "2026-04-04",
-   "brier": 0.142044699133512,
+   "brier": 0.1420371881000483,
    "games": 3
   },
   {
    "date": "2026-04-05",
-   "brier": 0.11430447949418868,
+   "brier": 0.11427141339929915,
    "games": 11
   },
   {
    "date": "2026-04-06",
-   "brier": 0.13319944105149673,
+   "brier": 0.1331893384179388,
    "games": 5
   },
   {
    "date": "2026-04-07",
-   "brier": 0.11618806647077991,
+   "brier": 0.11623324983888605,
    "games": 10
   },
   {
    "date": "2026-04-08",
-   "brier": 0.06111349486071303,
+   "brier": 0.06111835838176562,
    "games": 7
   },
   {
    "date": "2026-04-09",
-   "brier": 0.17474325821284187,
+   "brier": 0.17476859311129148,
    "games": 6
   },
   {
    "date": "2026-04-10",
-   "brier": 0.18248083675264107,
+   "brier": 0.18244295148001252,
    "games": 15
   },
   {
    "date": "2026-04-12",
-   "brier": 0.16511808361134733,
+   "brier": 0.16505537869016587,
    "games": 15
   },
   {
    "date": "2026-04-18",
-   "brier": 0.16016995041198706,
+   "brier": 0.16028622994844205,
    "games": 4
   },
   {
    "date": "2026-04-19",
-   "brier": 0.140614277356231,
+   "brier": 0.14063253011424875,
    "games": 4
   },
   {
    "date": "2026-04-20",
-   "brier": 0.36634320028817197,
+   "brier": 0.3663134792618961,
    "games": 3
   },
   {
    "date": "2026-04-21",
-   "brier": 0.54143246211428,
+   "brier": 0.5415216295800968,
    "games": 3
   },
   {
    "date": "2026-04-22",
-   "brier": 0.09459971365477421,
+   "brier": 0.09462207528129682,
    "games": 2
   },
   {
    "date": "2026-04-23",
-   "brier": 0.35740890000378994,
+   "brier": 0.3574009672447651,
    "games": 3
   },
   {
    "date": "2026-04-24",
-   "brier": 0.19455396626244728,
+   "brier": 0.19462888844678464,
    "games": 3
   },
   {
    "date": "2026-04-25",
-   "brier": 0.16332537400441885,
+   "brier": 0.1633166864349424,
    "games": 4
   },
   {
    "date": "2026-04-26",
-   "brier": 0.16757135958803088,
+   "brier": 0.16754282522138322,
    "games": 4
   },
   {
    "date": "2026-04-27",
-   "brier": 0.15361440469651363,
+   "brier": 0.15362662041200253,
    "games": 3
   },
   {
    "date": "2026-04-28",
-   "brier": 0.2755697490490941,
+   "brier": 0.2756054192361615,
    "games": 3
   },
   {
    "date": "2026-04-29",
-   "brier": 0.18604287458530688,
+   "brier": 0.18593308678043427,
    "games": 3
   },
   {
    "date": "2026-04-30",
-   "brier": 0.32625495856812464,
+   "brier": 0.3263576456582204,
    "games": 3
   },
   {
    "date": "2026-05-01",
-   "brier": 0.3055749448145662,
+   "brier": 0.30563513522290414,
    "games": 3
   },
   {
    "date": "2026-05-02",
-   "brier": 0.5645867035177683,
+   "brier": 0.5647533070896984,
    "games": 1
   },
   {
    "date": "2026-05-03",
-   "brier": 0.09889835720219417,
+   "brier": 0.09893158250399217,
    "games": 2
   },
   {
    "date": "2026-05-04",
-   "brier": 0.2911865647970598,
+   "brier": 0.2911334388744671,
    "games": 2
   },
   {
    "date": "2026-05-05",
-   "brier": 0.16738586130513994,
+   "brier": 0.16732695130749403,
    "games": 2
   },
   {
    "date": "2026-05-06",
-   "brier": 0.05709826227214453,
+   "brier": 0.05712217533765836,
    "games": 2
   },
   {
    "date": "2026-05-07",
-   "brier": 0.12306173057260221,
+   "brier": 0.1230649395612263,
    "games": 2
   },
   {
    "date": "2026-05-08",
-   "brier": 0.10605402927896959,
+   "brier": 0.1060799556045278,
    "games": 2
   },
   {
    "date": "2026-05-09",
-   "brier": 0.15301318431676997,
+   "brier": 0.1530102247295026,
    "games": 2
   },
   {
    "date": "2026-05-10",
-   "brier": 0.24103356791757297,
+   "brier": 0.2409719846319086,
    "games": 2
   },
   {
    "date": "2026-05-11",
-   "brier": 0.14091372295137222,
+   "brier": 0.14094057999532067,
    "games": 2
   },
   {
    "date": "2026-05-12",
-   "brier": 0.08129541853722236,
+   "brier": 0.08130468447218425,
    "games": 1
   },
   {
    "date": "2026-05-13",
-   "brier": 0.2217174034581341,
+   "brier": 0.22195265303411899,
    "games": 1
   },
   {
    "date": "2026-05-15",
-   "brier": 0.26061505943818664,
+   "brier": 0.2604647467785041,
    "games": 2
   },
   {
    "date": "2026-05-17",
-   "brier": 0.28272740443127065,
+   "brier": 0.28291280614636904,
    "games": 1
   },
   {
    "date": "2026-05-18",
-   "brier": 0.4393115205991461,
+   "brier": 0.4391530884846839,
    "games": 1
   },
   {
    "date": "2026-05-19",
-   "brier": 0.10302120629251586,
+   "brier": 0.10290296498054607,
    "games": 1
   },
   {
    "date": "2026-05-20",
-   "brier": 0.1121475534434374,
+   "brier": 0.11220971369406099,
    "games": 1
   },
   {
    "date": "2026-05-21",
-   "brier": 0.08283697816460643,
+   "brier": 0.08276632476294764,
    "games": 1
   },
   {
    "date": "2026-05-22",
-   "brier": 0.22736286457625618,
+   "brier": 0.2274431577182411,
    "games": 1
   },
   {
    "date": "2026-05-23",
-   "brier": 0.18501525992484696,
+   "brier": 0.18485294915274922,
    "games": 1
   },
   {
    "date": "2026-05-24",
-   "brier": 0.2374753076941759,
+   "brier": 0.23744548710313715,
    "games": 1
   },
   {
    "date": "2026-05-25",
-   "brier": 0.15701006420393726,
+   "brier": 0.15691821255966837,
    "games": 1
   },
   {
    "date": "2026-05-26",
-   "brier": 0.17004827538283873,
+   "brier": 0.17000849080668876,
    "games": 1
   },
   {
    "date": "2026-05-28",
-   "brier": 0.19967169614202757,
+   "brier": 0.1996937393502428,
    "games": 1
   },
   {
    "date": "2026-05-30",
-   "brier": 0.26237397822052927,
+   "brier": 0.26250100203335364,
    "games": 1
   },
   {
    "date": "2026-06-03",
-   "brier": 0.23502592469852202,
+   "brier": 0.23494618115837212,
    "games": 1
   },
   {
    "date": "2026-06-05",
-   "brier": 0.2377764827666198,
+   "brier": 0.2376784155590678,
    "games": 1
   },
   {
    "date": "2026-06-08",
-   "brier": 0.39862681908285075,
+   "brier": 0.398967691602918,
    "games": 1
   },
   {
    "date": "2026-06-10",
-   "brier": 0.14330107659390398,
+   "brier": 0.14311267582988776,
    "games": 1
   },
   {
    "date": "2026-06-13",
-   "brier": 0.26121470463887314,
+   "brier": 0.2611895021859842,
    "games": 1
   },
   {
    "date": "2026-10-20",
-   "brier": 0.3865573939858497,
+   "brier": 0.3865440246650809,
    "games": 3
   },
   {
    "date": "2026-10-21",
-   "brier": 0.17191774963421727,
+   "brier": 0.17189789012051684,
    "games": 11
   },
   {
    "date": "2026-10-22",
-   "brier": 0.053974034078304194,
+   "brier": 0.05392789884708489,
    "games": 2
   },
   {
    "date": "2026-10-23",
-   "brier": 0.25290195369876045,
+   "brier": 0.2528611259597247,
    "games": 12
   },
   {
    "date": "2026-10-24",
-   "brier": 0.11922580705380742,
+   "brier": 0.11922704530050741,
    "games": 8
   },
   {
    "date": "2026-10-25",
-   "brier": 0.21718511013342062,
+   "brier": 0.21713742524130902,
    "games": 7
   },
   {
    "date": "2026-10-26",
-   "brier": 0.25230828749280704,
+   "brier": 0.25222322307731176,
    "games": 9
   },
   {
    "date": "2026-10-27",
-   "brier": 0.10684130936166064,
+   "brier": 0.10678766218670957,
    "games": 4
   },
   {
    "date": "2026-10-28",
-   "brier": 0.17258052952253852,
+   "brier": 0.17260568912113114,
    "games": 12
   },
   {
    "date": "2026-10-29",
-   "brier": 0.3658044748102213,
+   "brier": 0.3657508361621198,
    "games": 3
   },
   {
    "date": "2026-10-30",
-   "brier": 0.27854725553775705,
+   "brier": 0.2785447746361625,
    "games": 10
   },
   {
    "date": "2026-10-31",
-   "brier": 0.1415927291398926,
+   "brier": 0.14160967942286298,
    "games": 7
   }
  ],
@@ -3433,7 +3433,7 @@
    "shift_se": 38.936965,
    "location_shift": false,
    "status": "OK",
-   "weight_pct": 10.5324,
+   "weight_pct": 10.5258,
    "n_baseline": 250,
    "n_current": 60
   },
@@ -3463,7 +3463,7 @@
    "shift_se": 2.900539,
    "location_shift": false,
    "status": "OK",
-   "weight_pct": 2.9962,
+   "weight_pct": 2.9954,
    "n_baseline": 250,
    "n_current": 60
   },
@@ -3478,7 +3478,7 @@
    "shift_se": 0.085069,
    "location_shift": false,
    "status": "OK",
-   "weight_pct": 6.9128,
+   "weight_pct": 6.912,
    "n_baseline": 250,
    "n_current": 60
   },
@@ -3493,7 +3493,7 @@
    "shift_se": 2.581054,
    "location_shift": false,
    "status": "OK",
-   "weight_pct": 7.3486,
+   "weight_pct": 7.3517,
    "n_baseline": 250,
    "n_current": 60
   },
@@ -3523,7 +3523,7 @@
    "shift_se": 1.608663,
    "location_shift": false,
    "status": "OK",
-   "weight_pct": 0.8751,
+   "weight_pct": 0.8758,
    "n_baseline": 250,
    "n_current": 60
   },
@@ -3568,7 +3568,7 @@
    "shift_se": 0.783018,
    "location_shift": false,
    "status": "OK",
-   "weight_pct": 2.1276,
+   "weight_pct": 2.1138,
    "n_baseline": 250,
    "n_current": 60
   },
@@ -3583,7 +3583,7 @@
    "shift_se": 1.676878,
    "location_shift": false,
    "status": "OK",
-   "weight_pct": 2.7059,
+   "weight_pct": 2.7109,
    "n_baseline": 250,
    "n_current": 60
   },
@@ -3613,7 +3613,7 @@
    "shift_se": 0.092031,
    "location_shift": true,
    "status": "ALERT",
-   "weight_pct": 0.0254,
+   "weight_pct": 0.0258,
    "n_baseline": 250,
    "n_current": 60
   },
@@ -4134,7 +4134,7 @@
    "psi": 0.532368,
    "psi_adjusted": 0.439368,
    "noise_floor": 0.093,
-   "mean_shift": 2.255718,
+   "mean_shift": 2.255723,
    "shift_se": 0.649734,
    "location_shift": true,
    "status": "ALERT",
@@ -4149,7 +4149,7 @@
    "psi": 0.399168,
    "psi_adjusted": 0.306168,
    "noise_floor": 0.093,
-   "mean_shift": 0.961563,
+   "mean_shift": 0.961564,
    "shift_se": 0.702883,
    "location_shift": false,
    "status": "OK",
@@ -4164,7 +4164,7 @@
    "psi": 0.135665,
    "psi_adjusted": 0.042665,
    "noise_floor": 0.093,
-   "mean_shift": 0.158575,
+   "mean_shift": 0.158577,
    "shift_se": 0.273422,
    "location_shift": false,
    "status": "OK",
@@ -4179,7 +4179,7 @@
    "psi": 0.347497,
    "psi_adjusted": 0.254497,
    "noise_floor": 0.093,
-   "mean_shift": 0.100987,
+   "mean_shift": 0.100988,
    "shift_se": 0.264625,
    "location_shift": false,
    "status": "OK",
@@ -4194,7 +4194,7 @@
    "psi": 0.195657,
    "psi_adjusted": 0.102657,
    "noise_floor": 0.093,
-   "mean_shift": -0.496662,
+   "mean_shift": -0.496663,
    "shift_se": 0.507809,
    "location_shift": false,
    "status": "OK",
@@ -4209,7 +4209,7 @@
    "psi": 0.19483,
    "psi_adjusted": 0.10183,
    "noise_floor": 0.093,
-   "mean_shift": -0.389921,
+   "mean_shift": -0.38992,
    "shift_se": 0.51167,
    "location_shift": false,
    "status": "OK",
@@ -4258,7 +4258,7 @@
    "shift_se": 0.013517,
    "location_shift": false,
    "status": "OK",
-   "weight_pct": 3.6333,
+   "weight_pct": 3.6307,
    "n_baseline": 250,
    "n_current": 60
   },
@@ -4273,7 +4273,7 @@
    "shift_se": 0.00406,
    "location_shift": false,
    "status": "OK",
-   "weight_pct": 1.6952,
+   "weight_pct": 1.7215,
    "n_baseline": 250,
    "n_current": 60
   },
@@ -4299,11 +4299,11 @@
    "psi": 0.215308,
    "psi_adjusted": 0.122308,
    "noise_floor": 0.093,
-   "mean_shift": -0.090486,
+   "mean_shift": -0.090487,
    "shift_se": 0.31936,
    "location_shift": false,
    "status": "OK",
-   "weight_pct": 1.4473,
+   "weight_pct": 1.4465,
    "n_baseline": 250,
    "n_current": 60
   },
@@ -4314,7 +4314,7 @@
    "psi": 0.289771,
    "psi_adjusted": 0.196771,
    "noise_floor": 0.093,
-   "mean_shift": 1.294155,
+   "mean_shift": 1.29416,
    "shift_se": 0.840678,
    "location_shift": false,
    "status": "OK",
@@ -4329,11 +4329,11 @@
    "psi": 0.065317,
    "psi_adjusted": 0.0,
    "noise_floor": 0.093,
-   "mean_shift": 0.057588,
+   "mean_shift": 0.057589,
    "shift_se": 0.381044,
    "location_shift": false,
    "status": "OK",
-   "weight_pct": 0.6267,
+   "weight_pct": 0.5962,
    "n_baseline": 250,
    "n_current": 60
   },
@@ -4348,7 +4348,7 @@
    "shift_se": 0.644008,
    "location_shift": false,
    "status": "OK",
-   "weight_pct": 0.5107,
+   "weight_pct": 0.5309,
    "n_baseline": 250,
    "n_current": 60
   },
@@ -4393,7 +4393,7 @@
    "shift_se": 0.206864,
    "location_shift": false,
    "status": "OK",
-   "weight_pct": 33.9979,
+   "weight_pct": 33.9983,
    "n_baseline": 247,
    "n_current": 60
   },
@@ -4438,7 +4438,7 @@
    "shift_se": 0.125605,
    "location_shift": false,
    "status": "OK",
-   "weight_pct": 16.6166,
+   "weight_pct": 16.6204,
    "n_baseline": 247,
    "n_current": 60
   },
@@ -4648,7 +4648,7 @@
    "shift_se": 4.629912,
    "location_shift": false,
    "status": "OK",
-   "weight_pct": 3.4826,
+   "weight_pct": 3.4807,
    "n_baseline": 250,
    "n_current": 60
   },
@@ -4693,7 +4693,7 @@
    "shift_se": 2.60695,
    "location_shift": false,
    "status": "OK",
-   "weight_pct": 4.4658,
+   "weight_pct": 4.4635,
    "n_baseline": 250,
    "n_current": 60
   }
@@ -10112,34 +10112,34 @@
   "min_val_fold_games": 40,
   "oof_regular": {
    "n": 3424,
-   "auc": 0.7455998325843688,
-   "logloss": 0.5913458503367094,
-   "brier": 0.20302747003636848,
-   "ece": 0.017905979123116606,
+   "auc": 0.7455988000044057,
+   "logloss": 0.5913478062108264,
+   "brier": 0.20302829689494556,
+   "ece": 0.018201344166747666,
    "sufficient": true
   },
   "oof_postseason": {
    "n": 251,
-   "auc": 0.6447811447811448,
-   "logloss": 0.6565868090021273,
-   "brier": 0.22976521194196822,
-   "ece": 0.06839975062549267,
+   "auc": 0.6447163947163947,
+   "logloss": 0.6565954965431244,
+   "brier": 0.22976861864702786,
+   "ece": 0.06839870792180303,
    "sufficient": true
   },
   "oof_provisional": {
    "n": 348,
    "auc": 0.6819676487195668,
-   "logloss": 0.6405530729810205,
-   "brier": 0.22342797726750926,
-   "ece": 0.0464342817532173,
+   "logloss": 0.6405514542805008,
+   "brier": 0.22342750859253743,
+   "ece": 0.04643365644262934,
    "sufficient": true
   },
   "oof_all": {
    "n": 3799,
-   "auc": 0.7393301219134931,
-   "logloss": 0.5961015841588276,
-   "brier": 0.20497385256060457,
-   "ece": 0.01449444015045054,
+   "auc": 0.7393270451263972,
+   "logloss": 0.5961036794622134,
+   "brier": 0.2049747552341048,
+   "ece": 0.014760422755889097,
    "sufficient": true
   },
   "calibration_gate": {
@@ -10676,168 +10676,168 @@
      "n_prior": 2705,
      "decision": "identity",
      "reason": "gated_no_gain",
-     "raw_logloss": 0.6063297782825773,
-     "nested_holdout_logloss": 0.6070332274805078,
+     "raw_logloss": 0.60633363062758,
+     "nested_holdout_logloss": 0.6070370479538298,
      "fold_id": 66
     },
     {
      "n_prior": 2756,
      "decision": "identity",
      "reason": "gated_no_gain",
-     "raw_logloss": 0.6148987573082746,
-     "nested_holdout_logloss": 0.6163400465836438,
+     "raw_logloss": 0.6149046525149857,
+     "nested_holdout_logloss": 0.6163462428617255,
      "fold_id": 67
     },
     {
      "n_prior": 2810,
      "decision": "identity",
      "reason": "gated_no_gain",
-     "raw_logloss": 0.6206314939104721,
-     "nested_holdout_logloss": 0.6224400960463397,
+     "raw_logloss": 0.6206408268068041,
+     "nested_holdout_logloss": 0.6224294245613234,
      "fold_id": 68
     },
     {
      "n_prior": 2862,
      "decision": "identity",
      "reason": "gated_no_gain",
-     "raw_logloss": 0.6241056262213022,
-     "nested_holdout_logloss": 0.6263818073307009,
+     "raw_logloss": 0.6241152788548541,
+     "nested_holdout_logloss": 0.6263699419957263,
      "fold_id": 69
     },
     {
      "n_prior": 2913,
      "decision": "identity",
      "reason": "gated_no_gain",
-     "raw_logloss": 0.6258459581659611,
-     "nested_holdout_logloss": 0.628145412705277,
+     "raw_logloss": 0.6258606924081449,
+     "nested_holdout_logloss": 0.6281610215062126,
      "fold_id": 70
     },
     {
      "n_prior": 2968,
      "decision": "identity",
      "reason": "gated_no_gain",
-     "raw_logloss": 0.6256590806229261,
-     "nested_holdout_logloss": 0.6280904116770667,
+     "raw_logloss": 0.6256737321706822,
+     "nested_holdout_logloss": 0.6281063683393301,
      "fold_id": 71
     },
     {
      "n_prior": 3024,
      "decision": "identity",
      "reason": "gated_no_gain",
-     "raw_logloss": 0.624863366432741,
-     "nested_holdout_logloss": 0.6271555803745757,
+     "raw_logloss": 0.6248775121727931,
+     "nested_holdout_logloss": 0.6271709945539304,
      "fold_id": 72
     },
     {
      "n_prior": 3074,
      "decision": "identity",
      "reason": "gated_no_gain",
-     "raw_logloss": 0.6173425947503305,
-     "nested_holdout_logloss": 0.6188727626242048,
+     "raw_logloss": 0.6173594825963044,
+     "nested_holdout_logloss": 0.6188902015008603,
      "fold_id": 73
     },
     {
      "n_prior": 3128,
      "decision": "identity",
      "reason": "gated_no_gain",
-     "raw_logloss": 0.6188312831368097,
-     "nested_holdout_logloss": 0.6210101149868472,
+     "raw_logloss": 0.618847001639035,
+     "nested_holdout_logloss": 0.621027060182944,
      "fold_id": 74
     },
     {
      "n_prior": 3183,
      "decision": "identity",
      "reason": "gated_no_gain",
-     "raw_logloss": 0.6148114162551817,
-     "nested_holdout_logloss": 0.6172096446939662,
+     "raw_logloss": 0.6148288267186045,
+     "nested_holdout_logloss": 0.6172281008047656,
      "fold_id": 75
     },
     {
      "n_prior": 3233,
      "decision": "identity",
      "reason": "gated_no_gain",
-     "raw_logloss": 0.6101735314492339,
-     "nested_holdout_logloss": 0.6120614875183604,
+     "raw_logloss": 0.6101917271542994,
+     "nested_holdout_logloss": 0.6120804951442889,
      "fold_id": 76
     },
     {
      "n_prior": 3288,
      "decision": "identity",
      "reason": "gated_no_gain",
-     "raw_logloss": 0.6001383631217664,
-     "nested_holdout_logloss": 0.601143639360367,
+     "raw_logloss": 0.6001555967255247,
+     "nested_holdout_logloss": 0.6011601320800396,
      "fold_id": 77
     },
     {
      "n_prior": 3339,
      "decision": "identity",
      "reason": "gated_no_gain",
-     "raw_logloss": 0.5815952804658739,
-     "nested_holdout_logloss": 0.5804852980398122,
+     "raw_logloss": 0.5816118778746799,
+     "nested_holdout_logloss": 0.5805017795812263,
      "fold_id": 78
     },
     {
      "n_prior": 3369,
      "decision": "identity",
      "reason": "gated_no_gain",
-     "raw_logloss": 0.5713790164822754,
-     "nested_holdout_logloss": 0.5696628877164234,
+     "raw_logloss": 0.5713917501390465,
+     "nested_holdout_logloss": 0.5696752198693134,
      "fold_id": 79
     },
     {
      "n_prior": 3369,
      "decision": "identity",
      "reason": "gated_no_gain",
-     "raw_logloss": 0.5713790164822754,
-     "nested_holdout_logloss": 0.5696628877164234,
+     "raw_logloss": 0.5713917501390465,
+     "nested_holdout_logloss": 0.5696752198693134,
      "fold_id": 80
     },
     {
      "n_prior": 3369,
      "decision": "identity",
      "reason": "gated_no_gain",
-     "raw_logloss": 0.5713790164822754,
-     "nested_holdout_logloss": 0.5696628877164234,
+     "raw_logloss": 0.5713917501390465,
+     "nested_holdout_logloss": 0.5696752198693134,
      "fold_id": 81
     },
     {
      "n_prior": 3369,
      "decision": "identity",
      "reason": "gated_no_gain",
-     "raw_logloss": 0.5713790164822754,
-     "nested_holdout_logloss": 0.5696628877164234,
+     "raw_logloss": 0.5713917501390465,
+     "nested_holdout_logloss": 0.5696752198693134,
      "fold_id": 82
     },
     {
      "n_prior": 3369,
      "decision": "identity",
      "reason": "gated_no_gain",
-     "raw_logloss": 0.5713790164822754,
-     "nested_holdout_logloss": 0.5696628877164234,
+     "raw_logloss": 0.5713917501390465,
+     "nested_holdout_logloss": 0.5696752198693134,
      "fold_id": 83
     },
     {
      "n_prior": 3369,
      "decision": "identity",
      "reason": "gated_no_gain",
-     "raw_logloss": 0.5713790164822754,
-     "nested_holdout_logloss": 0.5696628877164234,
+     "raw_logloss": 0.5713917501390465,
+     "nested_holdout_logloss": 0.5696752198693134,
      "fold_id": 84
     },
     {
      "n_prior": 3369,
      "decision": "identity",
      "reason": "gated_no_gain",
-     "raw_logloss": 0.5713790164822754,
-     "nested_holdout_logloss": 0.5696628877164234,
+     "raw_logloss": 0.5713917501390465,
+     "nested_holdout_logloss": 0.5696752198693134,
      "fold_id": 85
     },
     {
      "n_prior": 3424,
      "decision": "identity",
      "reason": "gated_no_gain",
-     "raw_logloss": 0.5701880549603214,
-     "nested_holdout_logloss": 0.5684729126728139,
+     "raw_logloss": 0.5701958784567893,
+     "nested_holdout_logloss": 0.5684746937959612,
      "fold_id": 86
     }
    ],
@@ -10845,33 +10845,33 @@
     "n_prior": 3424,
     "decision": "identity",
     "reason": "gated_no_gain",
-    "raw_logloss": 0.5701880549603214,
-    "nested_holdout_logloss": 0.5684729126728139
+    "raw_logloss": 0.5701958784567893,
+    "nested_holdout_logloss": 0.5684746937959612
    }
   },
   "moneyline_retrospective_not_oof": {
    "n": 3424,
-   "auc": 0.7461753238170765,
-   "logloss": 0.5909769098875821,
-   "brier": 0.20286671724984337,
-   "ece": 0.017470440009456953
+   "auc": 0.7461698167239404,
+   "logloss": 0.5909788657616991,
+   "brier": 0.20286754410842045,
+   "ece": 0.01776635238551049
   }
  },
  "feature_importance": {
   "model_weight": {
-   "elo_diff": 10.5324,
+   "elo_diff": 10.5258,
    "win_pct_diff": 0.0,
-   "rest_days_diff": 2.9962,
-   "back_to_back_diff": 6.9128,
-   "ewm_net_points_diff": 7.3486,
+   "rest_days_diff": 2.9954,
+   "back_to_back_diff": 6.912,
+   "ewm_net_points_diff": 7.3517,
    "ewm_off_rating_diff": 0.0,
-   "ewm_def_rating_diff": 0.8751,
+   "ewm_def_rating_diff": 0.8758,
    "ewm_pace_diff": 0.0,
    "ewm_efg_pct_diff": 0.0,
-   "ewm_turnover_margin_diff": 2.1276,
-   "ewm_rebound_margin_diff": 2.7059,
+   "ewm_turnover_margin_diff": 2.1138,
+   "ewm_rebound_margin_diff": 2.7109,
    "ewm_ast_per_game_diff": 0.0,
-   "is_playoffs": 0.0254,
+   "is_playoffs": 0.0258,
    "elo_home": 0.0,
    "elo_away": 0.0,
    "win_pct_home": 0.0,
@@ -10914,19 +10914,19 @@
    "event_q4_points_away": 0.0,
    "is_home": 0.0,
    "event_three_rate_diff": 0.0,
-   "event_rim_rate_diff": 3.6333,
-   "event_live_tov_rate_diff": 1.6952,
+   "event_rim_rate_diff": 3.6307,
+   "event_live_tov_rate_diff": 1.7215,
    "event_and_in_rate_diff": 0.0,
-   "event_shot_distance_diff": 1.4473,
+   "event_shot_distance_diff": 1.4465,
    "event_possessions_diff": 0.0,
-   "event_shooting_fouls_diff": 0.6267,
-   "event_q4_points_diff": 0.5107,
+   "event_shooting_fouls_diff": 0.5962,
+   "event_q4_points_diff": 0.5309,
    "pl_o_dpm_home": 0.0,
    "pl_o_dpm_away": 0.0,
-   "pl_o_dpm_diff": 33.9979,
+   "pl_o_dpm_diff": 33.9983,
    "pl_d_dpm_home": 0.0,
    "pl_d_dpm_away": 0.0,
-   "pl_d_dpm_diff": 16.6166,
+   "pl_d_dpm_diff": 16.6204,
    "projected_game_pace_total": 0.0,
    "projected_game_pace_home": 0.0,
    "projected_game_pace_away": 0.0,
@@ -10940,10 +10940,10 @@
    "star_out_weight_share_diff": 0.0,
    "pl_o_pts_away": 0.0,
    "pl_o_pts_home": 0.0,
-   "pl_o_pts_diff": 3.4826,
+   "pl_o_pts_diff": 3.4807,
    "star_out_pts_away": 0.0,
    "star_out_pts_home": 0.0,
-   "star_out_pts_diff": 4.4658
+   "star_out_pts_diff": 4.4635
   },
   "member_shares": {
    "xgboost": 0.0,
@@ -10952,193 +10952,193 @@
   },
   "member_profiles": {
    "xgboost": {
-    "elo_diff": 5.4001,
-    "win_pct_diff": 1.5318,
-    "rest_days_diff": 0.9679,
-    "back_to_back_diff": 1.0947,
-    "ewm_net_points_diff": 3.2751,
-    "ewm_off_rating_diff": 1.2803,
-    "ewm_def_rating_diff": 1.2248,
-    "ewm_pace_diff": 0.9748,
-    "ewm_efg_pct_diff": 0.9007,
-    "ewm_turnover_margin_diff": 0.8017,
-    "ewm_rebound_margin_diff": 1.2466,
-    "ewm_ast_per_game_diff": 1.0379,
+    "elo_diff": 5.6327,
+    "win_pct_diff": 1.4482,
+    "rest_days_diff": 0.9562,
+    "back_to_back_diff": 1.0914,
+    "ewm_net_points_diff": 3.3705,
+    "ewm_off_rating_diff": 1.4083,
+    "ewm_def_rating_diff": 1.1589,
+    "ewm_pace_diff": 0.9674,
+    "ewm_efg_pct_diff": 0.9873,
+    "ewm_turnover_margin_diff": 0.759,
+    "ewm_rebound_margin_diff": 1.1656,
+    "ewm_ast_per_game_diff": 1.0366,
     "is_playoffs": 0.0,
-    "elo_home": 1.1593,
-    "elo_away": 1.1801,
-    "win_pct_home": 0.795,
-    "win_pct_away": 0.8673,
-    "ewm_off_rating_home": 0.9319,
-    "ewm_off_rating_away": 1.1238,
-    "ewm_def_rating_home": 1.0866,
-    "ewm_def_rating_away": 1.0401,
-    "rest_days_home": 1.1032,
-    "rest_days_away": 0.7277,
-    "back_to_back_home": 1.0872,
+    "elo_home": 1.0787,
+    "elo_away": 1.2023,
+    "win_pct_home": 1.0408,
+    "win_pct_away": 0.8473,
+    "ewm_off_rating_home": 0.9371,
+    "ewm_off_rating_away": 1.2062,
+    "ewm_def_rating_home": 1.1281,
+    "ewm_def_rating_away": 1.0402,
+    "rest_days_home": 1.0167,
+    "rest_days_away": 0.0,
+    "back_to_back_home": 1.0758,
     "back_to_back_away": 0.0,
-    "ewm_net_points_home": 1.475,
-    "ewm_net_points_away": 1.4154,
-    "ewm_pace_home": 0.9689,
-    "ewm_pace_away": 1.0895,
-    "ewm_efg_pct_home": 0.9083,
-    "ewm_efg_pct_away": 0.8623,
-    "ewm_turnover_margin_home": 0.8784,
-    "ewm_turnover_margin_away": 1.0217,
-    "ewm_rebound_margin_home": 0.8574,
-    "ewm_rebound_margin_away": 1.0329,
-    "ewm_ast_per_game_home": 0.9114,
-    "ewm_ast_per_game_away": 0.7759,
-    "event_three_rate_home": 0.9258,
-    "event_three_rate_away": 0.9829,
-    "event_rim_rate_home": 0.8982,
-    "event_rim_rate_away": 0.7006,
-    "event_live_tov_rate_home": 1.1799,
-    "event_live_tov_rate_away": 1.0455,
-    "event_and_in_rate_home": 1.0528,
-    "event_and_in_rate_away": 0.9378,
-    "event_shot_distance_home": 1.0299,
-    "event_shot_distance_away": 0.8742,
-    "event_possessions_home": 0.843,
-    "event_possessions_away": 0.7237,
-    "event_shooting_fouls_home": 0.7441,
-    "event_shooting_fouls_away": 0.9828,
-    "event_q4_points_home": 1.0037,
-    "event_q4_points_away": 0.8169,
+    "ewm_net_points_home": 1.4809,
+    "ewm_net_points_away": 1.4727,
+    "ewm_pace_home": 0.9836,
+    "ewm_pace_away": 1.1289,
+    "ewm_efg_pct_home": 0.9353,
+    "ewm_efg_pct_away": 0.9268,
+    "ewm_turnover_margin_home": 0.8429,
+    "ewm_turnover_margin_away": 0.9248,
+    "ewm_rebound_margin_home": 0.7782,
+    "ewm_rebound_margin_away": 0.9654,
+    "ewm_ast_per_game_home": 0.9232,
+    "ewm_ast_per_game_away": 0.8074,
+    "event_three_rate_home": 0.858,
+    "event_three_rate_away": 0.984,
+    "event_rim_rate_home": 0.8963,
+    "event_rim_rate_away": 0.8672,
+    "event_live_tov_rate_home": 1.1212,
+    "event_live_tov_rate_away": 1.0414,
+    "event_and_in_rate_home": 1.1127,
+    "event_and_in_rate_away": 0.9578,
+    "event_shot_distance_home": 1.0434,
+    "event_shot_distance_away": 0.9026,
+    "event_possessions_home": 0.8307,
+    "event_possessions_away": 0.7438,
+    "event_shooting_fouls_home": 0.7985,
+    "event_shooting_fouls_away": 0.9147,
+    "event_q4_points_home": 1.0564,
+    "event_q4_points_away": 0.7699,
     "is_home": 0.0,
-    "event_three_rate_diff": 0.8628,
-    "event_rim_rate_diff": 1.0251,
-    "event_live_tov_rate_diff": 1.0089,
-    "event_and_in_rate_diff": 0.9706,
-    "event_shot_distance_diff": 1.0613,
-    "event_possessions_diff": 1.116,
-    "event_shooting_fouls_diff": 0.9844,
-    "event_q4_points_diff": 1.0327,
-    "pl_o_dpm_home": 1.7501,
-    "pl_o_dpm_away": 1.6605,
-    "pl_o_dpm_diff": 5.9117,
-    "pl_d_dpm_home": 1.0949,
-    "pl_d_dpm_away": 1.0797,
-    "pl_d_dpm_diff": 1.9053,
-    "projected_game_pace_total": 0.6432,
-    "projected_game_pace_home": 0.7732,
-    "projected_game_pace_away": 0.7074,
-    "pl_net_o_home": 4.1956,
-    "pl_net_o_away": 2.9327,
+    "event_three_rate_diff": 0.9102,
+    "event_rim_rate_diff": 0.9607,
+    "event_live_tov_rate_diff": 1.0521,
+    "event_and_in_rate_diff": 0.978,
+    "event_shot_distance_diff": 1.0448,
+    "event_possessions_diff": 1.4917,
+    "event_shooting_fouls_diff": 1.1662,
+    "event_q4_points_diff": 1.0105,
+    "pl_o_dpm_home": 1.7758,
+    "pl_o_dpm_away": 1.768,
+    "pl_o_dpm_diff": 5.7988,
+    "pl_d_dpm_home": 1.0463,
+    "pl_d_dpm_away": 1.1102,
+    "pl_d_dpm_diff": 1.8434,
+    "projected_game_pace_total": 0.634,
+    "projected_game_pace_home": 0.8176,
+    "projected_game_pace_away": 0.6884,
+    "pl_net_o_home": 4.6986,
+    "pl_net_o_away": 2.9698,
     "star_out_impact_away": 0.0,
-    "star_out_impact_home": 0.6941,
-    "star_out_impact_diff": 0.9833,
-    "star_out_weight_share_away": 1.145,
-    "star_out_weight_share_home": 1.6608,
-    "star_out_weight_share_diff": 1.1095,
-    "pl_o_pts_away": 0.9283,
-    "pl_o_pts_home": 0.9804,
-    "pl_o_pts_diff": 0.9328,
-    "star_out_pts_away": 0.9838,
-    "star_out_pts_home": 0.9434,
-    "star_out_pts_diff": 1.145
+    "star_out_impact_home": 0.0,
+    "star_out_impact_diff": 1.0237,
+    "star_out_weight_share_away": 1.0375,
+    "star_out_weight_share_home": 1.335,
+    "star_out_weight_share_diff": 1.1866,
+    "pl_o_pts_away": 0.8035,
+    "pl_o_pts_home": 0.9862,
+    "pl_o_pts_diff": 0.959,
+    "star_out_pts_away": 1.095,
+    "star_out_pts_home": 1.0148,
+    "star_out_pts_diff": 1.1695
    },
    "lightgbm": {
-    "elo_diff": 2.9042,
-    "win_pct_diff": 0.8712,
-    "rest_days_diff": 0.0,
-    "back_to_back_diff": 1.9361,
-    "ewm_net_points_diff": 3.0978,
-    "ewm_off_rating_diff": 2.0329,
-    "ewm_def_rating_diff": 1.3553,
-    "ewm_pace_diff": 0.484,
-    "ewm_efg_pct_diff": 1.5489,
-    "ewm_turnover_margin_diff": 1.0649,
-    "ewm_rebound_margin_diff": 0.1936,
-    "ewm_ast_per_game_diff": 0.7744,
-    "is_playoffs": 0.1936,
-    "elo_home": 1.9361,
-    "elo_away": 1.1617,
-    "win_pct_home": 1.0649,
-    "win_pct_away": 1.4521,
-    "ewm_off_rating_home": 0.484,
-    "ewm_off_rating_away": 0.7744,
-    "ewm_def_rating_home": 0.7744,
-    "ewm_def_rating_away": 1.0649,
+    "elo_diff": 3.122,
+    "win_pct_diff": 0.9756,
+    "rest_days_diff": 0.1951,
+    "back_to_back_diff": 1.6585,
+    "ewm_net_points_diff": 3.2195,
+    "ewm_off_rating_diff": 2.0488,
+    "ewm_def_rating_diff": 1.561,
+    "ewm_pace_diff": 0.6829,
+    "ewm_efg_pct_diff": 0.6829,
+    "ewm_turnover_margin_diff": 0.9756,
+    "ewm_rebound_margin_diff": 0.3902,
+    "ewm_ast_per_game_diff": 1.0732,
+    "is_playoffs": 0.0,
+    "elo_home": 2.0488,
+    "elo_away": 1.561,
+    "win_pct_home": 1.0732,
+    "win_pct_away": 1.2683,
+    "ewm_off_rating_home": 0.5854,
+    "ewm_off_rating_away": 0.9756,
+    "ewm_def_rating_home": 1.0732,
+    "ewm_def_rating_away": 1.0732,
     "rest_days_home": 0.0,
-    "rest_days_away": 0.0968,
-    "back_to_back_home": 2.6137,
-    "back_to_back_away": 1.8393,
-    "ewm_net_points_home": 1.4521,
-    "ewm_net_points_away": 1.8393,
-    "ewm_pace_home": 0.9681,
-    "ewm_pace_away": 0.484,
-    "ewm_efg_pct_home": 1.5489,
-    "ewm_efg_pct_away": 0.7744,
-    "ewm_turnover_margin_home": 0.484,
-    "ewm_turnover_margin_away": 1.8393,
-    "ewm_rebound_margin_home": 1.3553,
-    "ewm_rebound_margin_away": 0.8712,
-    "ewm_ast_per_game_home": 0.9681,
-    "ewm_ast_per_game_away": 0.484,
-    "event_three_rate_home": 0.5808,
-    "event_three_rate_away": 1.0649,
-    "event_rim_rate_home": 1.2585,
-    "event_rim_rate_away": 0.0968,
-    "event_live_tov_rate_home": 0.7744,
-    "event_live_tov_rate_away": 1.7425,
-    "event_and_in_rate_home": 0.3872,
-    "event_and_in_rate_away": 0.2904,
-    "event_shot_distance_home": 2.2265,
-    "event_shot_distance_away": 0.7744,
-    "event_possessions_home": 0.5808,
-    "event_possessions_away": 0.7744,
-    "event_shooting_fouls_home": 0.484,
-    "event_shooting_fouls_away": 0.6776,
-    "event_q4_points_home": 0.5808,
-    "event_q4_points_away": 0.484,
+    "rest_days_away": 0.0,
+    "back_to_back_home": 2.8293,
+    "back_to_back_away": 1.4634,
+    "ewm_net_points_home": 1.9512,
+    "ewm_net_points_away": 1.9512,
+    "ewm_pace_home": 0.7805,
+    "ewm_pace_away": 0.4878,
+    "ewm_efg_pct_home": 1.2683,
+    "ewm_efg_pct_away": 0.7805,
+    "ewm_turnover_margin_home": 0.5854,
+    "ewm_turnover_margin_away": 0.9756,
+    "ewm_rebound_margin_home": 1.6585,
+    "ewm_rebound_margin_away": 0.6829,
+    "ewm_ast_per_game_home": 0.4878,
+    "ewm_ast_per_game_away": 0.878,
+    "event_three_rate_home": 0.5854,
+    "event_three_rate_away": 0.9756,
+    "event_rim_rate_home": 1.4634,
+    "event_rim_rate_away": 0.5854,
+    "event_live_tov_rate_home": 1.0732,
+    "event_live_tov_rate_away": 1.2683,
+    "event_and_in_rate_home": 0.7805,
+    "event_and_in_rate_away": 0.1951,
+    "event_shot_distance_home": 1.4634,
+    "event_shot_distance_away": 0.6829,
+    "event_possessions_home": 0.5854,
+    "event_possessions_away": 0.2927,
+    "event_shooting_fouls_home": 0.1951,
+    "event_shooting_fouls_away": 0.7805,
+    "event_q4_points_home": 0.5854,
+    "event_q4_points_away": 0.7805,
     "is_home": 0.0,
-    "event_three_rate_diff": 0.5808,
-    "event_rim_rate_diff": 0.5808,
-    "event_live_tov_rate_diff": 1.2585,
-    "event_and_in_rate_diff": 0.484,
-    "event_shot_distance_diff": 0.3872,
-    "event_possessions_diff": 0.5808,
-    "event_shooting_fouls_diff": 0.9681,
-    "event_q4_points_diff": 0.9681,
-    "pl_o_dpm_home": 3.3882,
-    "pl_o_dpm_away": 3.001,
-    "pl_o_dpm_diff": 5.4211,
-    "pl_d_dpm_home": 1.0649,
-    "pl_d_dpm_away": 1.8393,
-    "pl_d_dpm_diff": 3.485,
-    "projected_game_pace_total": 0.484,
-    "projected_game_pace_home": 0.484,
-    "projected_game_pace_away": 0.3872,
-    "pl_net_o_home": 3.5818,
-    "pl_net_o_away": 5.1307,
-    "star_out_impact_away": 0.0968,
-    "star_out_impact_home": 0.0968,
-    "star_out_impact_diff": 0.484,
-    "star_out_weight_share_away": 1.2585,
-    "star_out_weight_share_home": 0.9681,
-    "star_out_weight_share_diff": 0.8712,
-    "pl_o_pts_away": 0.7744,
-    "pl_o_pts_home": 1.2585,
-    "pl_o_pts_diff": 1.3553,
-    "star_out_pts_away": 0.5808,
-    "star_out_pts_home": 1.2585,
-    "star_out_pts_diff": 1.3553
+    "event_three_rate_diff": 0.3902,
+    "event_rim_rate_diff": 0.4878,
+    "event_live_tov_rate_diff": 1.2683,
+    "event_and_in_rate_diff": 0.4878,
+    "event_shot_distance_diff": 0.5854,
+    "event_possessions_diff": 0.3902,
+    "event_shooting_fouls_diff": 0.878,
+    "event_q4_points_diff": 0.7805,
+    "pl_o_dpm_home": 3.5122,
+    "pl_o_dpm_away": 2.6341,
+    "pl_o_dpm_diff": 5.4634,
+    "pl_d_dpm_home": 2.1463,
+    "pl_d_dpm_away": 1.8537,
+    "pl_d_dpm_diff": 3.2195,
+    "projected_game_pace_total": 0.1951,
+    "projected_game_pace_home": 0.9756,
+    "projected_game_pace_away": 0.4878,
+    "pl_net_o_home": 4.1951,
+    "pl_net_o_away": 4.878,
+    "star_out_impact_away": 0.0976,
+    "star_out_impact_home": 0.0976,
+    "star_out_impact_diff": 0.1951,
+    "star_out_weight_share_away": 0.878,
+    "star_out_weight_share_home": 0.6829,
+    "star_out_weight_share_diff": 0.9756,
+    "pl_o_pts_away": 0.3902,
+    "pl_o_pts_home": 1.561,
+    "pl_o_pts_diff": 1.4634,
+    "star_out_pts_away": 0.4878,
+    "star_out_pts_home": 1.3659,
+    "star_out_pts_diff": 1.6585
    },
    "elasticnet": {
-    "elo_diff": 10.5324,
+    "elo_diff": 10.5258,
     "win_pct_diff": 0.0,
-    "rest_days_diff": 2.9962,
-    "back_to_back_diff": 6.9128,
-    "ewm_net_points_diff": 7.3486,
+    "rest_days_diff": 2.9954,
+    "back_to_back_diff": 6.912,
+    "ewm_net_points_diff": 7.3517,
     "ewm_off_rating_diff": 0.0,
-    "ewm_def_rating_diff": 0.8751,
+    "ewm_def_rating_diff": 0.8758,
     "ewm_pace_diff": 0.0,
     "ewm_efg_pct_diff": 0.0,
-    "ewm_turnover_margin_diff": 2.1276,
-    "ewm_rebound_margin_diff": 2.7059,
+    "ewm_turnover_margin_diff": 2.1138,
+    "ewm_rebound_margin_diff": 2.7109,
     "ewm_ast_per_game_diff": 0.0,
-    "is_playoffs": 0.0254,
+    "is_playoffs": 0.0258,
     "elo_home": 0.0,
     "elo_away": 0.0,
     "win_pct_home": 0.0,
@@ -11181,19 +11181,19 @@
     "event_q4_points_away": 0.0,
     "is_home": 0.0,
     "event_three_rate_diff": 0.0,
-    "event_rim_rate_diff": 3.6333,
-    "event_live_tov_rate_diff": 1.6952,
+    "event_rim_rate_diff": 3.6307,
+    "event_live_tov_rate_diff": 1.7215,
     "event_and_in_rate_diff": 0.0,
-    "event_shot_distance_diff": 1.4473,
+    "event_shot_distance_diff": 1.4465,
     "event_possessions_diff": 0.0,
-    "event_shooting_fouls_diff": 0.6267,
-    "event_q4_points_diff": 0.5107,
+    "event_shooting_fouls_diff": 0.5962,
+    "event_q4_points_diff": 0.5309,
     "pl_o_dpm_home": 0.0,
     "pl_o_dpm_away": 0.0,
-    "pl_o_dpm_diff": 33.9979,
+    "pl_o_dpm_diff": 33.9983,
     "pl_d_dpm_home": 0.0,
     "pl_d_dpm_away": 0.0,
-    "pl_d_dpm_diff": 16.6166,
+    "pl_d_dpm_diff": 16.6204,
     "projected_game_pace_total": 0.0,
     "projected_game_pace_home": 0.0,
     "projected_game_pace_away": 0.0,
@@ -11207,10 +11207,10 @@
     "star_out_weight_share_diff": 0.0,
     "pl_o_pts_away": 0.0,
     "pl_o_pts_home": 0.0,
-    "pl_o_pts_diff": 3.4826,
+    "pl_o_pts_diff": 3.4807,
     "star_out_pts_away": 0.0,
     "star_out_pts_home": 0.0,
-    "star_out_pts_diff": 4.4658
+    "star_out_pts_diff": 4.4635
    }
   },
   "reading": "model_weight[f] = sum(member_shares[m] * member_profiles[m][f]) over members m; all percentages. A concentrated member share means the MODEL WEIGHT column is that member's own importance profile"
@@ -11528,13 +11528,13 @@
     "lightgbm": 0.0,
     "elasticnet": 1.0
    },
-   "auc": 0.7455998325843688,
-   "brier": 0.20302747003636848,
-   "logloss": 0.5913458503367094,
-   "ece": 0.017905979123116606,
-   "brier_calibrated": 0.20302747003636848,
-   "logloss_calibrated": 0.5913458503367094,
-   "ece_calibrated": 0.017905979123116606
+   "auc": 0.7455988000044057,
+   "brier": 0.20302829689494556,
+   "logloss": 0.5913478062108264,
+   "ece": 0.018201344166747666,
+   "brier_calibrated": 0.20302829689494556,
+   "logloss_calibrated": 0.5913478062108264,
+   "ece_calibrated": 0.018201344166747666
   }
  ]
 }
