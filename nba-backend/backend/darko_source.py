@@ -25,12 +25,12 @@ BASE = "https://www.darko.app"
 KEEP = ["nba_id", "date", "season", "seconds_played", "future_game",
         "team_name", "opp_id", "tm_id", "dpm", "o_dpm", "d_dpm", "box_dpm",
         "box_odpm", "box_ddpm", "on_off_dpm", "bayes_rapm_total", "x_minutes",
-        "x_pace", "x_pts_100", "x_ast_100", "x_fg_pct"]
+        "x_pace", "x_pts_100", "x_ast_100", "x_fg_pct", "x_fg3_pct"]
 
 NUMERIC = ["nba_id", "season", "seconds_played", "future_game",
            "opp_id", "tm_id", "dpm", "o_dpm", "d_dpm", "box_dpm", "box_odpm",
            "box_ddpm", "on_off_dpm", "bayes_rapm_total", "x_minutes",
-           "x_pace", "x_pts_100", "x_ast_100", "x_fg_pct"]
+           "x_pace", "x_pts_100", "x_ast_100", "x_fg_pct", "x_fg3_pct"]
 
 
 def _fetch_payload(url: str) -> dict:
@@ -108,6 +108,17 @@ def fetch_darko_history(player_ids, workers: int = 6) -> pd.DataFrame:
     if not frames:
         logger.warning("DARKO history: no rows fetched for %d player(s)", len(ids))
         return pd.DataFrame(columns=KEEP)
+    # Pandas deprecates concat over empty/all-NA entries (their dtypes no
+    # longer steer the result). Drop a column from a frame only when it is
+    # all-NA there but live elsewhere: every row is kept and the surviving
+    # dtypes match the old behavior exactly. The to_numeric/to_datetime
+    # coercion below already covers the numeric/date columns.
+    live = set()
+    for frame in frames:
+        live.update(c for c in frame.columns if not frame[c].isna().all())
+    frames = [f[[c for c in f.columns
+                if c not in live or not f[c].isna().all()]]
+              for f in frames]
     panel = pd.concat(frames, ignore_index=True)
     for c in NUMERIC:
         if c in panel.columns:

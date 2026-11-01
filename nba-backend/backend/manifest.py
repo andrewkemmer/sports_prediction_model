@@ -615,6 +615,22 @@ _FAMILY: dict[str, dict] = {
         "direction": "higher = home has more expected scoring unavailable (worse for home)",
         "direction_level": "higher = more expected scoring unavailable for that side",
     },
+    "projected_game_pace": {
+        "summary": "Projected game pace: home x away over trailing league mean",
+        "summary_level": "Projected team pace",
+        "definition": (
+            "Each side trailing minutes-weighted DARKO x_pace blend "
+            "(team_pace aggregate) read as of gameday; the served game pace "
+            "is home x away over the trailing-30-day league mean. The same "
+            "projected pace scales the OFF/DEF legs (over 100), so diffs stay "
+            "exactly home - away. Adopted with the D arm 2026-10-31."),
+        "formula": "home x away / trailing-30d league mean of team_pace",
+        "source": "DARKO x_pace + expected minutes (same-day), team aggregates",
+        "window": "trailing blend as of gameday; 30-day league mean",
+        "units": "possessions per 48 minutes",
+        "direction": "higher = faster expected tempo (style, not quality)",
+        "direction_level": "higher = faster expected tempo",
+    },
 }
 
 _STANDALONE = {
@@ -638,6 +654,18 @@ _STANDALONE = {
         "window": "per-game",
         "units": "binary",
         "direction": "n/a (game-type flag)",
+    },
+    "projected_game_pace_total": {
+        "summary": "Projected game pace: home x away over trailing league mean",
+        "definition": (
+            "Home team_pace x away team_pace over the trailing-30-day league "
+            "mean, where each side pace is its trailing minutes-weighted "
+            "DARKO x_pace blend as of gameday. Adopted with the D arm 2026-10-31."),
+        "formula": "projected_game_pace_home x projected_game_pace_away / trailing-30d league mean",
+        "source": "DARKO x_pace + expected minutes (same-day), team aggregates",
+        "window": "trailing blend as of gameday; 30-day league mean",
+        "units": "possessions per 48 minutes",
+        "direction": "higher = faster expected tempo (style, not quality)",
     },
 }
 
