@@ -227,7 +227,7 @@ check("the four rest/travel side twins are in the served contract, out of the RF
           and c in manifest.FEATURE_MANIFEST
           and c not in manifest.CANDIDATE_MANIFEST
           for c in _twins)
-      # 2026-11-01: F adoption (owner-directed): 103 - 27 retired = 76.
+      # 2026-11-01 v10.1: unscaled deleted; served set unchanged at 76 clean names.
       and len(config.MONEYLINE_FEATURE_COLS) == 76)
 check("rest/travel side twins route tree-only like every raw level",
       set(_twins) <= set(config.RAW_PER_SIDE_COLS)
@@ -449,7 +449,7 @@ check("first prior home venue is unavailable rather than guessed",
 _weather_features = {"temp_f", "wind_mph", "is_precip", "is_snow"}
 check("all four hourly weather features are in the active contract",
       _weather_features <= set(config.MONEYLINE_FEATURE_COLS))
-check("active moneyline contract includes the 12 scaled EPA lineup features",
+check("active moneyline contract includes the 12 pace EPA lineup features",
       set(config.EPA_PACE_SCALED_FEATURE_COLS) <= set(config.MONEYLINE_FEATURE_COLS)
       and len(config.MONEYLINE_FEATURE_COLS) == 76)
 
@@ -3045,135 +3045,114 @@ except Exception as exc:  # noqa: BLE001
 
 
 # ---------------------------------------------------------------------------
-print("\n== 13. EPA F-adoption retirement and injury-status PIT regressions ==")
-_expected_epa_features = [
+print("\n== 13. EPA pace legs (clean names) and injury-status PIT regressions ==")
+_expected_epa = [
     f"pl_epa_{position}_{side}"
     for position in ("qb", "wr", "te", "rb")
     for side in ("home", "away", "diff")
 ]
-check("the 12 legacy EPA legs retired to the trial-candidate pool (F adoption)",
-      config.EPA_QUALITY_FEATURE_COLS == _expected_epa_features
-      and all(c in config.RETIRED_STRUCTURAL_COLS
-              and c not in config.MONEYLINE_FEATURE_COLS
-              and c in config.RFE_CANDIDATE_COLS
-              and c in manifest.CANDIDATE_MANIFEST
-              and c not in manifest.FEATURE_MANIFEST
-              for c in _expected_epa_features)
+check("the 12 pace legs are served under clean names; unscaled lists deleted",
+      not hasattr(config, "EPA_QUALITY_FEATURE_COLS")
+      and set(config.EPA_PACE_SCALED_FEATURE_COLS) == set(_expected_epa)
+      and all(c in config.MONEYLINE_FEATURE_COLS
+              and c not in config.RFE_CANDIDATE_COLS
+              and c in manifest.FEATURE_MANIFEST
+              and c not in manifest.CANDIDATE_MANIFEST
+              for c in _expected_epa)
       and len(config.MONEYLINE_FEATURE_COLS) == 76)
-check("retired EPA routing preserved for future trials: sides tree-only, diff shared",
+check("clean pace sides route tree-only, diffs shared",
       all(f"{base}_{side}" in config.RAW_PER_SIDE_COLS
-          for base in config.EPA_QUALITY_BASES for side in ("home", "away"))
+          for base in config.EPA_PACE_SCALED_BASES for side in ("home", "away"))
       and all(f"{base}_diff" not in config.RAW_PER_SIDE_COLS
-              for base in config.EPA_QUALITY_BASES)
-      and all(manifest.CANDIDATE_MANIFEST[f"{base}_{side}"]["model_family_availability"]
+              for base in config.EPA_PACE_SCALED_BASES)
+      and all(manifest.FEATURE_MANIFEST[f"{base}_{side}"]["model_family_availability"]
               == ["tree"]
-              for base in config.EPA_QUALITY_BASES for side in ("home", "away"))
-      and all(manifest.CANDIDATE_MANIFEST[f"{base}_diff"]["model_family_availability"]
+              for base in config.EPA_PACE_SCALED_BASES for side in ("home", "away"))
+      and all(manifest.FEATURE_MANIFEST[f"{base}_diff"]["model_family_availability"]
               == ["linear", "tree", "mlp"]
-              for base in config.EPA_QUALITY_BASES))
+              for base in config.EPA_PACE_SCALED_BASES))
 
 # ---------------------------------------------------------------------------
-# Projected-lineup yardage (F-adopted 2026-11-01 for the scaled legs; the
-# unscaled legs retired-triable). Same structural gates: served, documented,
-# routed sides-tree-only / diffs-shared; receiving stays a generated
-# diagnostic, never served.
+# ---------------------------------------------------------------------------
+# Projected-lineup yardage (served under the original clean names since
+# v10.1; the unscaled legs were deleted outright 2026-11-01). Same
+# structural gates: served, documented, routed sides-tree-only /
+# diffs-shared; receiving stays a generated diagnostic, never served.
 # ---------------------------------------------------------------------------
 _expected_yds = [f"{base}_{rep}"
                  for base in ("pl_exp_pass_yds", "pl_exp_rush_yds")
                  for rep in ("home", "away", "diff")]
-_expected_yds_scaled = [f"{base}_{rep}"
-                        for base in ("pl_exp_pass_yds_scaled",
-                                     "pl_exp_rush_yds_scaled")
-                        for rep in ("home", "away", "diff")]
 _expected_yds_diag = (
     [f"pl_exp_rec_yds_{rep}" for rep in ("home", "away", "diff")]
     + [f"pl_exp_rec_yds_scaled_{rep}" for rep in ("home", "away", "diff")])
-check("scaled yardage legs served, unscaled retired-triable; receiving stays diagnostic",
-      set(config.YDS_FEATURE_COLS) == set(_expected_yds)
-      and set(config.YDS_SCALED_FEATURE_COLS) == set(_expected_yds_scaled)
+check("pace yardage legs served under clean names; unscaled deleted, receiving stays diagnostic",
+      not hasattr(config, "YDS_FEATURE_COLS")
+      and set(config.YDS_SCALED_FEATURE_COLS) == set(_expected_yds)
       and set(config.YDS_DIAG_COLS) == set(_expected_yds_diag)
       and all(c in config.MONEYLINE_FEATURE_COLS
               and c not in config.RFE_CANDIDATE_COLS
               and c in manifest.FEATURE_MANIFEST
               and c not in manifest.CANDIDATE_MANIFEST
-              for c in _expected_yds_scaled)
-      and all(c in config.RETIRED_STRUCTURAL_COLS
-              and c not in config.MONEYLINE_FEATURE_COLS
-              and c in config.RFE_CANDIDATE_COLS
-              and c in manifest.CANDIDATE_MANIFEST
-              and c not in manifest.FEATURE_MANIFEST
               for c in _expected_yds)
-      and all(f"{base}_{side}" in config.RAW_PER_SIDE_COLS
-              for base in (config.YDS_BASES + config.YDS_SCALED_BASES)
-              for side in ("home", "away"))
-      and all(f"{base}_{side}" not in config.RAW_PER_SIDE_COLS
-              for base in (config.YDS_DIAG_BASES
-                           + config.YDS_SCALED_DIAG_BASES)
-              for side in ("home", "away", "diff"))
-      and all(f"{base}_diff" not in config.RAW_PER_SIDE_COLS
-              for base in (config.YDS_BASES + config.YDS_SCALED_BASES))
       and all(c not in config.MONEYLINE_FEATURE_COLS
               and c not in manifest.CANDIDATE_MANIFEST
               and c in manifest.YDS_DIAG_MANIFEST
               for c in _expected_yds_diag)
-      and all(c in config.MONEYLINE_FEATURE_COLS
-              for c in config.YDS_SCALED_FEATURE_COLS)
-      and all(c not in config.MONEYLINE_FEATURE_COLS
-              for c in config.YDS_FEATURE_COLS))
+      and all(f"{base}_{side}" in config.RAW_PER_SIDE_COLS
+              for base in config.YDS_SCALED_BASES
+              for side in ("home", "away"))
+      and all(f"{base}_diff" not in config.RAW_PER_SIDE_COLS
+              for base in config.YDS_SCALED_BASES)
+      and all(f"{base}_{side}" not in config.RAW_PER_SIDE_COLS
+              for base in (config.YDS_DIAG_BASES
+                           + config.YDS_SCALED_DIAG_BASES)
+              for side in ("home", "away", "diff")))
+
 # ---------------------------------------------------------------------------
-# Pace-scaled EPA (F-adopted 2026-11-01); pace-projection/game + net legs
-# retired-triable. Same structural gates as the legacy legs: served,
-# documented, routed sides-tree-only / diffs-shared. The served bases must
-# match the attach implementation exactly.
 # ---------------------------------------------------------------------------
-_expected_pace_scaled = [f"{base}_{rep}"
-                         for base in ("pl_epa_qb_scaled", "pl_epa_wr_scaled",
-                                      "pl_epa_te_scaled", "pl_epa_rb_scaled")
-                         for rep in ("home", "away", "diff")]
-_expected_pace_proj = ["proj_team_plays_home", "proj_team_plays_away",
-                       "proj_team_plays_diff", "league_avg_plays",
-                       "proj_game_plays_total", "s_game"]
-_expected_net = [f"pl_epa_net_o_{rep}" for rep in ("home", "away", "diff")]
-check("scaled-EPA legs served; pace-projection / net retired-triable (F adoption)",
-      set(config.EPA_PACE_SCALED_FEATURE_COLS) == set(_expected_pace_scaled)
-      and set(config.EPA_PACE_PROJ_FEATURE_COLS) == set(_expected_pace_proj)
-      and set(config.EPA_NET_FEATURE_COLS) == set(_expected_net)
+# Pace EPA (served under the original clean names since v10.1); the
+# pace-projection/game + net legs were deleted outright 2026-11-01 and
+# leave no named surface. Same structural gates as the other pace legs:
+# served, documented, routed sides-tree-only / diffs-shared. The served
+# bases must match the attach implementation exactly.
+# ---------------------------------------------------------------------------
+_expected_pace = [f"{base}_{rep}"
+                  for base in ("pl_epa_qb", "pl_epa_wr",
+                               "pl_epa_te", "pl_epa_rb")
+                  for rep in ("home", "away", "diff")]
+_expected_intermediates = ["proj_team_plays_home", "proj_team_plays_away",
+                           "proj_team_plays_diff", "league_avg_plays",
+                           "proj_game_plays_total", "s_game"]
+_expected_dropped_net = [f"pl_epa_net_o_{rep}" for rep in ("home", "away", "diff")]
+check("pace EPA served clean; projection/game + net intermediates leave no named surface",
+      not hasattr(config, "EPA_PACE_PROJ_FEATURE_COLS")
+      and not hasattr(config, "EPA_NET_FEATURE_COLS")
+      and not hasattr(config, "EPA_PACE_GAME_COLS")
+      and set(config.EPA_PACE_SCALED_FEATURE_COLS) == set(_expected_pace)
       and feat_mod.EPA_PACE_SCALED_BASES == config.EPA_PACE_SCALED_BASES
       and all(c in config.MONEYLINE_FEATURE_COLS
               and c not in config.RFE_CANDIDATE_COLS
               and c in manifest.FEATURE_MANIFEST
               and c not in manifest.CANDIDATE_MANIFEST
-              for c in _expected_pace_scaled)
-      and all(c in config.RETIRED_STRUCTURAL_COLS
-              and c not in config.MONEYLINE_FEATURE_COLS
-              and c in config.RFE_CANDIDATE_COLS
-              and c in manifest.CANDIDATE_MANIFEST
+              for c in _expected_pace)
+      and all(c not in config.MONEYLINE_FEATURE_COLS
+              and c not in config.RFE_CANDIDATE_COLS
               and c not in manifest.FEATURE_MANIFEST
-              for c in _expected_pace_proj + _expected_net))
-check("scaled-EPA routing: sides tree-only, diffs shared; retired routing preserved",
+              and c not in manifest.CANDIDATE_MANIFEST
+              and c not in config.RAW_PER_SIDE_COLS
+              and c not in config.KNOWN_FEATURE_COLS
+              for c in _expected_intermediates + _expected_dropped_net))
+check("pace routing: sides tree-only, diffs shared (clean names)",
       all(f"{base}_{side}" in config.RAW_PER_SIDE_COLS
-          for base in (config.EPA_PACE_SCALED_BASES + config.EPA_NET_BASES
-                       + config.EPA_PACE_PROJ_BASES)
+          for base in config.EPA_PACE_SCALED_BASES
           for side in ("home", "away"))
-      and all(c not in config.RAW_PER_SIDE_COLS
-              for c in config.EPA_PACE_GAME_COLS)
       and all(manifest.FEATURE_MANIFEST[c]["model_family_availability"] == ["tree"]
-              for c in _expected_pace_scaled
-              if not c.endswith("_diff"))
-      and all(manifest.CANDIDATE_MANIFEST[c]["model_family_availability"] == ["tree"]
-              for c in _expected_net
-              + ["proj_team_plays_home", "proj_team_plays_away"]
+              for c in _expected_pace
               if not c.endswith("_diff"))
       and all(manifest.FEATURE_MANIFEST[c]["model_family_availability"]
               == ["linear", "tree", "mlp"]
-              for c in _expected_pace_scaled
-              if c.endswith("_diff"))
-      and all(manifest.CANDIDATE_MANIFEST[c]["model_family_availability"]
-              == ["linear", "tree", "mlp"]
-              for c in ["proj_team_plays_diff", "league_avg_plays",
-                      "proj_game_plays_total", "s_game"]
-              + [c for c in _expected_net
-                 if c.endswith("_diff")]))
+              for c in _expected_pace
+              if c.endswith("_diff")))
 
 # ---------------------------------------------------------------------------
 # Structurally promoted trailing defensive EPA (2026-09-27). Promoted over an

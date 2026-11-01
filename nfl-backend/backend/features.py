@@ -1603,9 +1603,10 @@ def _attach_pbp_candidate_features(df: pd.DataFrame,
 PLAYS_PROJ_COLS = ["proj_team_plays_home", "proj_team_plays_away",
                    "proj_team_plays_diff", "league_avg_plays",
                    "proj_game_plays_total", "s_game"]
-EPA_PACE_SCALED_BASES: tuple[str, ...] = ("pl_epa_qb_scaled", "pl_epa_wr_scaled",
-                                           "pl_epa_te_scaled", "pl_epa_rb_scaled")
-EPA_NET_COLS = ["pl_epa_net_o_home", "pl_epa_net_o_away", "pl_epa_net_o_diff"]
+# Served under the original clean names since v10.1 (same values as the
+# config twin; module-local so each attach reads one source).
+EPA_PACE_SCALED_BASES: tuple[str, ...] = ("pl_epa_qb", "pl_epa_wr",
+                                           "pl_epa_te", "pl_epa_rb")
 
 
 def _attach_plays_projection(df: pd.DataFrame, ladder: pd.DataFrame,
@@ -1678,25 +1679,31 @@ def _attach_plays_projection(df: pd.DataFrame, ladder: pd.DataFrame,
     return out
 
 
+def _drop_pace_intermediates(df: pd.DataFrame) -> pd.DataFrame:
+    """Drop the pace-projection intermediates from the output frame.
+
+    ``s_game`` / the projected totals are scaling inputs, not features:
+    computed, consumed by the pace attaches, then dropped so no deleted
+    unscaled name survives on the served frame. (The EPA/yards unscaled
+    legs vanish by in-place overwrite and need no drop.)
+    """
+    return df.drop(columns=[c for c in PLAYS_PROJ_COLS if c in df.columns])
+
+
 def _attach_epa_pace_scaled(df: pd.DataFrame) -> pd.DataFrame:
-    """Attach pace-scaled EPA legs + the cross-matched net (always-created).
+    """Attach pace EPA legs (always-created).
 
     One scaler ``s_game`` multiplies every unscaled leg on BOTH sides, so
-    each scaled diff stays exactly home - away. ``s_game`` NaN propagates
-    to NaN (never 1.0-filled). Legacy ``epa_*`` legs are never overwritten.
-    The net is unit-fixed: the served ``pbp_def_epa_play_ewm_*`` rate
-    (EPA allowed per play, lower = stingier) is first converted to
-    EPA/game with half the projected game total as the expected defensive
-    snap count, then cross-matched (own OFF vs opponent DEF).
+    each diff stays exactly home - away. ``s_game`` NaN propagates
+    to NaN (never 1.0-filled). The unscaled intermediates are overwritten
+    in place (served under the original clean names since v10.1): each
+    side is read before its own write, so the math is unchanged.
     """
     out = df.copy() if df is not None else pd.DataFrame()
     for base in EPA_PACE_SCALED_BASES:
         for rep in ("home", "away", "diff"):
             if f"{base}_{rep}" not in out.columns:
                 out[f"{base}_{rep}"] = np.nan
-    for column in EPA_NET_COLS:
-        if column not in out.columns:
-            out[column] = np.nan
     if out.empty:
         return out
     s = (pd.to_numeric(out["s_game"], errors="coerce")
@@ -1710,33 +1717,6 @@ def _attach_epa_pace_scaled(df: pd.DataFrame) -> pd.DataFrame:
             out[f"{scaled}_{rep}"] = u * s
     for scaled in EPA_PACE_SCALED_BASES:
         out[f"{scaled}_diff"] = out[f"{scaled}_home"] - out[f"{scaled}_away"]
-    if {"pbp_def_epa_play_ewm_home", "pbp_def_epa_play_ewm_away",
-          "proj_game_plays_total"} <= set(out.columns):
-        dh = pd.to_numeric(out["pbp_def_epa_play_ewm_home"], errors="coerce")
-        da = pd.to_numeric(out["pbp_def_epa_play_ewm_away"], errors="coerce")
-        tot = pd.to_numeric(out["proj_game_plays_total"], errors="coerce")
-        half = tot / 2.0
-        def_home_g = dh * half * s
-        def_away_g = da * half * s
-        off_home = sum(pd.to_numeric(out[f"{b}_home"], errors="coerce")
-                       .fillna(0.0)
-                       for b in EPA_PACE_SCALED_BASES)
-        off_away = sum(pd.to_numeric(out[f"{b}_away"], errors="coerce")
-                       .fillna(0.0)
-                       for b in EPA_PACE_SCALED_BASES)
-        off_home_finite = sum(pd.to_numeric(out[f"{b}_home"],
-                                            errors="coerce").notna()
-                              for b in EPA_PACE_SCALED_BASES) > 0
-        off_away_finite = sum(pd.to_numeric(out[f"{b}_away"],
-                                            errors="coerce").notna()
-                              for b in EPA_PACE_SCALED_BASES) > 0
-        net_home = off_home - def_away_g
-        net_away = off_away - def_home_g
-        out["pl_epa_net_o_home"] = net_home.where(
-            off_home_finite & def_away_g.notna(), np.nan)
-        out["pl_epa_net_o_away"] = net_away.where(
-            off_away_finite & def_home_g.notna(), np.nan)
-        out["pl_epa_net_o_diff"] = out["pl_epa_net_o_home"] - out["pl_epa_net_o_away"]
     return out
 
 
@@ -2787,9 +2767,9 @@ YDS_ROLES = ("pass", "rec", "rush")
 YDS_ROLE_TO_BASE = {"pass": "pl_exp_pass_yds",
                     "rec": "pl_exp_rec_yds",
                     "rush": "pl_exp_rush_yds"}
-YDS_ROLE_TO_SCALED = {"pass": "pl_exp_pass_yds_scaled",
+YDS_ROLE_TO_SCALED = {"pass": "pl_exp_pass_yds",
                       "rec": "pl_exp_rec_yds_scaled",
-                      "rush": "pl_exp_rush_yds_scaled"}
+                      "rush": "pl_exp_rush_yds"}
 YDS_QUALITY_AGG_COLS = ["game_id", "team", "role", "yds_q"]
 
 
@@ -3003,7 +2983,7 @@ def _attach_yds_scaled(df: pd.DataFrame) -> pd.DataFrame:
 
     The same ``s_game`` scaler multiplies every unscaled leg on BOTH sides,
     so each scaled diff stays exactly home - away. ``s_game`` NaN propagates
-    to NaN (never 1.0-filled). Unscaled legs are never overwritten.
+    to NaN (never 1.0-filled). Unscaled legs are overwritten in place (same names since v10.1).
     """
     out = df.copy() if df is not None else pd.DataFrame()
     pairs = (list(zip(config.YDS_BASES, config.YDS_SCALED_BASES))
@@ -3612,17 +3592,17 @@ def build_game_features(games: pd.DataFrame,
                              weekly_injuries, redistribute_phase1,
                              phase1_caps, phase1_alpha, spill_matrix),
         games)
-    # Pace-scaled EPA legs + unit-fixed cross-matched net. Legacy epa_*
-    # legs are preserved beside the scaled twins for the A/B/C/D walk-forward.
+    # Pace EPA legs (scaled in place over the unscaled intermediates).
     df = _attach_epa_pace_scaled(df)
-    # Projected-lineup yardage (2026-11-01 challenger, unvalidated): same
-    # pool as EPA, yardage rates; scaled twins read s_game above.
+    # Projected-lineup yardage: same pool as EPA, yardage rates; scaled in
+    # place over the unscaled intermediates, reading s_game above.
     df = _attach_yds_features(
         df, _yds_quality_agg(games, pbp, ps, injuries, roster_unavailable,
                              weekly_injuries, redistribute_phase1,
                              phase1_caps, phase1_alpha, spill_matrix),
         games)
     df = _attach_yds_scaled(df)
+    df = _drop_pace_intermediates(df)
     df = _attach_injury_share_features(
         df, injury_share_table(snaps, weekly_injuries, crosswalk,
                                roster_unavailable, weekly_rosters), games)
@@ -3769,6 +3749,7 @@ def build_slate_features(schedule: pd.DataFrame,
                              phase1_caps, phase1_alpha, spill_matrix),
         sched)
     df = _attach_yds_scaled(df)
+    df = _drop_pace_intermediates(df)
     df = _attach_injury_share_features(
         df, injury_share_table(snaps, weekly_injuries, crosswalk,
                                roster_unavailable, weekly_rosters), sched)

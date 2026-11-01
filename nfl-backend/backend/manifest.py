@@ -1001,103 +1001,14 @@ for _base, _doc in _INJURY_SHARE_DOC.items():
         }
 
 
-# All 12 legacy EPA columns are retired-triable after the F adoption, not
-# served: entries are created here, then re-homed to CANDIDATE_MANIFEST by
-# the F-adoption move below. Routing metadata is unchanged so a future
-# re-trial reads the same tree-only sides / shared diff.
-try:
-    from backend import config as _epa_config
-except ImportError:  # running as a top-level module
-    import config as _epa_config
-for _base, _label in _EPA_POSITION_LABEL.items():
-    _desc, _definition, _source, _pit, _mvp = _STATIC_SIDE_DOC_EPA[_base]
-    _lookback, _aggregation = _STATIC_SIDE_AGGREGATION_EPA
-    for _side in ("home", "away"):
-        _name = f"{_base}_{_side}"
-        FEATURE_MANIFEST[_name] = {
-            "description": f"{_side.capitalize()} team's {_desc.lower()}",
-            "definition": f"The {_side} team's {_definition}",
-            "source": _source,
-            "lookback": _lookback,
-            "aggregation": _aggregation,
-            "point_in_time_rule": _pit,
-            "missing_value_policy": _mvp + "; in-model handling",
-            "representation": f"raw {_side} level (tree members)",
-            "model_family_availability": ["tree"],
-            "feature_version": 9,
-        }
-    _name = f"{_base}_diff"
-    FEATURE_MANIFEST[_name] = {
-        "description": f"Home minus away {_label} quality",
-        "definition": f"{_base}_home - {_base}_away",
-        "source": _source,
-        "lookback": _lookback,
-        "aggregation": _aggregation,
-        "point_in_time_rule": _pit,
-        "missing_value_policy": _mvp + "; in-model handling",
-        "representation": "difference (all model families)",
-        "model_family_availability": ["linear", "tree", "mlp"],
-        "feature_version": 9,
-    }
-
-# Expected-game pace projection (retired-triable under F; entries re-homed
-# to CANDIDATE_MANIFEST below): production members before the F adoption,
-# never RFE candidates. Per-side levels are tree-only; diffs and game-level
-# columns serve every family.
-_PACE_PROJ_DOC = {
-    "description": "Expected regulation plays for the side",
-    "definition": ("trailing-4-game mean of regulation plays/game "
-                     "(OT-stripped n_plays over the regulation-denominated "
-                     "clock); home/away levels price each side, the diff "
-                     "their gap"),
-    "source": ("nflverse play-by-play (qtr <= 4 regulation filter, "
-                 "missing qtr counts as regulation)"),
-    "lookback": "4 trailing strictly-prior games",
-    "aggregation": "per-team trailing mean (shift(1))",
-    "point_in_time_rule": ("regulation plays from games kicking off "
-                             "strictly before the target; missing qtr never "
-                             "drops a play"),
-    "missing_value_policy": "NaN when the side has no prior games; in-model handling",
-}
-for _name in ("proj_team_plays_home", "proj_team_plays_away"):
-    FEATURE_MANIFEST[_name] = {
-        **_PACE_PROJ_DOC,
-        "representation": "raw side level (tree members)",
-        "model_family_availability": ["tree"],
-        "feature_version": 1,
-    }
-FEATURE_MANIFEST["proj_team_plays_diff"] = {
-    **_PACE_PROJ_DOC,
-    "definition": "proj_team_plays_home - proj_team_plays_away",
-    "representation": "difference (all model families)",
-    "model_family_availability": ["linear", "tree", "mlp"],
-    "feature_version": 1,
-}
-for _name in ("league_avg_plays", "proj_game_plays_total", "s_game"):
-    FEATURE_MANIFEST[_name] = {
-        "description": "Expected-game pace level",
-        "definition": ("league_avg_plays: trailing-30d mean of "
-                         "proj_team_plays strictly before the target gameday; "
-                         "proj_game_plays_total = home x away / league_avg "
-                         "(NBA tot form); s_game = total / league_avg"),
-        "source": "derived from the trailing regulation-pace ladder",
-        "lookback": "30 trailing days (league mean); 4 games (sides)",
-        "aggregation": "projected game pace (home x away / league mean)",
-        "point_in_time_rule": ("every input is a strictly-prior trailing "
-                                 "mean; no same-game joins"),
-        "missing_value_policy": "NaN propagates (never 1.0-filled); in-model handling",
-        "representation": "game level (all model families)",
-        "model_family_availability": ["linear", "tree", "mlp"],
-        "feature_version": 1,
-    }
-# Pace-scaled EPA legs (F-adopted 2026-11-01): production members, not
-# candidates. Per-side levels are tree-only; diffs serve every family.
-for _base in ("pl_epa_qb_scaled", "pl_epa_wr_scaled", "pl_epa_te_scaled", "pl_epa_rb_scaled"):
+# Pace EPA legs (served under the original clean names since v10.1).
+# Per-side levels are tree-only; diffs serve every family.
+for _base in ("pl_epa_qb", "pl_epa_wr", "pl_epa_te", "pl_epa_rb"):
     for _side in ("home", "away"):
         _name = f"{_base}_{_side}"
         FEATURE_MANIFEST[_name] = {
             "description": f"{_side.capitalize()} team's pace-scaled lineup quality",
-            "definition": f"The {_side} team's unscaled {_base[:-7]} leg x s_game",
+            "definition": f"The {_side} team's {_base} leg x s_game",
             "source": "projected-lineup EPA legs x expected-game pace scaler",
             "lookback": _STATIC_SIDE_AGGREGATION_EPA[0],
             "aggregation": "pace-scaled EPA/game (one scaler both sides)",
@@ -1109,7 +1020,7 @@ for _base in ("pl_epa_qb_scaled", "pl_epa_wr_scaled", "pl_epa_te_scaled", "pl_ep
         }
     _name = f"{_base}_diff"
     FEATURE_MANIFEST[_name] = {
-        "description": f"Home minus away pace-scaled {_base[:-7]} quality",
+        "description": f"Home minus away pace {_base} quality",
         "definition": f"{_base}_home - {_base}_away",
         "source": "projected-lineup EPA legs x expected-game pace scaler",
         "lookback": _STATIC_SIDE_AGGREGATION_EPA[0],
@@ -1120,51 +1031,24 @@ for _base in ("pl_epa_qb_scaled", "pl_epa_wr_scaled", "pl_epa_te_scaled", "pl_ep
         "model_family_availability": ["linear", "tree", "mlp"],
         "feature_version": 1,
     }
-# Projected-lineup yardage (F-adopted 2026-11-01 for the scaled legs; the
-# unscaled legs retired-triable and re-homed below): per-side levels are
-# tree-only; diffs serve every family. Receiving legs are generated
+# Projected-lineup yardage (served under the original clean names since
+# v10.1; the unscaled legs were deleted outright 2026-11-01): per-side
+# levels are tree-only; diffs serve every family. Receiving legs are generated
 # diagnostics (team receiving identically equals team gross passing) and
 # live in YDS_DIAG_MANIFEST, never in the served contract or the trial
 # space.
 _YDS_DOC = {
     "pl_exp_pass_yds": (
-        "Projected-lineup gross passing yards",
-        "projected gross passing yards per game: each passer's shrunk "
-        "yards-per-dropback rating, weighted by his own projected dropbacks "
-        "per game, summed over the lineup; sacks contribute volume with "
-        "0 yards (gross-by-construction)",
-        "nflverse play-by-play passing_yards + qb_dropback flags; weekly "
-        "player stats for position labels; weekly roster snapshots",
-        "8 player-games; 21-calendar-day roster window",
-        "opportunity-weighted TOTAL by role among the team's top 11 "
-        "prior-opportunity leaders after the same three-channel "
-        "Out/IR/Doubtful exclusions as EPA",
-        "every input strictly-prior; NaN propagates",
-        "NaN when no projected passer has a prior rating; in-model handling"),
-    "pl_exp_rush_yds": (
-        "Projected-lineup rushing yards",
-        "projected rushing yards per game: each rusher's shrunk "
-        "yards-per-attempt rating, weighted by his own projected rush "
-        "attempts per game (scrambles credit the QB), summed over the lineup",
-        "nflverse play-by-play rushing_yards + rush_attempt flags; weekly "
-        "player stats for position labels; weekly roster snapshots",
-        "8 player-games; 21-calendar-day roster window",
-        "opportunity-weighted TOTAL by role among the team's top 11 "
-        "prior-opportunity leaders after the same three-channel "
-        "Out/IR/Doubtful exclusions as EPA",
-        "every input strictly-prior; NaN propagates",
-        "NaN when no projected rusher has a prior rating; in-model handling"),
-    "pl_exp_pass_yds_scaled": (
         "Pace-scaled projected-lineup gross passing yards",
-        "the unscaled pl_exp_pass_yds leg x s_game",
+        "the projected-lineup pl_exp_pass_yds leg x s_game",
         "projected-lineup passing legs x expected-game pace scaler",
         "8 player-games; 4 trailing games (sides); 30d (pace)",
         "pace-scaled yards/game (one scaler both sides)",
         "s_game inputs strictly-prior; s_game NaN -> NaN",
         "NaN when the leg or s_game is NaN; in-model handling"),
-    "pl_exp_rush_yds_scaled": (
+    "pl_exp_rush_yds": (
         "Pace-scaled projected-lineup rushing yards",
-        "the unscaled pl_exp_rush_yds leg x s_game",
+        "the projected-lineup pl_exp_rush_yds leg x s_game",
         "projected-lineup rushing legs x expected-game pace scaler",
         "8 player-games; 4 trailing games (sides); 30d (pace)",
         "pace-scaled yards/game (one scaler both sides)",
@@ -1213,48 +1097,6 @@ for _base in ("pl_exp_rec_yds", "pl_exp_rec_yds_scaled"):
             "model_family_availability": [],
             "feature_version": 11,
         }
-# Cross-matched net (retired-triable under F; entries re-homed below).
-for _name in ("pl_epa_net_o_home", "pl_epa_net_o_away"):
-    FEATURE_MANIFEST[_name] = {
-        "description": "Cross-matched net EPA/game (unit-fixed)",
-        "definition": ("own pace-scaled OFF (sum of scaled legs) minus the "
-                         "opponent's DEF rate converted to EPA/game with half "
-                         "the projected game total"),
-        "source": "pace-scaled EPA legs + pbp_def_epa_play_ewm rate",
-        "lookback": "8 player-games; 4 trailing games (sides); 30d (pace)",
-        "aggregation": "cross-matched net EPA/game in expected pace",
-        "point_in_time_rule": "every input strictly-prior; NaN propagates",
-        "missing_value_policy": "NaN when OFF or opponent DEF is NaN; in-model handling",
-        "representation": "raw side level (tree members)",
-        "model_family_availability": ["tree"],
-        "feature_version": 1,
-    }
-FEATURE_MANIFEST["pl_epa_net_o_diff"] = {
-    "description": "Home minus away cross-matched net EPA/game",
-    "definition": "pl_epa_net_o_home - pl_epa_net_o_away",
-    "source": "pace-scaled EPA legs + pbp_def_epa_play_ewm rate",
-    "lookback": "8 player-games; 4 trailing games (sides); 30d (pace)",
-    "aggregation": "cross-matched net EPA/game in expected pace",
-    "point_in_time_rule": "every input strictly-prior; NaN propagates",
-    "missing_value_policy": "NaN when OFF or opponent DEF is NaN; in-model handling",
-    "representation": "difference (all model families)",
-    "model_family_availability": ["linear", "tree", "mlp"],
-    "feature_version": 1,
-}
-
-# F adoption (2026-11-01, owner-directed): the 27 retired structural legs
-# (legacy unscaled EPA, pace-projection/game, cross-matched net, unscaled
-# yards) leave the served contract for the 76-column F subset but stay
-# generated and triable, so their entries move to CANDIDATE_MANIFEST with
-# candidate=True - retired-but-triable, one documentation source. The same
-# re-homing as an RFE demotion, in reverse of _RFE_PROMOTED below.
-for _name in _epa_config.RETIRED_STRUCTURAL_COLS:
-    _entry = FEATURE_MANIFEST.pop(_name, None)
-    if _entry is None:
-        raise RuntimeError(f"retired feature {_name!r} has no manifest entry to re-home")
-    _entry["candidate"] = True
-    CANDIDATE_MANIFEST[_name] = _entry
-
 # RFE promotions: candidates structurally promoted into the served contract
 # (config.MONEYLINE_FEATURE_COLS). Their manifest entries move OUT of the
 # candidate manifest (the trial space excludes served names), so re-home the
