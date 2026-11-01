@@ -227,7 +227,8 @@ check("the four rest/travel side twins are in the served contract, out of the RF
           and c in manifest.FEATURE_MANIFEST
           and c not in manifest.CANDIDATE_MANIFEST
           for c in _twins)
-      and len(config.MONEYLINE_FEATURE_COLS) == 70)
+      # 2026-11-01: F adoption (owner-directed): 103 - 27 retired = 76.
+      and len(config.MONEYLINE_FEATURE_COLS) == 76)
 check("rest/travel side twins route tree-only like every raw level",
       set(_twins) <= set(config.RAW_PER_SIDE_COLS)
       and all(manifest.FEATURE_MANIFEST[c]["model_family_availability"] == ["tree"]
@@ -448,9 +449,9 @@ check("first prior home venue is unavailable rather than guessed",
 _weather_features = {"temp_f", "wind_mph", "is_precip", "is_snow"}
 check("all four hourly weather features are in the active contract",
       _weather_features <= set(config.MONEYLINE_FEATURE_COLS))
-check("active moneyline contract includes the 12 EPA lineup features",
-      set(config.EPA_QUALITY_FEATURE_COLS) <= set(config.MONEYLINE_FEATURE_COLS)
-      and len(config.MONEYLINE_FEATURE_COLS) == 70)
+check("active moneyline contract includes the 12 scaled EPA lineup features",
+      set(config.EPA_PACE_SCALED_FEATURE_COLS) <= set(config.MONEYLINE_FEATURE_COLS)
+      and len(config.MONEYLINE_FEATURE_COLS) == 76)
 
 # Coverage gate (2026-09-27 side-twin promotion, owner >99% bar): the four
 # twins must clear the bar on the OOF population (2017+, what folds evaluate
@@ -3044,31 +3045,135 @@ except Exception as exc:  # noqa: BLE001
 
 
 # ---------------------------------------------------------------------------
-print("\n== 13. EPA production contract and injury-status PIT regressions ==")
+print("\n== 13. EPA F-adoption retirement and injury-status PIT regressions ==")
 _expected_epa_features = [
-    f"epa_{position}_{side}"
+    f"pl_epa_{position}_{side}"
     for position in ("qb", "wr", "te", "rb")
     for side in ("home", "away", "diff")
 ]
-check("the 12 EPA lineup columns are in the served production contract",
+check("the 12 legacy EPA legs retired to the trial-candidate pool (F adoption)",
       config.EPA_QUALITY_FEATURE_COLS == _expected_epa_features
-      and all(c in config.MONEYLINE_FEATURE_COLS
-              and c not in config.RFE_CANDIDATE_COLS
-              and c in manifest.FEATURE_MANIFEST
-              and c not in manifest.CANDIDATE_MANIFEST
+      and all(c in config.RETIRED_STRUCTURAL_COLS
+              and c not in config.MONEYLINE_FEATURE_COLS
+              and c in config.RFE_CANDIDATE_COLS
+              and c in manifest.CANDIDATE_MANIFEST
+              and c not in manifest.FEATURE_MANIFEST
               for c in _expected_epa_features)
-      and len(config.MONEYLINE_FEATURE_COLS) == 70)
-check("EPA lineup routing matches MLB: sides tree-only, diff shared",
+      and len(config.MONEYLINE_FEATURE_COLS) == 76)
+check("retired EPA routing preserved for future trials: sides tree-only, diff shared",
       all(f"{base}_{side}" in config.RAW_PER_SIDE_COLS
           for base in config.EPA_QUALITY_BASES for side in ("home", "away"))
       and all(f"{base}_diff" not in config.RAW_PER_SIDE_COLS
               for base in config.EPA_QUALITY_BASES)
-      and all(manifest.FEATURE_MANIFEST[f"{base}_{side}"]["model_family_availability"]
+      and all(manifest.CANDIDATE_MANIFEST[f"{base}_{side}"]["model_family_availability"]
               == ["tree"]
               for base in config.EPA_QUALITY_BASES for side in ("home", "away"))
-      and all(manifest.FEATURE_MANIFEST[f"{base}_diff"]["model_family_availability"]
+      and all(manifest.CANDIDATE_MANIFEST[f"{base}_diff"]["model_family_availability"]
               == ["linear", "tree", "mlp"]
               for base in config.EPA_QUALITY_BASES))
+
+# ---------------------------------------------------------------------------
+# Projected-lineup yardage (F-adopted 2026-11-01 for the scaled legs; the
+# unscaled legs retired-triable). Same structural gates: served, documented,
+# routed sides-tree-only / diffs-shared; receiving stays a generated
+# diagnostic, never served.
+# ---------------------------------------------------------------------------
+_expected_yds = [f"{base}_{rep}"
+                 for base in ("pl_exp_pass_yds", "pl_exp_rush_yds")
+                 for rep in ("home", "away", "diff")]
+_expected_yds_scaled = [f"{base}_{rep}"
+                        for base in ("pl_exp_pass_yds_scaled",
+                                     "pl_exp_rush_yds_scaled")
+                        for rep in ("home", "away", "diff")]
+_expected_yds_diag = (
+    [f"pl_exp_rec_yds_{rep}" for rep in ("home", "away", "diff")]
+    + [f"pl_exp_rec_yds_scaled_{rep}" for rep in ("home", "away", "diff")])
+check("scaled yardage legs served, unscaled retired-triable; receiving stays diagnostic",
+      set(config.YDS_FEATURE_COLS) == set(_expected_yds)
+      and set(config.YDS_SCALED_FEATURE_COLS) == set(_expected_yds_scaled)
+      and set(config.YDS_DIAG_COLS) == set(_expected_yds_diag)
+      and all(c in config.MONEYLINE_FEATURE_COLS
+              and c not in config.RFE_CANDIDATE_COLS
+              and c in manifest.FEATURE_MANIFEST
+              and c not in manifest.CANDIDATE_MANIFEST
+              for c in _expected_yds_scaled)
+      and all(c in config.RETIRED_STRUCTURAL_COLS
+              and c not in config.MONEYLINE_FEATURE_COLS
+              and c in config.RFE_CANDIDATE_COLS
+              and c in manifest.CANDIDATE_MANIFEST
+              and c not in manifest.FEATURE_MANIFEST
+              for c in _expected_yds)
+      and all(f"{base}_{side}" in config.RAW_PER_SIDE_COLS
+              for base in (config.YDS_BASES + config.YDS_SCALED_BASES)
+              for side in ("home", "away"))
+      and all(f"{base}_{side}" not in config.RAW_PER_SIDE_COLS
+              for base in (config.YDS_DIAG_BASES
+                           + config.YDS_SCALED_DIAG_BASES)
+              for side in ("home", "away", "diff"))
+      and all(f"{base}_diff" not in config.RAW_PER_SIDE_COLS
+              for base in (config.YDS_BASES + config.YDS_SCALED_BASES))
+      and all(c not in config.MONEYLINE_FEATURE_COLS
+              and c not in manifest.CANDIDATE_MANIFEST
+              and c in manifest.YDS_DIAG_MANIFEST
+              for c in _expected_yds_diag)
+      and all(c in config.MONEYLINE_FEATURE_COLS
+              for c in config.YDS_SCALED_FEATURE_COLS)
+      and all(c not in config.MONEYLINE_FEATURE_COLS
+              for c in config.YDS_FEATURE_COLS))
+# ---------------------------------------------------------------------------
+# Pace-scaled EPA (F-adopted 2026-11-01); pace-projection/game + net legs
+# retired-triable. Same structural gates as the legacy legs: served,
+# documented, routed sides-tree-only / diffs-shared. The served bases must
+# match the attach implementation exactly.
+# ---------------------------------------------------------------------------
+_expected_pace_scaled = [f"{base}_{rep}"
+                         for base in ("pl_epa_qb_scaled", "pl_epa_wr_scaled",
+                                      "pl_epa_te_scaled", "pl_epa_rb_scaled")
+                         for rep in ("home", "away", "diff")]
+_expected_pace_proj = ["proj_team_plays_home", "proj_team_plays_away",
+                       "proj_team_plays_diff", "league_avg_plays",
+                       "proj_game_plays_total", "s_game"]
+_expected_net = [f"pl_epa_net_o_{rep}" for rep in ("home", "away", "diff")]
+check("scaled-EPA legs served; pace-projection / net retired-triable (F adoption)",
+      set(config.EPA_PACE_SCALED_FEATURE_COLS) == set(_expected_pace_scaled)
+      and set(config.EPA_PACE_PROJ_FEATURE_COLS) == set(_expected_pace_proj)
+      and set(config.EPA_NET_FEATURE_COLS) == set(_expected_net)
+      and feat_mod.EPA_PACE_SCALED_BASES == config.EPA_PACE_SCALED_BASES
+      and all(c in config.MONEYLINE_FEATURE_COLS
+              and c not in config.RFE_CANDIDATE_COLS
+              and c in manifest.FEATURE_MANIFEST
+              and c not in manifest.CANDIDATE_MANIFEST
+              for c in _expected_pace_scaled)
+      and all(c in config.RETIRED_STRUCTURAL_COLS
+              and c not in config.MONEYLINE_FEATURE_COLS
+              and c in config.RFE_CANDIDATE_COLS
+              and c in manifest.CANDIDATE_MANIFEST
+              and c not in manifest.FEATURE_MANIFEST
+              for c in _expected_pace_proj + _expected_net))
+check("scaled-EPA routing: sides tree-only, diffs shared; retired routing preserved",
+      all(f"{base}_{side}" in config.RAW_PER_SIDE_COLS
+          for base in (config.EPA_PACE_SCALED_BASES + config.EPA_NET_BASES
+                       + config.EPA_PACE_PROJ_BASES)
+          for side in ("home", "away"))
+      and all(c not in config.RAW_PER_SIDE_COLS
+              for c in config.EPA_PACE_GAME_COLS)
+      and all(manifest.FEATURE_MANIFEST[c]["model_family_availability"] == ["tree"]
+              for c in _expected_pace_scaled
+              if not c.endswith("_diff"))
+      and all(manifest.CANDIDATE_MANIFEST[c]["model_family_availability"] == ["tree"]
+              for c in _expected_net
+              + ["proj_team_plays_home", "proj_team_plays_away"]
+              if not c.endswith("_diff"))
+      and all(manifest.FEATURE_MANIFEST[c]["model_family_availability"]
+              == ["linear", "tree", "mlp"]
+              for c in _expected_pace_scaled
+              if c.endswith("_diff"))
+      and all(manifest.CANDIDATE_MANIFEST[c]["model_family_availability"]
+              == ["linear", "tree", "mlp"]
+              for c in ["proj_team_plays_diff", "league_avg_plays",
+                      "proj_game_plays_total", "s_game"]
+              + [c for c in _expected_net
+                 if c.endswith("_diff")]))
 
 # ---------------------------------------------------------------------------
 # Structurally promoted trailing defensive EPA (2026-09-27). Promoted over an
@@ -3115,11 +3220,11 @@ check("the roll-window siblings were not promoted and remain triable",
       all(f"pbp_def_epa_play_roll_{s}" not in config.MONEYLINE_FEATURE_COLS
           and f"pbp_def_epa_play_roll_{s}" in config.RFE_CANDIDATE_COLS
           for s in ("diff", "home", "away")))
-check("the served contract now carries an explicit defensive quantity",
+check("the served contract still carries an explicit defensive quantity",
       # Before this promotion the contract held NO defensive column at all:
       # defensive quality arrived only via the opponent's Elo/win%/net-points.
       any(c.startswith("pbp_def_epa_play_") for c in config.MONEYLINE_FEATURE_COLS)
-      and len(config.MONEYLINE_FEATURE_COLS) == 70)
+      and len(config.MONEYLINE_FEATURE_COLS) == 76)
 
 # ---------------------------------------------------------------------------
 # Weekly-report injury-share family (2026-09-27 Tier B promotion, 18 cols).
@@ -3606,15 +3711,15 @@ _epa_augmented_agg = feat_mod._epa_quality_agg(
 _epa_augmented_features = feat_mod._attach_epa_quality_features(
     _epa_calc_games.tail(1).reset_index(drop=True), _epa_augmented_agg,
     pd.concat([_epa_calc_games, _epa_future_game], ignore_index=True))
-_epa_augmented_home = float(_epa_augmented_features.iloc[0]["epa_qb_home"])
+_epa_augmented_home = float(_epa_augmented_features.iloc[0]["pl_epa_qb_home"])
 _epa_mu = 16.0 / 70.0
 _epa_skill_hist = _epa_quality_agg.set_index(["team", "position"])
 _epa_skill_checks = all(
-    pd.notna(_epa_target_row[f"epa_{pos}_{side}"])
+    pd.notna(_epa_target_row[f"pl_epa_{pos}_{side}"])
     for pos in ("qb", "wr", "te", "rb") for side in ("home", "away"))
 _epa_skill_checks = (_epa_skill_checks and all(
-    np.isclose(_epa_target_row[f"epa_{pos}_diff"],
-               _epa_target_row[f"epa_{pos}_home"] - _epa_target_row[f"epa_{pos}_away"])
+    np.isclose(_epa_target_row[f"pl_epa_{pos}_diff"],
+               _epa_target_row[f"pl_epa_{pos}_home"] - _epa_target_row[f"pl_epa_{pos}_away"])
     for pos in ("qb", "wr", "te", "rb")))
 _epa_fb_in_rb = ("HOME", "RB") in _epa_skill_hist.index
 
@@ -3665,37 +3770,37 @@ check("Out exclusion changes target lineup membership, not P3's lagged EPA",
       and np.isclose(_epa_hist_opps.set_index("player_id").loc["P3", "opp"], 30.0)
       and np.isclose(_epa_history.set_index("player_id").loc["P3", "_num"], 9.0)
       and np.isclose(_epa_history.set_index("player_id").loc["P3", "_den"], 30.0)
-      and np.isclose(_epa_target_row["epa_qb_home"], _epa_expected_home)
-      and not np.isclose(_epa_target_row["epa_qb_home"],
+      and np.isclose(_epa_target_row["pl_epa_qb_home"], _epa_expected_home)
+      and not np.isclose(_epa_target_row["pl_epa_qb_home"],
                          (_epa_p1_q + _epa_p2_q + _epa_unfiltered_p3_q) / 3.0),
       f"P3 historical rolling total remains 9/30 while home target blend="
-      f"{_epa_target_row['epa_qb_home']:.9f}")
+      f"{_epa_target_row['pl_epa_qb_home']:.9f}")
 check("all QB/WR/TE/RB lineup aggregates populate both team sides",
       _epa_skill_checks,
       "position-specific aggregates and home-away differences emitted")
 check("FB opportunity history is grouped into the RB lineup family",
       _epa_fb_in_rb)
-check("epa_qb_home follows PIT-qualified EPA shrinkage and a volume-weighted "
+check("pl_epa_qb_home follows PIT-qualified EPA shrinkage and a volume-weighted "
       "blend capped at one passer's volume",
       np.isclose(_epa_hist_opps.set_index("player_id").loc["P1", "epa"], 5.0)
       and np.isclose(_epa_hist_opps.set_index("player_id").loc["P1", "opp"], 10.0)
       and np.isclose(_epa_hist_opps.set_index("player_id").loc["P2", "epa"], 2.0)
       and np.isclose(_epa_hist_opps.set_index("player_id").loc["P2", "opp"], 20.0)
-      and np.isclose(_epa_target_row["epa_qb_home"], _epa_expected_home)
+      and np.isclose(_epa_target_row["pl_epa_qb_home"], _epa_expected_home)
       and np.isclose(_epa_qb_prior["mu"], _epa_mu)
       and np.isclose(_epa_qb_prior["k"], _epa_k)
-      and np.isclose(_epa_target_row["epa_qb_away"], _epa_expected_away)
-      and np.isclose(_epa_target_row["epa_qb_diff"],
+      and np.isclose(_epa_target_row["pl_epa_qb_away"], _epa_expected_away)
+      and np.isclose(_epa_target_row["pl_epa_qb_diff"],
                      _epa_expected_home - _epa_expected_away)
       and np.isclose(_epa_augmented_home, _epa_expected_home),
-      f"home={_epa_target_row['epa_qb_home']:.9f}, "
-      f"away={_epa_target_row['epa_qb_away']:.9f}, "
-      f"diff={_epa_target_row['epa_qb_diff']:.9f}; "
+      f"home={_epa_target_row['pl_epa_qb_home']:.9f}, "
+      f"away={_epa_target_row['pl_epa_qb_away']:.9f}, "
+      f"diff={_epa_target_row['pl_epa_qb_diff']:.9f}; "
       f"changed target/future home={_epa_augmented_home:.9f}")
 print("  EPA worked example (synthetic, production functions): "
       f"mu={_epa_mu:.9f}, k={_epa_k:.3f}, "
       f"P1={_epa_p1_q:.9f}, P2={_epa_p2_q:.9f}, "
-      f"epa_qb_home={_epa_expected_home:.9f}")
+      f"pl_epa_qb_home={_epa_expected_home:.9f}")
 
 # Volume-cap guard (2026-10-25): with ONE passer left in the pool the share
 # is 1.0, so the row is exactly his tpg x rating and the cap is a no-op. P2
@@ -3711,12 +3816,12 @@ _epa_solo_home = float(_epa_solo_agg[
     _epa_solo_agg["game_id"].eq("EPA_TARGET")
     & _epa_solo_agg["team"].eq("HOME")
     & _epa_solo_agg["position"].eq("QB")]["epa_q"].iloc[0])
-check("epa_qb volume cap leaves a singleton pool untouched: an out passer "
+check("pl_epa_qb volume cap leaves a singleton pool untouched: an out passer "
       "leaves the survivor priced at his own full volume",
       np.isclose(_epa_solo_home, _epa_p1_tpg * _epa_p1_q)
-      and np.isclose(_epa_target_row["epa_qb_home"], _epa_expected_home)
+      and np.isclose(_epa_target_row["pl_epa_qb_home"], _epa_expected_home)
       and not np.isclose(_epa_solo_home, _epa_expected_home)
-      and not np.isclose(_epa_target_row["epa_qb_home"],
+      and not np.isclose(_epa_target_row["pl_epa_qb_home"],
                          _epa_p1_tpg * _epa_p1_q + _epa_p2_tpg * _epa_p2_q),
       f"P2 out: home={_epa_solo_home:.9f} (P1 tpg x rating="
       f"{_epa_p1_tpg * _epa_p1_q:.9f}); baseline home="
@@ -4723,15 +4828,15 @@ check("injury-share share pricing unchanged for report-flagged players",
 _src_gf = inspect.getsource(feat_mod.build_game_features)
 _src_sf = inspect.getsource(feat_mod.build_slate_features)
 check("both builders thread the roster overlay into both consumption points",
-      _src_gf.count("roster_unavailable") == 3
-      and _src_sf.count("roster_unavailable") == 3
+      _src_gf.count("roster_unavailable") == 4
+      and _src_sf.count("roster_unavailable") == 4
       and "roster_unavailable" in inspect.getsource(
           feat_mod.epa_quality_team_agg)
       and "roster_unavailable" in inspect.getsource(
           feat_mod.injury_share_table))
 check("both builders thread weekly_injuries into the EPA lineups too",
-      _src_gf.count("weekly_injuries") == 3
-      and _src_sf.count("weekly_injuries") == 3
+      _src_gf.count("weekly_injuries") == 4
+      and _src_sf.count("weekly_injuries") == 4
       and "weekly_injuries" in inspect.getsource(feat_mod._epa_quality_agg)
       and "weekly_injuries" in inspect.getsource(feat_mod.epa_quality_team_agg),
       "the report-cycle channel is the only availability source in 2025/2026")
@@ -6050,6 +6155,14 @@ check("train and slate call the EPA quality agg with the same availability input
       and "weekly_injuries, redistribute_phase1," in _src_gf2
       and "weekly_injuries, redistribute_phase1," in _src_sf2,
       "training and serving must price the same projected lineups")
+check("train and slate call the yardage agg with the same availability inputs",
+      _src_gf2.count("_yds_quality_agg(") == 1
+      and _src_sf2.count("_yds_quality_agg(") == 1
+      and "injuries, roster_unavailable," in _src_gf2
+      and "injuries, roster_unavailable," in _src_sf2
+      and "weekly_injuries, redistribute_phase1," in _src_gf2
+      and "weekly_injuries, redistribute_phase1," in _src_sf2,
+      "one yardage family, both frames")
 check("train and slate call the injury-share family with the same inputs",
       "injury_share_table(snaps, weekly_injuries, crosswalk," in _src_gf2
       and "injury_share_table(snaps, weekly_injuries, crosswalk," in _src_sf2

@@ -64,7 +64,7 @@ a09_df = feat_mod.build_game_features(
     phase1_caps=caps, phase1_alpha=dict(ALPHA))
 log.info("a09 frame: %s", a09_df.shape)
 
-epa_cols = [c for c in base_df.columns if c.startswith("epa_")
+epa_cols = [c for c in base_df.columns if c.startswith("pl_epa_")
             and (c.endswith("_home") or c.endswith("_away") or c.endswith("_diff"))]
 bo = base_df[["game_id"] + epa_cols].copy()
 ao = a09_df[["game_id"] + epa_cols].copy()

@@ -340,6 +340,11 @@ PBP_NEEDS = [
     # already in PBP_NEEDS above.
     "passer_player_id", "receiver_player_id", "rusher_player_id",
     "qb_dropback", "rush_attempt",
+    # 2026-11-01 projected-lineup yardage family (pl_exp_pass_yds /
+    # pl_exp_rush_yds): per-play gross passing, receiving, rushing yards for
+    # the role-value table. Phase-0 probe: sacks carry NaN (not negative
+    # yards), so NaN->0 + role flags yields gross yards/attempt natively.
+    "rushing_yards", "receiving_yards",
 ]
 
 # Cache schema version for the pbp parquets. Bump whenever PBP_NEEDS widens:
@@ -352,7 +357,7 @@ PBP_NEEDS = [
 # columns (qtr/down/ydstogo/goal_to_go/score_differential/half_seconds_
 # remaining) behind the platoon rollups; "v5" adds player-role IDs and
 # opportunity flags for per-position projected-lineup EPA features.
-PBP_CACHE_VERSION = "v5"
+PBP_CACHE_VERSION = "v6"
 
 
 def load_pbp(seasons: list[int] | None = None,

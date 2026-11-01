@@ -152,7 +152,17 @@ MIN_VAL_FOLD_GAMES = 15    # ordinary OOF validation minimum; final tail retaine
 # representation change invalidates old bundles: rerun features, OOF,
 # blend/calibration and the final refit together.
 # Pending rows no longer advance trailing result/rest state. Rebuild/refit.
-FEATURE_SET_VERSION = "nfl-prod-v9.9-pending-state"
+# v10.0 adopts the F subset (2026-11-01, by owner directive): the 12
+# pace-scaled EPA legs replace the 12 legacy legs and the 6 pace-scaled
+# yards legs join them; the 12 legacy EPA legs, 6 pace-projection/game
+# columns, 3 net columns and 6 unscaled yards legs retire to the
+# trial-candidate pool (still generated, still documented, still
+# pool-routed). The walk-forward verdict is a directive override: F vs the
+# A-subset dLL -0.001508, se 0.001112, z=-1.36, under the |1.5| adopt bar,
+# and never trialed against the 103-wide production universe it replaces,
+# so the re-test stands. Rebuild features, OOF and refits together - this
+# narrows the binary contract to 76 columns.
+FEATURE_SET_VERSION = "nfl-prod-v10.0-f"
 
 # ---------------------------------------------------------------------------
 # Moneyline calibration (MLB structural parity; favored-team space ONLY)
@@ -267,13 +277,24 @@ MONEYLINE_FEATURE_COLS = [
     # teams slow -> low-scoring total, regardless of the gap). Same trailing
     # level the diff reads, tree-only routing like every other side level.
     "pace_plays_min_home", "pace_plays_min_away",
-    # MLB lineup-wOBA structural analogue: position quality for the projected
-    # offensive lineup. Diffs route to every model family; home/away levels are
-    # tree-only through RAW_PER_SIDE_COLS.
-    "epa_qb_home", "epa_qb_away", "epa_qb_diff",
-    "epa_wr_home", "epa_wr_away", "epa_wr_diff",
-    "epa_te_home", "epa_te_away", "epa_te_diff",
-    "epa_rb_home", "epa_rb_away", "epa_rb_diff",
+    # F adoption (2026-11-01, owner-directed): the lineup-quality family is
+    # served by the pace-scaled legs only (sides tree-only, diffs shared).
+    # The 12 legacy unscaled legs retired to the trial-candidate pool with
+    # the pace-projection/game, net and unscaled-yards columns below.
+    # Pace-scaled EPA legs (F-adopted 2026-11-01): the same four position
+    # legs in expected-game pace units. Sides route tree-only, diffs serve
+    # every family.
+    "pl_epa_qb_scaled_home", "pl_epa_qb_scaled_away", "pl_epa_qb_scaled_diff",
+    "pl_epa_wr_scaled_home", "pl_epa_wr_scaled_away", "pl_epa_wr_scaled_diff",
+    "pl_epa_te_scaled_home", "pl_epa_te_scaled_away", "pl_epa_te_scaled_diff",
+    "pl_epa_rb_scaled_home", "pl_epa_rb_scaled_away", "pl_epa_rb_scaled_diff",
+    # Projected-lineup yardage (F-adopted 2026-11-01): the pace-scaled legs
+    # serve (sides tree-only, diffs shared); the 6 unscaled legs retired to
+    # the trial-candidate pool with the legacy EPA / pace-projection / net.
+    "pl_exp_pass_yds_scaled_home", "pl_exp_pass_yds_scaled_away",
+    "pl_exp_pass_yds_scaled_diff",
+    "pl_exp_rush_yds_scaled_home", "pl_exp_rush_yds_scaled_away",
+    "pl_exp_rush_yds_scaled_diff",
     # constant home anchor last, so the linear member's positional contract is
     # unchanged by the raw-side block above (MLB parity: training.RAW_PER_SIDE_COLS)
     # 2026-09-27 Tier B injury-share family (18 columns): OL/DEF availability.
@@ -549,18 +570,87 @@ STATIC_SIDE_CANDIDATES: list[str] = ["travel_miles"]
 STATIC_DIFF_CANDIDATES: list[str] = []
 
 # Promoted projected-lineup EPA quality families. The position-specific
-# builders live in features.py; these base names define their symmetric served
-# columns and tree-only raw-side routing.
+# builders live in features.py; these base names define their symmetric
+# columns and tree-only raw-side routing (served before the F adoption,
+# retired-triable after; generation is unchanged).
 # The rest_short_diff halves ride the same RAW_PER_SIDE_COLS routing rule
 # (structural promotion 2026-09-27); they are listed literally above because
 # the flag is a ladder flag column, not a STATIC_SIDE_CANDIDATES base.
-EPA_QUALITY_BASES: tuple[str, ...] = ("epa_qb", "epa_wr", "epa_te", "epa_rb")
+EPA_QUALITY_BASES: tuple[str, ...] = ("pl_epa_qb", "pl_epa_wr", "pl_epa_te", "pl_epa_rb")
 EPA_QUALITY_FEATURE_COLS: list[str] = [
     f"{base}_{rep}" for base in EPA_QUALITY_BASES
     for rep in ("home", "away", "diff")
 ]
-if not set(EPA_QUALITY_FEATURE_COLS) <= set(MONEYLINE_FEATURE_COLS):
-    raise RuntimeError("EPA quality features must all be in the production contract")
+# Expected-game pace projection (2026-10-31 challenger, unvalidated).
+# Per-side levels route tree-only like every other side level; the diff
+# and the three game-level columns (league mean, projected total, scaler)
+# serve every family.
+EPA_PACE_PROJ_BASES: tuple[str, ...] = ("proj_team_plays",)
+EPA_PACE_GAME_COLS: list[str] = ["league_avg_plays", "proj_game_plays_total",
+                                 "s_game"]
+EPA_PACE_PROJ_FEATURE_COLS: list[str] = (
+    [f"{base}_{rep}" for base in EPA_PACE_PROJ_BASES
+     for rep in ("home", "away", "diff")]
+    + list(EPA_PACE_GAME_COLS))
+# Pace-scaled EPA legs (2026-10-31 challenger, unvalidated): the same four
+# position legs in expected-game pace units. Sides route tree-only, diffs
+# serve every family. Legacy epa_* legs stay in the contract beside them
+# for the A/B/C/D walk-forward.
+EPA_PACE_SCALED_BASES: tuple[str, ...] = ("pl_epa_qb_scaled", "pl_epa_wr_scaled",
+                                          "pl_epa_te_scaled", "pl_epa_rb_scaled")
+EPA_PACE_SCALED_FEATURE_COLS: list[str] = [
+    f"{base}_{rep}" for base in EPA_PACE_SCALED_BASES
+    for rep in ("home", "away", "diff")
+]
+# Unit-fixed cross-matched net (2026-10-31 challenger, unvalidated): own
+# pace-scaled OFF vs the opponent's DEF converted to EPA/game. Sides
+# route tree-only, the diff serves every family.
+EPA_NET_BASES: tuple[str, ...] = ("pl_epa_net_o",)
+EPA_NET_FEATURE_COLS: list[str] = [
+    f"{base}_{rep}" for base in EPA_NET_BASES
+    for rep in ("home", "away", "diff")
+]
+if not set(EPA_PACE_SCALED_FEATURE_COLS) <= set(MONEYLINE_FEATURE_COLS):
+    raise RuntimeError("pace-scaled EPA features must all be in the "
+                       "production contract")
+# Projected-lineup yardage (2026-11-01 challenger, unvalidated). Served:
+# expected gross passing / rushing yards per game, unscaled + pace-scaled.
+# Receiving is generated as a diagnostic only (team receiving identically
+# equals team gross passing) and never enters the served contract.
+YDS_BASES: tuple[str, ...] = ("pl_exp_pass_yds", "pl_exp_rush_yds")
+YDS_FEATURE_COLS: list[str] = [
+    f"{base}_{rep}" for base in YDS_BASES
+    for rep in ("home", "away", "diff")
+]
+YDS_SCALED_BASES: tuple[str, ...] = ("pl_exp_pass_yds_scaled",
+                                     "pl_exp_rush_yds_scaled")
+YDS_SCALED_FEATURE_COLS: list[str] = [
+    f"{base}_{rep}" for base in YDS_SCALED_BASES
+    for rep in ("home", "away", "diff")
+]
+YDS_DIAG_BASES: tuple[str, ...] = ("pl_exp_rec_yds",)
+YDS_SCALED_DIAG_BASES: tuple[str, ...] = ("pl_exp_rec_yds_scaled",)
+YDS_DIAG_COLS: list[str] = (
+    [f"{base}_{rep}" for base in YDS_DIAG_BASES
+     for rep in ("home", "away", "diff")]
+    + [f"{base}_{rep}" for base in YDS_SCALED_DIAG_BASES
+       for rep in ("home", "away", "diff")])
+if not set(YDS_SCALED_FEATURE_COLS) <= set(MONEYLINE_FEATURE_COLS):
+    raise RuntimeError("scaled yardage features must all be in the "
+                       "production contract")
+if set(YDS_DIAG_COLS) & set(MONEYLINE_FEATURE_COLS):
+    raise RuntimeError("receiving diagnostic must never enter the contract")
+
+# F-adoption retirements (2026-11-01, owner-directed): the 27 structural
+# legs the F subset drops. Still generated by features.py, still documented
+# in manifest.CANDIDATE_MANIFEST, still pool-routed for future trials -
+# but no longer served. The ABEF walk-forward scored these only inside
+# 70/76-column subsets, never against the 103-wide universe they leave.
+RETIRED_STRUCTURAL_COLS: list[str] = (
+    list(EPA_QUALITY_FEATURE_COLS)
+    + list(EPA_PACE_PROJ_FEATURE_COLS)
+    + list(EPA_NET_FEATURE_COLS)
+    + list(YDS_FEATURE_COLS))
 
 # Promoted weekly-report injury-share bases (2026-09-27 Tier B). Built by
 # features.injury_share_table from the weekly reports, the pfr-keyed snap
@@ -606,6 +696,11 @@ RAW_PER_SIDE_COLS = frozenset({
     | {"rest_short_home", "rest_short_away"}
     | {f"{m}_{s}" for m in STATIC_SIDE_CANDIDATES for s in ("home", "away")}
     | {f"{m}_{s}" for m in EPA_QUALITY_BASES for s in ("home", "away")}
+    | {f"{m}_{s}" for m in EPA_PACE_PROJ_BASES for s in ("home", "away")}
+    | {f"{m}_{s}" for m in EPA_PACE_SCALED_BASES for s in ("home", "away")}
+    | {f"{m}_{s}" for m in EPA_NET_BASES for s in ("home", "away")}
+    | {f"{m}_{s}" for m in YDS_BASES + YDS_SCALED_BASES
+       for s in ("home", "away")}
     | {f"{m}_{s}" for m in INJURY_SHARE_BASES for s in ("home", "away")})
 
 # The full candidate list (RFE trial space), defined ONCE. Additions may only
@@ -621,13 +716,25 @@ RFE_CANDIDATE_COLS: list[str] = list(dict.fromkeys(
        # served member now, never a trial candidate — the same exclusion the
        # PBP candidate list applies above.
        if f"{m}_{s}" not in set(MONEYLINE_FEATURE_COLS)]
-    + [f"{m}_{s}" for m in STATIC_DIFF_CANDIDATES for s in ("diff",)]))
+    + [f"{m}_{s}" for m in STATIC_DIFF_CANDIDATES for s in ("diff",)]
+    # F-adoption retirements (2026-11-01): generated-but-unserved structural
+    # legs stay triable, so they join the trial space here rather than
+    # leaving the pool. Served names are still excluded above and below.
+    + [c for c in RETIRED_STRUCTURAL_COLS]))
 
 # Trial / validation pool: universe first (canonical), then candidates.
 # set_feature_subset validates against the POOL, because an adopted RFE record
 # may promote candidates into serving width. Nothing is ever removed from it.
 KNOWN_FEATURE_COLS = list(dict.fromkeys(
     list(MONEYLINE_FEATURE_COLS) + list(RFE_CANDIDATE_COLS)))
+
+if not set(RETIRED_STRUCTURAL_COLS) <= set(RFE_CANDIDATE_COLS):
+    raise RuntimeError("retired structural legs must stay triable candidates")
+if set(RETIRED_STRUCTURAL_COLS) & set(MONEYLINE_FEATURE_COLS):
+    raise RuntimeError("retired structural legs must not be served")
+if not set(EPA_PACE_SCALED_FEATURE_COLS
+            + YDS_SCALED_FEATURE_COLS) <= set(MONEYLINE_FEATURE_COLS):
+    raise RuntimeError("F-adopted scaled legs must all be in the contract")
 
 # RFE governance: this remains None during ordinary production runs. An
 # explicit adoption action may set it; RFE trials never mutate it.

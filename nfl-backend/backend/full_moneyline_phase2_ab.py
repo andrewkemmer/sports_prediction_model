@@ -57,7 +57,7 @@ ph2_df = feat_mod.build_game_features(
     schedule, **common, spill_matrix=feat_mod.PHASE2_SPILL_ESTIMATE)
 log.info("ph2 frame: %s", ph2_df.shape)
 
-epa_cols = [c for c in a09_df.columns if c.startswith("epa_")
+epa_cols = [c for c in a09_df.columns if c.startswith("pl_epa_")
             and (c.endswith("_home") or c.endswith("_away") or c.endswith("_diff"))]
 ao = a09_df[["game_id"] + epa_cols].copy()
 po = ph2_df[["game_id"] + epa_cols].copy()

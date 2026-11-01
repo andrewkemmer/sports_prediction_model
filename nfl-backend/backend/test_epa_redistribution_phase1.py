@@ -323,4 +323,129 @@ def test_rate_frozen_call_pattern():
     epa = (adj.to_numpy() * surv["epa_q"].to_numpy()).sum()
     assert np.isclose(epa, 10.2 * 0.30 + 5.1 * 0.10)
     # donor rate never enters: same volume from a star or a scrub
-    # redistributes identically (efficiency lives in survivors' epa_q).
+
+
+def _challenger_frames(n_survivors=11):
+    rows = []
+    for i in range(1, n_survivors + 1):
+        rows.append({"game_id": "H1", "team": "HOME",
+                     "player_id": f"W{i:02d}", "position": "WR",
+                     "gameday": pd.Timestamp("2024-09-01"),
+                     "kickoff_utc": pd.Timestamp("2024-09-01 17:00Z"),
+                     "epa": 0.6, "opp": 6.0, "_num": 0.6, "_den": 6.0,
+                     "_n_games": 1.0})
+    rows.append({"game_id": "H1", "team": "HOME", "player_id": "W99",
+                 "position": "WR", "gameday": pd.Timestamp("2024-09-01"),
+                 "kickoff_utc": pd.Timestamp("2024-09-01 17:00Z"),
+                 "epa": 1.2, "opp": 12.0, "_num": 1.2, "_den": 12.0,
+                 "_n_games": 1.0})
+    hist = pd.DataFrame(rows)
+    games = pd.DataFrame([{"game_id": "T1", "gameday": "2024-09-08",
+                           "gametime": "13:00", "home_team": "HOME",
+                           "away_team": "AWAY"}])
+    inj = pd.DataFrame([{"game_id": "T1", "team": "HOME",
+                         "player_id": "W99", "availability_weight": 0.0,
+                         "published": "2024-09-08T15:00:00Z"}])
+    return hist, games, inj
+
+
+def _home_wr_epa(agg):
+    return float(agg[(agg["game_id"] == "T1") & (agg["team"] == "HOME")
+                     & (agg["position"] == "WR")]["epa_q"].iloc[0])
+
+
+def test_challenger_absorbs_full_pool_before_cut():
+    # 11 identical survivors (rate r, 6 tpg each) + top-_den donor Out.
+    # The cut does not bind (11 survivors fit), so both paths absorb the
+    # same donor pool over the same members with the same rank and the
+    # same weights: the challenger must reproduce legacy EXACTLY. This
+    # pins the donor definition -- Out/IR/Doubtful removals only, never
+    # a healthy rank-12 cut.
+    hist, games, inj = _challenger_frames()
+    kwargs = dict(redistribute_phase1=True, phase1_caps={},
+                  phase1_alpha=feat_mod.PHASE1_ALPHA_ADOPTED)
+    legacy = _home_wr_epa(feat_mod.epa_quality_team_agg(hist, games, inj,
+                                                        **kwargs))
+    old = feat_mod.EPA_QUALITY_USE_ADJUSTED_TPG_RANK
+    feat_mod.EPA_QUALITY_USE_ADJUSTED_TPG_RANK = True
+    try:
+        chal = _home_wr_epa(feat_mod.epa_quality_team_agg(hist, games, inj,
+                                                          **kwargs))
+    finally:
+        feat_mod.EPA_QUALITY_USE_ADJUSTED_TPG_RANK = old
+    assert np.isfinite(legacy) and np.isfinite(chal)
+    assert np.isclose(chal, legacy)
+
+
+def test_challenger_no_injury_matches_legacy():
+    # No donors: nothing to absorb, rank basis is identical, so the flag
+    # must be a no-op -- the fallback chain (_tpg_adj == _tpg_base) keeps
+    # the same top-11 and the same weights.
+    hist, games, inj = _challenger_frames()
+    kwargs = dict(redistribute_phase1=True, phase1_caps={},
+                  phase1_alpha=feat_mod.PHASE1_ALPHA_ADOPTED)
+    legacy = _home_wr_epa(feat_mod.epa_quality_team_agg(hist, games, None,
+                                                        **kwargs))
+    old = feat_mod.EPA_QUALITY_USE_ADJUSTED_TPG_RANK
+    feat_mod.EPA_QUALITY_USE_ADJUSTED_TPG_RANK = True
+    try:
+        chal = _home_wr_epa(feat_mod.epa_quality_team_agg(hist, games, None,
+                                                          **kwargs))
+    finally:
+        feat_mod.EPA_QUALITY_USE_ADJUSTED_TPG_RANK = old
+    assert np.isclose(chal, legacy)
+
+
+def _binding_cut_frames():
+    # 12 heterogeneous survivors (den 1..12, _n_games 1) + top donor Out
+    # (den 24). The cut binds: legacy drops S01 by _den, then absorbs the
+    # pool over the kept 11; the challenger absorbs over all 12 first,
+    # then ranks by the adjusted volumes.
+    rows = []
+    for i in range(1, 13):
+        rows.append({"game_id": "H1", "team": "HOME",
+                     "player_id": f"S{i:02d}", "position": "WR",
+                     "gameday": pd.Timestamp("2024-09-01"),
+                     "kickoff_utc": pd.Timestamp("2024-09-01 17:00Z"),
+                     "epa": 0.1 * i, "opp": float(i),
+                     "_num": 0.1 * i, "_den": float(i),
+                     "_n_games": 1.0})
+    rows.append({"game_id": "H1", "team": "HOME", "player_id": "D99",
+                 "position": "WR", "gameday": pd.Timestamp("2024-09-01"),
+                 "kickoff_utc": pd.Timestamp("2024-09-01 17:00Z"),
+                 "epa": 2.4, "opp": 24.0, "_num": 2.4, "_den": 24.0,
+                 "_n_games": 1.0})
+    hist = pd.DataFrame(rows)
+    games = pd.DataFrame([{"game_id": "T1", "gameday": "2024-09-08",
+                           "gametime": "13:00", "home_team": "HOME",
+                           "away_team": "AWAY"}])
+    inj = pd.DataFrame([{"game_id": "T1", "team": "HOME",
+                         "player_id": "D99", "availability_weight": 0.0,
+                         "published": "2024-09-08T15:00:00Z"}])
+    return hist, games, inj
+
+
+def test_challenger_binding_cut_ratio():
+    # No caps: proportional absorb scales every kept member uniformly, so
+    # member rates cancel in the ratio. Legacy scales kept weights by
+    # (kept+pool)/kept over the 11 kept (base 2+...+12 = 77); the
+    # challenger scales by (full+pool)/full over all 12 (base 78) and
+    # keeps the same 11 (proportional absorb preserves the _den order).
+    # pool = WR alpha x donor tpg.
+    hist, games, inj = _binding_cut_frames()
+    kwargs = dict(redistribute_phase1=True, phase1_caps={},
+                  phase1_alpha=feat_mod.PHASE1_ALPHA_ADOPTED)
+    legacy = _home_wr_epa(feat_mod.epa_quality_team_agg(hist, games, inj,
+                                                        **kwargs))
+    old = feat_mod.EPA_QUALITY_USE_ADJUSTED_TPG_RANK
+    feat_mod.EPA_QUALITY_USE_ADJUSTED_TPG_RANK = True
+    try:
+        chal = _home_wr_epa(feat_mod.epa_quality_team_agg(hist, games, inj,
+                                                          **kwargs))
+    finally:
+        feat_mod.EPA_QUALITY_USE_ADJUSTED_TPG_RANK = old
+    assert np.isfinite(legacy) and np.isfinite(chal)
+    pool = feat_mod.PHASE1_ALPHA_ADOPTED["WR"] * 24.0
+    expected_ratio = ((78.0 + pool) / 78.0) / ((77.0 + pool) / 77.0)
+    assert np.isclose(chal, legacy * expected_ratio)
+    assert chal < legacy  # full-pool split dilutes each kept share

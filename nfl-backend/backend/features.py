@@ -652,7 +652,8 @@ def _add_pbp_metrics(p: pd.DataFrame, g: pd.DataFrame) -> pd.DataFrame:
 # ---------------------------------------------------------------------------
 # PBP rollup — per (game_id, team) aggregates (functions of that game only)
 # ---------------------------------------------------------------------------
-PBP_AGG_COLS = ["game_id", "team", "total_yards", "n_plays", "elapsed_min",
+PBP_AGG_COLS = ["game_id", "team", "total_yards", "n_plays", "n_plays_reg",
+                "elapsed_min",
                 "epa_play", "qb_epa_dropback", "def_epa_play", "cpoe_play", "air_yards_att",
                 "yac_epa_att", "turnovers", "takeaways", "sack_rate",
                 "dropback_rate", "third_down_rate", "penalty_yards_pg",
@@ -685,6 +686,13 @@ def pbp_team_agg(pbp: pd.DataFrame | None) -> pd.DataFrame:
     the values are deliberately unchanged (restricting the population or
     adding an OT clock would version the feature contract and require a
     rebuild).
+    ``n_plays_reg`` (2026-10-31) is the regulation-only twin: the same
+    ``n_plays`` population restricted to regulation periods (``qtr <= 4``;
+    rows with missing ``qtr`` count as regulation so absent context never
+    fabricates a cut). The denominator is already regulation-denominated
+    by construction, so ``n_plays_reg`` is regulation plays per regulation
+    game — the OT-free pace-projection population. ``n_plays`` itself is
+    deliberately unchanged.
     """
     cols = list(PBP_AGG_COLS)
     if pbp is None or "posteam" not in getattr(pbp, "columns", []):
@@ -697,6 +705,17 @@ def pbp_team_agg(pbp: pd.DataFrame | None) -> pd.DataFrame:
     agg = {"total_yards": ("yards_gained", "sum"),
            "n_plays": ("yards_gained", "count")}
     g = p.groupby(["game_id", "posteam"], as_index=False).agg(**agg)
+    # Regulation-only play count (OT-stripped numerator; same population
+    # otherwise). Missing qtr never drops a play: it counts as regulation.
+    if "qtr" in p.columns:
+        _qtr = pd.to_numeric(p["qtr"], errors="coerce")
+        _reg = p[_qtr.isna() | (_qtr <= 4)]
+        _reg_g = (_reg.groupby(["game_id", "posteam"], as_index=False)
+                  .agg(n_plays_reg=("yards_gained", "count")))
+        g = g.merge(_reg_g, on=["game_id", "posteam"], how="left")
+        g["n_plays_reg"] = g["n_plays_reg"].fillna(g["n_plays"])
+    else:
+        g["n_plays_reg"] = g["n_plays"]
     if "game_seconds_remaining" in p.columns:
         p["game_seconds_remaining"] = pd.to_numeric(
             p["game_seconds_remaining"], errors="coerce")
@@ -985,12 +1004,24 @@ def team_stats_ladder(events: pd.DataFrame,
     ev = events.copy()
     if team_game_agg is not None and len(team_game_agg):
         agg = team_game_agg.rename(columns={"total_yards": "tot_yd",
-                                            "n_plays": "npl"})
+                                            "n_plays": "npl",
+                                            "n_plays_reg": "npl_reg"})
+        if "npl_reg" not in agg.columns:
+            agg["npl_reg"] = agg["npl"]
         agg["ypp_game"] = agg["tot_yd"] / agg["npl"].replace(0, np.nan)
         agg["pace_plays_min_game"] = agg["npl"] / agg["elapsed_min"].replace(0, np.nan)
+        # Regulation-only pace population (2026-10-31): OT-stripped numerator
+        # over the regulation-denominated clock. ``plays_reg_game`` is
+        # regulation plays per regulation game; the trailing mean below is
+        # the per-60 projection input. Same-game values only — the served
+        # columns are the strictly-prior trailing means.
+        agg["plays_reg_game"] = agg["npl_reg"]
+        agg["pace_reg_game"] = (agg["npl_reg"]
+                                 / agg["elapsed_min"].replace(0, np.nan))
         metric_cols = [c for c in PBP_AGG_COLS[3:]
                        if c in agg.columns and c != "elapsed_min"]
-        ev = ev.merge(agg[["game_id", "team", "ypp_game", "pace_plays_min_game"]
+        ev = ev.merge(agg[["game_id", "team", "ypp_game", "pace_plays_min_game",
+                            "plays_reg_game", "pace_reg_game"]
                           + metric_cols],
                       on=["game_id", "team"], how="left")
     else:
@@ -1051,6 +1082,16 @@ def team_stats_ladder(events: pd.DataFrame,
     srt["pace_plays_min"] = (_trailing_per_team(srt, "pace_plays_min_game",
                                                 config.PACE_WINDOW)
                              if "pace_plays_min_game" in srt.columns else np.nan)
+    # Regulation-pace trailing means (2026-10-31 challenger): strictly-prior
+    # per-team means over EPA_PACE_WINDOW games. ``proj_team_plays`` prices
+    # regulation plays/game (the per-60 unit); ``pace_plays_reg`` is the
+    # per-minute twin. Both shift(1) like every other ladder column.
+    srt["proj_team_plays"] = (_trailing_per_team(srt, "plays_reg_game",
+                                                  EPA_PACE_WINDOW)
+                               if "plays_reg_game" in srt.columns else np.nan)
+    srt["pace_plays_reg"] = (_trailing_per_team(srt, "pace_reg_game",
+                                                 EPA_PACE_WINDOW)
+                              if "pace_reg_game" in srt.columns else np.nan)
 
     # Opponent-adjusted per-game series (epa_play vs prior opponent-defense
     # quality), then the pbp candidate-pool trailing metrics (2026-09-22
@@ -1552,6 +1593,153 @@ def _attach_pbp_candidate_features(df: pd.DataFrame,
     return pd.concat([df, pd.DataFrame(sides, index=df.index)], axis=1)
 
 
+# ---------------------------------------------------------------------------
+# Expected-game pace projection + pace-scaled EPA (2026-10-31 challenger)
+# ---------------------------------------------------------------------------
+# NBA D-arm analogue: the game pace both sides are scaled by is the
+# projected GAME pace (home x away / trailing league mean), never each
+# team's own pace, so a scaled diff stays exactly home - away. All inputs
+# are strictly-prior trailing means; no same-game joins, no snap counts.
+PLAYS_PROJ_COLS = ["proj_team_plays_home", "proj_team_plays_away",
+                   "proj_team_plays_diff", "league_avg_plays",
+                   "proj_game_plays_total", "s_game"]
+EPA_PACE_SCALED_BASES: tuple[str, ...] = ("pl_epa_qb_scaled", "pl_epa_wr_scaled",
+                                           "pl_epa_te_scaled", "pl_epa_rb_scaled")
+EPA_NET_COLS = ["pl_epa_net_o_home", "pl_epa_net_o_away", "pl_epa_net_o_diff"]
+
+
+def _attach_plays_projection(df: pd.DataFrame, ladder: pd.DataFrame,
+                             games: pd.DataFrame | None = None) -> pd.DataFrame:
+    """Attach the standalone expected-game pace columns (always-created).
+
+    ``proj_team_plays_{home,away}`` are the trailing regulation plays/game
+    per side (OT-stripped numerator, regulation-denominated clock).
+    ``league_avg_plays`` is the trailing-30d mean of ``proj_team_plays``
+    over ladder rows strictly before the target gameday;
+    ``proj_game_plays_total = home * away / league_avg`` (NBA tot form)
+    and ``s_game`` the pace scaler. Missing inputs degrade to NaN.
+    """
+    out = df.copy() if df is not None else pd.DataFrame()
+    for column in PLAYS_PROJ_COLS:
+        if column not in out.columns:
+            out[column] = np.nan
+    if out.empty or ladder is None or not len(ladder):
+        return out
+    if "proj_team_plays" not in ladder.columns:
+        return out
+    if "game_id" not in out.columns:
+        return out
+    gids = out["game_id"].astype(str)
+    home_v, away_v = _per_side(ladder, gids, "proj_team_plays")
+    out["proj_team_plays_home"] = home_v
+    out["proj_team_plays_away"] = away_v
+    out["proj_team_plays_diff"] = home_v - away_v
+    day_of = None
+    if games is not None and {"game_id", "gameday"} <= set(games.columns):
+        _g = games[["game_id", "gameday"]].copy()
+        _g["game_id"] = _g["game_id"].astype(str)
+        _g["gameday"] = pd.to_datetime(_g["gameday"], errors="coerce")
+        day_of = _g.drop_duplicates("game_id").set_index("game_id")["gameday"]
+    pace_day = None
+    if "gameday" in ladder.columns:
+        _ld = ladder[["gameday", "proj_team_plays"]].copy()
+        _ld["gameday"] = pd.to_datetime(_ld["gameday"], errors="coerce")
+        _ld["proj_team_plays"] = pd.to_numeric(_ld["proj_team_plays"],
+                                                errors="coerce")
+        pace_day = (_ld.dropna(subset=["gameday"])
+                    .groupby(_ld["gameday"].dt.normalize())["proj_team_plays"]
+                    .mean())
+    if day_of is not None and pace_day is not None and len(pace_day):
+        idx = pace_day.index.sort_values()
+        vals = pace_day.reindex(idx).to_numpy(dtype=float)
+        for i, _gid in enumerate(gids.to_numpy()):
+            try:
+                gd = pd.Timestamp(day_of.get(str(_gid)))
+            except Exception:  # noqa: BLE001 - one bad row never fails a frame
+                continue
+            if gd is pd.NaT or pd.isna(gd):
+                continue
+            _gd = gd.normalize()
+            lo = _gd - pd.Timedelta(days=EPA_PACE_LEAGUE_WINDOW_DAYS)
+            mask = (idx < _gd) & (idx >= lo)
+            w = vals[np.asarray(mask)]
+            w = w[np.isfinite(w)]
+            if len(w):
+                out.loc[out.index[i], "league_avg_plays"] = float(w.mean())
+    h = pd.to_numeric(out["proj_team_plays_home"], errors="coerce")
+    a = pd.to_numeric(out["proj_team_plays_away"], errors="coerce")
+    la = pd.to_numeric(out["league_avg_plays"], errors="coerce")
+    _la = la.where(la.notna() & (la != 0))
+    tot = h * a / _la
+    out["proj_game_plays_total"] = tot.where(
+        np.isfinite(tot.to_numpy(dtype=float)), np.nan)
+    s = tot / _la
+    out["s_game"] = s.where(np.isfinite(s.to_numpy(dtype=float)), np.nan)
+    return out
+
+
+def _attach_epa_pace_scaled(df: pd.DataFrame) -> pd.DataFrame:
+    """Attach pace-scaled EPA legs + the cross-matched net (always-created).
+
+    One scaler ``s_game`` multiplies every unscaled leg on BOTH sides, so
+    each scaled diff stays exactly home - away. ``s_game`` NaN propagates
+    to NaN (never 1.0-filled). Legacy ``epa_*`` legs are never overwritten.
+    The net is unit-fixed: the served ``pbp_def_epa_play_ewm_*`` rate
+    (EPA allowed per play, lower = stingier) is first converted to
+    EPA/game with half the projected game total as the expected defensive
+    snap count, then cross-matched (own OFF vs opponent DEF).
+    """
+    out = df.copy() if df is not None else pd.DataFrame()
+    for base in EPA_PACE_SCALED_BASES:
+        for rep in ("home", "away", "diff"):
+            if f"{base}_{rep}" not in out.columns:
+                out[f"{base}_{rep}"] = np.nan
+    for column in EPA_NET_COLS:
+        if column not in out.columns:
+            out[column] = np.nan
+    if out.empty:
+        return out
+    s = (pd.to_numeric(out["s_game"], errors="coerce")
+           if "s_game" in out.columns
+           else pd.Series(np.nan, index=out.index))
+    for unscaled, scaled in zip(config.EPA_QUALITY_BASES, EPA_PACE_SCALED_BASES):
+        for rep in ("home", "away"):
+            u = (pd.to_numeric(out[f"{unscaled}_{rep}"], errors="coerce")
+                 if f"{unscaled}_{rep}" in out.columns
+                 else pd.Series(np.nan, index=out.index))
+            out[f"{scaled}_{rep}"] = u * s
+    for scaled in EPA_PACE_SCALED_BASES:
+        out[f"{scaled}_diff"] = out[f"{scaled}_home"] - out[f"{scaled}_away"]
+    if {"pbp_def_epa_play_ewm_home", "pbp_def_epa_play_ewm_away",
+          "proj_game_plays_total"} <= set(out.columns):
+        dh = pd.to_numeric(out["pbp_def_epa_play_ewm_home"], errors="coerce")
+        da = pd.to_numeric(out["pbp_def_epa_play_ewm_away"], errors="coerce")
+        tot = pd.to_numeric(out["proj_game_plays_total"], errors="coerce")
+        half = tot / 2.0
+        def_home_g = dh * half * s
+        def_away_g = da * half * s
+        off_home = sum(pd.to_numeric(out[f"{b}_home"], errors="coerce")
+                       .fillna(0.0)
+                       for b in EPA_PACE_SCALED_BASES)
+        off_away = sum(pd.to_numeric(out[f"{b}_away"], errors="coerce")
+                       .fillna(0.0)
+                       for b in EPA_PACE_SCALED_BASES)
+        off_home_finite = sum(pd.to_numeric(out[f"{b}_home"],
+                                            errors="coerce").notna()
+                              for b in EPA_PACE_SCALED_BASES) > 0
+        off_away_finite = sum(pd.to_numeric(out[f"{b}_away"],
+                                            errors="coerce").notna()
+                              for b in EPA_PACE_SCALED_BASES) > 0
+        net_home = off_home - def_away_g
+        net_away = off_away - def_home_g
+        out["pl_epa_net_o_home"] = net_home.where(
+            off_home_finite & def_away_g.notna(), np.nan)
+        out["pl_epa_net_o_away"] = net_away.where(
+            off_away_finite & def_home_g.notna(), np.nan)
+        out["pl_epa_net_o_diff"] = out["pl_epa_net_o_home"] - out["pl_epa_net_o_away"]
+    return out
+
+
 def _record_frame(events: pd.DataFrame) -> pd.DataFrame:
     """Return each event team's record entering that event's kickoff.
 
@@ -1638,7 +1826,7 @@ EPA_QUALITY_POOL_DAYS = 21
 #
 # The motivating case is 2026 Week 7 TB/CAR: Mayfield last threw on 09-27,
 # Daniels started Weeks 4-6, and the 10-25 target put 09-27 exactly 28 days
-# back -- one week outside the skill window, so epa_qb_* priced Daniels alone
+# back -- one week outside the skill window, so pl_epa_qb_* priced Daniels alone
 # while the official report listed Mayfield Questionable. 35 days clears a
 # three-game absence plus a bye plus the report cycle (28-32 days) and stays
 # inside the same regular season, so the widened window can never reach back
@@ -1677,6 +1865,17 @@ EPA_QUALITY_QB_VOLUME_CAP = True
 # prior-season-only when it fires at a Week-1 target.
 EPA_QUALITY_POOL_SEASON_DAYS = 300
 EPA_QUALITY_TOP_N = 11
+# Challenger (2026-10-31, unvalidated): rank the projected lineup by
+# injury-adjusted expected opportunities (_phase1_redistribute_tpg output)
+# instead of the raw rolling-8 total _den, with fallback
+# adjusted -> _tpg -> _den. Weights use the same adjusted _tpg that the
+# cut ranked on. Gated: legacy rank-by-_den reproduces exactly when False.
+EPA_QUALITY_USE_ADJUSTED_TPG_RANK = False
+# Regulation-pace projection (2026-10-31, unvalidated challenger):
+# trailing window (games) for regulation plays/game, and the trailing
+# league-mean window (days) for the expected-game pace denominator.
+EPA_PACE_WINDOW = 4
+EPA_PACE_LEAGUE_WINDOW_DAYS = 30
 
 
 # Fullbacks are grouped with running backs, consistent with the existing
@@ -1696,7 +1895,7 @@ EPA_ROLE_COLS = (("passer_player_id", "qb_dropback"),
                  ("receiver_player_id", "pass_attempt"),
                  ("rusher_player_id", "rush_attempt"))
 
-EPA_QUALITY_METRICS = tuple(f"epa_{p.lower()}" for p in EPA_QB_POSITIONS)
+EPA_QUALITY_METRICS = tuple(f"pl_epa_{p.lower()}" for p in EPA_QB_POSITIONS)
 EPA_QUALITY_AGG_COLS = ["game_id", "team", "position", "epa_q"]
 
 
@@ -1745,13 +1944,19 @@ def epa_opportunity_table(pbp: pd.DataFrame | None) -> pd.DataFrame:
     return out[cols]
 
 
-def epa_quality_ratings(obs: pd.DataFrame) -> pd.DataFrame:
+def epa_quality_ratings(obs: pd.DataFrame,
+                         group_keys: tuple[str, ...] = ("player_id",),
+                         value_col: str = "epa") -> pd.DataFrame:
     """Post-game rolling player totals used to rate the next game.
 
     ``_num`` / ``_den`` are inclusive through this player's most recent
     observed game. The team aggregator admits rows only from an earlier
     calendar date than the target, so neither the target result nor another
     game still in progress that date can enter the rating.
+
+    ``group_keys`` sets the rating grain (default one row per player-game,
+    exactly the legacy behavior); the yardage family rates per
+    (player, role) with ``value_col="yds"``.
     """
     empty_cols = list(obs.columns) + ["_num", "_den", "_vol", "_n_games"]
     if obs.empty:
@@ -1759,7 +1964,7 @@ def epa_quality_ratings(obs: pd.DataFrame) -> pd.DataFrame:
                           _n_games=np.nan)
     d = obs.copy()
     required = {"game_id", "team", "player_id", "position", "gameday",
-                "kickoff_utc", "epa", "opp"}
+                "kickoff_utc", value_col, "opp"}
     if not required.issubset(d.columns):
         return pd.DataFrame(columns=empty_cols)
     d["game_id"] = d["game_id"].astype(str)
@@ -1767,21 +1972,21 @@ def epa_quality_ratings(obs: pd.DataFrame) -> pd.DataFrame:
     d["gameday"] = pd.to_datetime(d["gameday"], errors="coerce").dt.normalize()
     d["kickoff_utc"] = pd.to_datetime(d["kickoff_utc"], errors="coerce", utc=True)
     d["position"] = _normalize_epa_lineup_positions(d["position"])
-    d["epa"] = pd.to_numeric(d["epa"], errors="coerce")
+    d[value_col] = pd.to_numeric(d[value_col], errors="coerce")
     d["opp"] = pd.to_numeric(d["opp"], errors="coerce")
     d = d.dropna(subset=["player_id", "gameday", "kickoff_utc", "position",
-                         "epa", "opp"])
+                         value_col, "opp"])
     d = d[d["position"].isin(EPA_QB_POSITIONS)]
     d = d[~d["player_id"].isin(["", "nan", "none", "<na>", "null"])]
     if d.empty:
         return d.assign(_num=np.nan, _den=np.nan, _vol=np.nan, _n_games=np.nan)
-    d = d.sort_values(["player_id", "gameday", "kickoff_utc", "game_id"])
-    # Exactly one observation per player-game, in exact chronological order.
-    d = d.drop_duplicates(["game_id", "player_id"], keep="last")
-    g = d.groupby("player_id", sort=False)
+    d = d.sort_values([*group_keys, "gameday", "kickoff_utc", "game_id"])
+    # Exactly one observation per (group, game), in exact chronological order.
+    d = d.drop_duplicates(["game_id", *group_keys], keep="last")
+    g = d.groupby(list(group_keys), sort=False)
     # The current row represents the completed historical game; target
     # aggregation chooses only rows with gameday < target gameday.
-    d["_num"] = g["epa"].transform(
+    d["_num"] = g[value_col].transform(
         lambda s: s.rolling(EPA_QUALITY_WINDOW, min_periods=1).sum())
     d["_den"] = g["opp"].transform(
         lambda s: s.rolling(EPA_QUALITY_WINDOW, min_periods=1).sum())
@@ -2124,63 +2329,34 @@ def _phase1_tpg_caps(history: pd.DataFrame) -> dict:
     return caps
 
 
-def epa_quality_team_agg(history: pd.DataFrame, games: pd.DataFrame,
-                         injuries: pd.DataFrame | None = None,
-                         roster_unavailable: pd.DataFrame | None = None,
-                         weekly_injuries: pd.DataFrame | None = None,
-                         redistribute_phase1: bool = False,
-                         phase1_caps: dict | None = None,
-                         phase1_alpha: dict | None = None,
-                         spill_matrix: dict | None = None
-                         ) -> pd.DataFrame:
-    """Per-(game, team, position) EPA per GAME of the projected lineup.
+def _lineup_pool(history: pd.DataFrame, games: pd.DataFrame,
+                 injuries: pd.DataFrame | None = None,
+                 roster_unavailable: pd.DataFrame | None = None,
+                 weekly_injuries: pd.DataFrame | None = None,
+                 redistribute_phase1: bool = False,
+                 phase1_caps: dict | None = None,
+                 phase1_alpha: dict | None = None,
+                 spill_matrix: dict | None = None
+                 ) -> tuple[pd.DataFrame, pd.DataFrame]:
+    """Projected-lineup candidate pool shared by the EPA and yardage families.
 
-    Candidate pool: each team's latest player EPA rating from a game date
-    strictly before the target date and within the 21-calendar-day window,
-    widened to 35 days for quarterbacks so a returning starter's body of
-    work survives a two-to-three-game absence (EPA_QUALITY_POOL_DAYS_QB),
-    covering ordinary bye-week gaps; when that fresh window finds NOTHING
-    for a (game, team) -- the season opener, where the gap runs ~188-245
-    days -- a second pass carries prior-season ratings across the boundary
-    (EPA_QUALITY_POOL_SEASON_DAYS), never extending a team the fresh window
-    already covered.
-    Only a strictly pre-kickoff Out/IR/Doubtful designation excludes the
-    player; other statuses and no admissible report leave him eligible. The
-    rolling player rating is computed before current-game membership filtering,
-    so a current injury never erases prior-game EPA.
-
-    The aggregate is a per-GAME total, not a rate: each eligible member's
-    shrunk EPA-per-opportunity rating is multiplied by his own projected
-    per-game opportunities and the group SUMS the products, giving the EPA
-    the projected lineup generates in one game. Weighting by per-game
-    opportunities (rather than by a rolling opportunity total and then
-    normalizing by the group total) is what puts the result in per-game
-    units: the multiplication by projected volume is the entire difference
-    between a rate and a total, and it is also what makes the family
-    responsive to projected usage rather than rating quality alone.
-
-    A member with no admissible shrunk rating contributes nothing; a family
-    with no finite-rating member is NaN, which min_count=1 preserves.
-
-    One exception to the group sum: QB. Only one quarterback takes a team's
-    snaps, but two can hold ratings inside the freshness window, so a QB row
-    that summed both would forecast two offenses' worth of dropbacks. The QB
-    group's projected volumes are therefore capped so they total no more than
-    the group's LARGEST member's own per-game volume, each member keeping his
-    proportional share (EPA_QUALITY_QB_VOLUME_CAP): the rate stays a blend of
-    every eligible passer, the volume stays one team's. A singleton pool is
-    unchanged by construction, and no starter identity is required.
+    ``history`` is player-grain RATED history (rolling ``_den`` / ``_n_games``
+    totals); ranking, the top-11 cut, and all volume (``_tpg``) -- including
+    phase-1 redistribution, caps, and the QB cap -- are computed in ``_den``
+    units, so every family that pools here must rank and weight its own
+    volume (a family's cut and its weights always agree). Returns
+    ``(top, d)``: the post-cut pool with per-player ``_tpg`` set, and the
+    normalized rated history (for position priors downstream).
     """
     cols = list(EPA_QUALITY_AGG_COLS)
     if history.empty or games is None or games.empty:
-        return pd.DataFrame(columns=cols)
+        return pd.DataFrame(columns=cols), pd.DataFrame()
     needed_history = {"game_id", "team", "player_id", "position", "gameday",
-                      "kickoff_utc", "epa", "opp", "_num", "_den",
-                      "_n_games"}
+                      "kickoff_utc", "_num", "_den", "_n_games"}
     needed_games = {"game_id", "gameday", "gametime", "home_team", "away_team"}
     if (not needed_history.issubset(history.columns)
             or not needed_games.issubset(games.columns)):
-        return pd.DataFrame(columns=cols)
+        return pd.DataFrame(columns=cols), pd.DataFrame()
 
     d = history.copy()
     d["game_id"] = d["game_id"].astype(str)
@@ -2364,24 +2540,92 @@ def epa_quality_team_agg(history: pd.DataFrame, games: pd.DataFrame,
 
     if j.empty:
         return pd.DataFrame(columns=cols)
-    # Mirror MLB's candidate-roster -> injury filter -> lineup-rank structure:
-    # after exclusions, select the team's top 11 eligible offensive players by
-    # prior-window opportunities, then aggregate their ratings by position.
-    # Player ID breaks workload ties deterministically.
-    j = (j.sort_values(["game_id", "team", "_den", "player_id"],
-                       ascending=[True, True, False, True],
-                       kind="mergesort")
-         .assign(rn=lambda x: x.groupby(["game_id", "team"]).cumcount() + 1))
-    top = j[j["rn"] <= EPA_QUALITY_TOP_N].copy()
+    # Challenger (2026-10-31, gated by EPA_QUALITY_USE_ADJUSTED_TPG_RANK):
+    # absorb the FULL post-exclusion pool first, then rank top-11 by the
+    # injury-adjusted expected opportunities. Donors are still only the
+    # Out/IR/Doubtful removals (never a healthy rank-12 cut); caps stay
+    # strictly-prior per target day; rates stay frozen. When the flag is
+    # off the legacy rank-by-_den path below reproduces exactly.
+    _tpg_ready = False
+    if (EPA_QUALITY_USE_ADJUSTED_TPG_RANK and redistribute_phase1
+            and _pre_vol is not None):
+        j = j.copy()
+        j["_tpg_base"] = _projected_opportunities_per_game(
+            j["_den"], j["_n_games"])
+        if EPA_QUALITY_QB_VOLUME_CAP:
+            _qbm = j["position"].eq("QB")
+            if _qbm.any():
+                _grp = j.loc[_qbm].groupby(["game_id", "team"])["_tpg_base"]
+                _tot = _grp.transform("sum")
+                _mx = _grp.transform("max")
+                _share = (_mx / _tot.where(_tot > 0)).fillna(1.0)
+                j.loc[_qbm, "_tpg_base"] = (j.loc[_qbm, "_tpg_base"]
+                                             * _share)
+        _adj_caps: dict = {}
+        _post_set_full = set(map(
+            tuple, j[["game_id", "team", "player_id"]].astype(str).to_numpy()))
+        _is_post_full = _pre_vol.apply(
+            lambda r: (str(r["game_id"]), str(r["team"]),
+                       str(r["player_id"])) in _post_set_full, axis=1)
+        _donors_full = _pre_vol[~_is_post_full.to_numpy()].copy()
+        _donors_full = _donors_full.rename(columns={"_tpg_pre": "_tpg"})
+        j["_tpg_adj"] = j["_tpg_base"]
+        for (_gid, _team), _gidx in j.groupby(["game_id", "team"]).groups.items():
+            _surv = j.loc[_gidx, ["player_id", "position", "_tpg_base"]] \
+                .rename(columns={"_tpg_base": "_tpg"})
+            _don = _donors_full[(_donors_full["game_id"].astype(str) == str(_gid))
+                                & (_donors_full["team"].astype(str) == str(_team))]
+            if _don.empty:
+                continue
+            group_caps = phase1_caps
+            if group_caps is None:
+                target_day = j.loc[_gidx, "target_day"].iloc[0]
+                if target_day not in _adj_caps:
+                    _adj_caps[target_day] = _phase1_tpg_caps(
+                        d[d["gameday"] < target_day])
+                group_caps = _adj_caps[target_day]
+            if spill_matrix is not None:
+                _adj = _phase2_redistribute_tpg(
+                    _surv, _don[["position", "_tpg"]],
+                    matrix=spill_matrix, caps=group_caps,
+                    qb_alpha=(phase1_alpha or {}).get("QB", 1.0)
+                    if phase1_alpha else 1.0)
+            else:
+                _adj = _phase1_redistribute_tpg(
+                    _surv, _don[["position", "_tpg"]],
+                    alpha=phase1_alpha, caps=group_caps)
+            j.loc[_gidx, "_tpg_adj"] = _adj.to_numpy()
+        # Rank key: adjusted, falling back to base then raw window total so
+        # a missing adjustment never empties a lineup. Player ID still
+        # breaks workload ties deterministically.
+        j["_rank_w"] = (pd.to_numeric(j["_tpg_adj"], errors="coerce")
+                          .fillna(pd.to_numeric(j["_tpg_base"],
+                                                errors="coerce"))
+                          .fillna(pd.to_numeric(j["_den"], errors="coerce")
+                                          .fillna(-1.0)))
+        j = (j.sort_values(["game_id", "team", "_rank_w", "player_id"],
+                           ascending=[True, True, False, True],
+                           kind="mergesort")
+             .assign(rn=lambda x: x.groupby(["game_id", "team"])
+                     .cumcount() + 1))
+        top = j[j["rn"] <= EPA_QUALITY_TOP_N].copy()
+        # The weight is the same adjusted volume the cut ranked on.
+        top["_tpg"] = pd.to_numeric(top["_tpg_adj"], errors="coerce") \
+            .fillna(pd.to_numeric(top["_tpg_base"], errors="coerce"))
+        _tpg_ready = True
+    else:
+        # Mirror MLB's candidate-roster -> injury filter -> lineup-rank structure:
+        # after exclusions, select the team's top 11 eligible offensive players by
+        # prior-window opportunities, then aggregate their ratings by position.
+        # Player ID breaks workload ties deterministically.
+        j = (j.sort_values(["game_id", "team", "_den", "player_id"],
+                           ascending=[True, True, False, True],
+                           kind="mergesort")
+             .assign(rn=lambda x: x.groupby(["game_id", "team"]).cumcount() + 1))
+        top = j[j["rn"] <= EPA_QUALITY_TOP_N].copy()
     if top.empty:
-        return pd.DataFrame(columns=cols)
+        return pd.DataFrame(columns=cols), d
 
-    priors = _position_priors_asof(d, tgt["target_day"])
-    top = top.merge(priors, on=["target_day", "position"], how="left")
-    denom = top["_den"] + top["k"]
-    ok = (top["mu"].notna() & top["k"].notna() & denom.gt(0))
-    top["epa_q"] = np.where(
-        ok, (top["_num"] + top["mu"] * top["k"]) / denom, np.nan)
     # Per-GAME aggregate: weight each member by his PROJECTED PER-GAME
     # opportunities and sum the products. ``_epa_per_game`` is the product
     # row (shrunk rate x projected volume); the group SUM is the team's
@@ -2389,22 +2633,29 @@ def epa_quality_team_agg(history: pd.DataFrame, games: pd.DataFrame,
     # would recover the old rate and is deliberately NOT done.
     #
     # The weight must be the same volume quantity the candidate cut ranked
-    # on (``_den``) converted to per-game units, so the lineup that was
+    # on (``_den``, or the adjusted ``_tpg`` when the challenger ranked on
+    # it) converted to per-game units, so the lineup that was
     # selected and the lineup that is priced agree. A member with no
     # finite shrunk rating is NaN and the sum skips it, which is the same
     # membership semantics as before: no rating, no contribution.
-    top["_tpg"] = _projected_opportunities_per_game(top["_den"],
-                                                     top["_n_games"])
-    if EPA_QUALITY_QB_VOLUME_CAP:
-        # One quarterback's worth of volume, however many are in the pool.
-        _qbm = top["position"].eq("QB")
-        if _qbm.any():
-            _grp = top.loc[_qbm].groupby(["game_id", "team"])["_tpg"]
-            _tot = _grp.transform("sum")
-            _mx = _grp.transform("max")
-            _share = (_mx / _tot.where(_tot > 0)).fillna(1.0)
-            top.loc[_qbm, "_tpg"] = top.loc[_qbm, "_tpg"] * _share
-    if redistribute_phase1 and _pre_vol is not None:
+    # The challenger path above already set ``_tpg`` from the adjusted
+    # pool volumes; skip the legacy recompute so the weight stays the
+    # quantity the cut ranked on.
+    if _tpg_ready:
+        pass
+    else:
+        top["_tpg"] = _projected_opportunities_per_game(top["_den"],
+                                                         top["_n_games"])
+        if EPA_QUALITY_QB_VOLUME_CAP:
+            # One quarterback's worth of volume, however many are in the pool.
+            _qbm = top["position"].eq("QB")
+            if _qbm.any():
+                _grp = top.loc[_qbm].groupby(["game_id", "team"])["_tpg"]
+                _tot = _grp.transform("sum")
+                _mx = _grp.transform("max")
+                _share = (_mx / _tot.where(_tot > 0)).fillna(1.0)
+                top.loc[_qbm, "_tpg"] = top.loc[_qbm, "_tpg"] * _share
+    if redistribute_phase1 and _pre_vol is not None and not _tpg_ready:
         # Caps are fitted inputs too: later player-games must not change an
         # earlier lineup. Cache the expanding, strictly-prior estimate per
         # target day; explicit caller-supplied caps remain fixed overrides.
@@ -2442,11 +2693,338 @@ def epa_quality_team_agg(history: pd.DataFrame, games: pd.DataFrame,
                     _surv, _don[["position", "_tpg"]],
                     alpha=phase1_alpha, caps=group_caps)
             top.loc[_gidx, "_tpg"] = adj.to_numpy()
+    return top, d
+
+
+def epa_quality_team_agg(history: pd.DataFrame, games: pd.DataFrame,
+                         injuries: pd.DataFrame | None = None,
+                         roster_unavailable: pd.DataFrame | None = None,
+                         weekly_injuries: pd.DataFrame | None = None,
+                         redistribute_phase1: bool = False,
+                         phase1_caps: dict | None = None,
+                         phase1_alpha: dict | None = None,
+                         spill_matrix: dict | None = None
+                         ) -> pd.DataFrame:
+    """Per-(game, team, position) EPA per GAME of the projected lineup.
+
+    Candidate pool: each team's latest player EPA rating from a game date
+    strictly before the target date and within the 21-calendar-day window,
+    widened to 35 days for quarterbacks so a returning starter's body of
+    work survives a two-to-three-game absence (EPA_QUALITY_POOL_DAYS_QB),
+    covering ordinary bye-week gaps; when that fresh window finds NOTHING
+    for a (game, team) -- the season opener, where the gap runs ~188-245
+    days -- a second pass carries prior-season ratings across the boundary
+    (EPA_QUALITY_POOL_SEASON_DAYS), never extending a team the fresh window
+    already covered.
+    Only a strictly pre-kickoff Out/IR/Doubtful designation excludes the
+    player; other statuses and no admissible report leave him eligible. The
+    rolling player rating is computed before current-game membership filtering,
+    so a current injury never erases prior-game EPA.
+
+    The aggregate is a per-GAME total, not a rate: each eligible member's
+    shrunk EPA-per-opportunity rating is multiplied by his own projected
+    per-game opportunities and the group SUMS the products, giving the EPA
+    the projected lineup generates in one game. Weighting by per-game
+    opportunities (rather than by a rolling opportunity total and then
+    normalizing by the group total) is what puts the result in per-game
+    units: the multiplication by projected volume is the entire difference
+    between a rate and a total, and it is also what makes the family
+    responsive to projected usage rather than rating quality alone.
+
+    A member with no admissible shrunk rating contributes nothing; a family
+    with no finite-rating member is NaN, which min_count=1 preserves.
+
+    One exception to the group sum: QB. Only one quarterback takes a team's
+    snaps, but two can hold ratings inside the freshness window, so a QB row
+    that summed both would forecast two offenses' worth of dropbacks. The QB
+    group's projected volumes are therefore capped so they total no more than
+    the group's LARGEST member's own per-game volume, each member keeping his
+    proportional share (EPA_QUALITY_QB_VOLUME_CAP): the rate stays a blend of
+    every eligible passer, the volume stays one team's. A singleton pool is
+    unchanged by construction, and no starter identity is required.
+    """
+    cols = list(EPA_QUALITY_AGG_COLS)
+    top, d = _lineup_pool(history, games, injuries, roster_unavailable,
+                          weekly_injuries, redistribute_phase1,
+                          phase1_caps, phase1_alpha, spill_matrix)
+    if top.empty:
+        return pd.DataFrame(columns=cols)
+    priors = _position_priors_asof(d, top["target_day"])
+    top = top.merge(priors, on=["target_day", "position"], how="left")
+    denom = top["_den"] + top["k"]
+    ok = (top["mu"].notna() & top["k"].notna() & denom.gt(0))
+    top["epa_q"] = np.where(
+        ok, (top["_num"] + top["mu"] * top["k"]) / denom, np.nan)
     top["_epa_per_game"] = top["_tpg"] * top["epa_q"]
     out = (top.groupby(["game_id", "team", "position"], as_index=False)
            ["_epa_per_game"].sum(min_count=1)
            .rename(columns={"_epa_per_game": "epa_q"}))
     return out[cols]
+
+
+# ---------------------------------------------------------------------------
+# Projected-lineup yardage family (2026-11-01 challenger, unvalidated).
+# Expected team passing / rushing yards per game from the SAME structural
+# pool as the EPA legs (freshness windows, season-boundary carry, three
+# exclusion channels, phase-1 redistribution, QB volume cap, top-11 cut),
+# priced with yardage rates instead of EPA rates. One pool, one shared _tpg
+# definition; the rate is what differs. Receiving is generated as a
+# diagnostic (team receiving identically equals team gross passing) and is
+# never served.
+# Gross-by-construction (Phase-0 probe): nflreadpy carries NO negative sack
+# yardage in passing_yards (sacks are NaN); NaN->0 with the existing role
+# flags yields gross yards/dropback natively, sacks contributing volume
+# with 0 yards. Dual-role plays (scrambles) credit BOTH roles' yards and
+# BOTH roles' opportunities -- the one deliberate fork from the EPA table,
+# which counts the play once. Each family's _den ranks and weights its own
+# volume, so every family stays internally coherent (the cut and the
+# weights always agree).
+# ---------------------------------------------------------------------------
+YDS_ROLE_COLS = (("passer_player_id", "qb_dropback", "passing_yards", "pass"),
+                 ("receiver_player_id", "pass_attempt", "receiving_yards", "rec"),
+                 ("rusher_player_id", "rush_attempt", "rushing_yards", "rush"))
+YDS_ROLES = ("pass", "rec", "rush")
+YDS_ROLE_TO_BASE = {"pass": "pl_exp_pass_yds",
+                    "rec": "pl_exp_rec_yds",
+                    "rush": "pl_exp_rush_yds"}
+YDS_ROLE_TO_SCALED = {"pass": "pl_exp_pass_yds_scaled",
+                      "rec": "pl_exp_rec_yds_scaled",
+                      "rush": "pl_exp_rush_yds_scaled"}
+YDS_QUALITY_AGG_COLS = ["game_id", "team", "role", "yds_q"]
+
+
+def yds_role_table(pbp: pd.DataFrame | None) -> pd.DataFrame:
+    """Per-(game_id, team, player, role) gross yards and role opportunities.
+
+    Each player is credited under his play role (passer -> passing_yards,
+    receiver -> receiving_yards, rusher -> rushing_yards) with the matching
+    opportunity flag. Null yardage is 0 gross yards (incompletions, sacks);
+    a player-play under two roles credits both roles' yards and both
+    opportunities, so a scramble prices the pass and the run it was.
+    """
+    cols = ["game_id", "team", "player_id", "role", "yds", "opp"]
+    if pbp is None or "passing_yards" not in getattr(pbp, "columns", []):
+        return pd.DataFrame(columns=cols)
+    need = ["game_id", "posteam", "play_id"] + [
+        c for triple in YDS_ROLE_COLS for c in triple[:3]]
+    if any(c not in pbp.columns for c in need):
+        return pd.DataFrame(columns=cols)
+    p = pbp.copy()
+    long: list[pd.DataFrame] = []
+    for role_col, flag, val_col, role in YDS_ROLE_COLS:
+        s = p[["game_id", "play_id", "posteam", role_col, flag, val_col]].rename(
+            columns={role_col: "player_id", flag: "opp", val_col: "yds"})
+        s["role"] = role
+        s["player_id"] = s["player_id"].astype("string")
+        s = s[s["player_id"].notna()
+              & ~s["player_id"].isin(["", "nan", "None"])]
+        long.append(s)
+    if not long:
+        return pd.DataFrame(columns=cols)
+    L = pd.concat(long, ignore_index=True)
+    L["opp"] = pd.to_numeric(L["opp"], errors="coerce").fillna(0.0)
+    L["yds"] = pd.to_numeric(L["yds"], errors="coerce").fillna(0.0)
+    per_play = (L.groupby(["game_id", "posteam", "player_id", "play_id",
+                           "role"], as_index=False)
+                .agg(yds=("yds", "sum"), opp=("opp", "max")))
+    out = (per_play.groupby(["game_id", "posteam", "player_id", "role"],
+                            as_index=False)
+           .agg(yds=("yds", "sum"), opp=("opp", "sum"))
+           .rename(columns={"posteam": "team"}))
+    return out[cols]
+
+
+def yds_quality_team_agg(role_hist: pd.DataFrame, player_hist: pd.DataFrame,
+                         games: pd.DataFrame,
+                         injuries: pd.DataFrame | None = None,
+                         roster_unavailable: pd.DataFrame | None = None,
+                         weekly_injuries: pd.DataFrame | None = None,
+                         redistribute_phase1: bool = False,
+                         phase1_caps: dict | None = None,
+                         phase1_alpha: dict | None = None,
+                         spill_matrix: dict | None = None
+                         ) -> pd.DataFrame:
+    """Per-(game, team, role) expected gross yards of the projected lineup.
+
+    ``player_hist`` is player-grain rated history (the pool ranks and
+    weights it through the shared ``_lineup_pool``); ``role_hist`` is the
+    same history at (player, role) grain for rates. Adjusted player volume
+    is pro-rated to roles by trailing role shares, so role volumes sum to
+    the player volume the cut ranked on. Shrunk yards-per-opportunity comes
+    from position priors fitted per role on strictly-prior history.
+    """
+    cols = list(YDS_QUALITY_AGG_COLS)
+    if (role_hist is None or role_hist.empty
+            or player_hist is None or player_hist.empty
+            or games is None or games.empty):
+        return pd.DataFrame(columns=cols)
+    if "role" not in role_hist.columns:
+        return pd.DataFrame(columns=cols)
+    top, _d = _lineup_pool(player_hist, games, injuries, roster_unavailable,
+                           weekly_injuries, redistribute_phase1,
+                           phase1_caps, phase1_alpha, spill_matrix)
+    if top.empty:
+        return pd.DataFrame(columns=cols)
+    key = top[["game_id", "team", "player_id", "history_game_id",
+               "target_day", "position", "_tpg", "_den"]].copy()
+    rh = role_hist[["game_id", "team", "player_id", "role",
+                    "_num", "_den"]].rename(
+        columns={"game_id": "history_game_id",
+                 "_num": "role_num", "_den": "role_den"})
+    m = key.merge(rh, on=["history_game_id", "team", "player_id"],
+                  how="left")
+    n_roles = (m.groupby(["game_id", "team", "player_id"])["role"]
+               .transform("count"))
+    pden = pd.to_numeric(m["_den"], errors="coerce")
+    rden = pd.to_numeric(m["role_den"], errors="coerce").fillna(0.0)
+    valid = pden.gt(0)
+    share = np.where(
+        valid.to_numpy(),
+        (rden / pden.where(valid, 1.0)).fillna(0.0).to_numpy(),
+        (1.0 / n_roles.where(n_roles.gt(0), 1)).to_numpy())
+    m["_share"] = pd.Series(share, index=m.index).fillna(0.0)
+    m["_tpg_role"] = (pd.to_numeric(m["_tpg"], errors="coerce")
+                      * m["_share"])
+    pri_frames = []
+    for role in YDS_ROLES:
+        h_r = (role_hist[role_hist["role"].eq(role)]
+               .rename(columns={"yds": "epa"}))
+        pr = _position_priors_asof(h_r, top["target_day"])
+        pr["role"] = role
+        pri_frames.append(pr)
+    priors = pd.concat(pri_frames, ignore_index=True)
+    m = m.merge(priors, on=["target_day", "position", "role"], how="left")
+    denom = pd.to_numeric(m["role_den"], errors="coerce") + m["k"]
+    ok = m["mu"].notna() & m["k"].notna() & denom.gt(0)
+    rnum = pd.to_numeric(m["role_num"], errors="coerce")
+    m["yds_q"] = np.where(ok, (rnum + m["mu"] * m["k"]) / denom, np.nan)
+    m["_yds_per_game"] = m["_tpg_role"] * m["yds_q"]
+    out = (m.groupby(["game_id", "team", "role"], as_index=False)
+           ["_yds_per_game"].sum(min_count=1)
+           .rename(columns={"_yds_per_game": "yds_q"}))
+    return out[cols]
+
+
+def _yds_quality_agg(games: pd.DataFrame, pbp: pd.DataFrame | None,
+                     ps: pd.DataFrame | None,
+                     injuries: pd.DataFrame | None,
+                     roster_unavailable: pd.DataFrame | None = None,
+                     weekly_injuries: pd.DataFrame | None = None,
+                     redistribute_phase1: bool = False,
+                     phase1_caps: dict | None = None,
+                     phase1_alpha: dict | None = None,
+                     spill_matrix: dict | None = None
+                     ) -> pd.DataFrame:
+    """Build PIT per-role yardage aggregates, degrading to NaN when play-by-play,
+    player IDs/positions, or exact schedule kickoff is unavailable.
+    """
+    empty = pd.DataFrame(columns=YDS_QUALITY_AGG_COLS)
+    obs = yds_role_table(pbp)
+    if (obs.empty or ps is None
+            or not {"game_id", "team", "player_id", "position"} <= set(ps.columns)
+            or not {"game_id", "gameday", "gametime"} <= set(games.columns)):
+        return empty
+    days = games[["game_id", "gameday", "gametime"]].copy()
+    days["game_id"] = days["game_id"].astype(str)
+    days["gameday"] = pd.to_datetime(days["gameday"], errors="coerce").dt.normalize()
+    days["kickoff_utc"] = _kickoff_utc(days)
+    obs["game_id"] = obs["game_id"].astype(str)
+    obs["player_id"] = obs["player_id"].astype("string").str.strip()
+    obs["team"] = obs["team"].astype("string").str.strip().map(config.canonical_team)
+    obs = obs.merge(days, on="game_id", how="inner", validate="many_to_one")
+    pos = ps[["game_id", "team", "player_id", "position"]].copy()
+    pos["game_id"] = pos["game_id"].astype(str)
+    pos["team"] = pos["team"].astype("string").str.strip().map(config.canonical_team)
+    pos["player_id"] = pos["player_id"].astype("string").str.strip()
+    pos["position"] = _normalize_epa_lineup_positions(pos["position"])
+    pos = pos.dropna(subset=["player_id", "position"])
+    pos = pos[~pos["player_id"].isin(["", "nan", "none", "<na>", "null"])]
+    pos = pos.drop_duplicates(["game_id", "team", "player_id"], keep="last")
+    obs = obs.merge(pos, on=["game_id", "team", "player_id"],
+                    how="inner", validate="many_to_one")
+    obs = obs.dropna(subset=["gameday", "kickoff_utc"])
+    player_obs = (obs.groupby(["game_id", "team", "player_id"],
+                              as_index=False)
+                  .agg(yds=("yds", "sum"), opp=("opp", "sum"),
+                       position=("position", "first"),
+                       gameday=("gameday", "first"),
+                       kickoff_utc=("kickoff_utc", "first")))
+    role_hist = epa_quality_ratings(obs, group_keys=("player_id", "role"),
+                                   value_col="yds")
+    player_hist = epa_quality_ratings(player_obs, value_col="yds")
+    return yds_quality_team_agg(role_hist, player_hist, games, injuries,
+                                roster_unavailable, weekly_injuries,
+                                redistribute_phase1, phase1_caps,
+                                phase1_alpha, spill_matrix)
+
+
+def _attach_yds_features(df: pd.DataFrame, agg: pd.DataFrame,
+                        games: pd.DataFrame) -> pd.DataFrame:
+    """Serve the projected-lineup yardage columns in ONE concat (home/away/diff).
+
+    The team lookup joins against the SCHEDULE, not df: df is the served game
+    frame and is not contracted to carry home_team/away_team, so reading them
+    from there would make this family depend on an incidental column.
+    """
+    n = len(df)
+    sides: dict[str, np.ndarray] = {}
+    bases = list(YDS_ROLE_TO_BASE.values())
+    sched_ok = (games is not None
+                and {"game_id", "home_team", "away_team"}.issubset(
+                    set(games.columns)))
+    if agg is None or agg.empty or not sched_ok:
+        for base in bases:
+            for rep in ("home", "away", "diff"):
+                sides[f"{base}_{rep}"] = np.full(n, np.nan)
+        return pd.concat([df, pd.DataFrame(sides, index=df.index)], axis=1)
+    gids = df["game_id"].astype(str)
+    sched = (games[["game_id", "home_team", "away_team"]].copy()
+             .assign(game_id=lambda x: x["game_id"].astype(str))
+             .drop_duplicates("game_id").set_index("game_id"))
+    for c in ("home_team", "away_team"):
+        sched[c] = sched[c].map(config.canonical_team)
+    for role, base in YDS_ROLE_TO_BASE.items():
+        sub = agg.loc[agg["role"] == role, ["game_id", "team", "yds_q"]]
+        keyed = (sub.assign(game_id=sub["game_id"].astype(str))
+                 .set_index(["game_id", "team"])["yds_q"])
+        for side, team_col in (("home", "home_team"), ("away", "away_team")):
+            idx = pd.MultiIndex.from_arrays(
+                [gids.to_numpy(),
+                 sched[team_col].reindex(gids).to_numpy()])
+            sides[f"{base}_{side}"] = pd.to_numeric(
+                keyed.reindex(idx), errors="coerce").to_numpy(dtype=float)
+    for base in bases:
+        sides[f"{base}_diff"] = sides[f"{base}_home"] - sides[f"{base}_away"]
+    return pd.concat([df, pd.DataFrame(sides, index=df.index)], axis=1)
+
+
+def _attach_yds_scaled(df: pd.DataFrame) -> pd.DataFrame:
+    """Attach pace-scaled yardage legs (always-created).
+
+    The same ``s_game`` scaler multiplies every unscaled leg on BOTH sides,
+    so each scaled diff stays exactly home - away. ``s_game`` NaN propagates
+    to NaN (never 1.0-filled). Unscaled legs are never overwritten.
+    """
+    out = df.copy() if df is not None else pd.DataFrame()
+    pairs = (list(zip(config.YDS_BASES, config.YDS_SCALED_BASES))
+             + list(zip(config.YDS_DIAG_BASES, config.YDS_SCALED_DIAG_BASES)))
+    for unscaled, scaled in pairs:
+        for rep in ("home", "away", "diff"):
+            if f"{scaled}_{rep}" not in out.columns:
+                out[f"{scaled}_{rep}"] = np.nan
+    if out.empty:
+        return out
+    s = (pd.to_numeric(out["s_game"], errors="coerce")
+         if "s_game" in out.columns
+         else pd.Series(np.nan, index=out.index))
+    for unscaled, scaled in pairs:
+        for rep in ("home", "away"):
+            u = (pd.to_numeric(out[f"{unscaled}_{rep}"], errors="coerce")
+                 if f"{unscaled}_{rep}" in out.columns
+                 else pd.Series(np.nan, index=out.index))
+            out[f"{scaled}_{rep}"] = u * s
+        out[f"{scaled}_diff"] = out[f"{scaled}_home"] - out[f"{scaled}_away"]
+    return out
 
 
 def _epa_quality_agg(games: pd.DataFrame, pbp: pd.DataFrame | None,
@@ -2541,6 +3119,7 @@ def _attach_epa_quality_features(df: pd.DataFrame, agg: pd.DataFrame,
 # ---------------------------------------------------------------------------
 # Weekly-report injury-share family (2026-09-27 Tier B promotion)
 # ---------------------------------------------------------------------------
+# (pace-projection + pace-scaled EPA live above, next to _attach_epa_quality_features)
 # The served contract's injury availability signal: for each unit (ol, def)
 # it reads THIS week's own team report and prices every Out / Injured
 # Reserve / Doubtful row with the player's own recent unit-snap share, all
@@ -3021,6 +3600,10 @@ def build_game_features(games: pd.DataFrame,
         home_v, away_v = _per_side(ladder, gids, lad_col)
         df[side_col] = home_v if side_col.endswith("home") else away_v
 
+    # Standalone expected-game pace (OT-stripped regulation plays). Runs on
+    # the same strictly-prior ladder as every other trailing column, before
+    # the EPA attach so the scaled legs can read s_game.
+    df = _attach_plays_projection(df, ladder, games)
     df = _attach_record_fields(df, ev)
     if redistribute_phase1 and phase1_alpha is None:
         phase1_alpha = dict(PHASE1_ALPHA_ADOPTED)
@@ -3029,6 +3612,17 @@ def build_game_features(games: pd.DataFrame,
                              weekly_injuries, redistribute_phase1,
                              phase1_caps, phase1_alpha, spill_matrix),
         games)
+    # Pace-scaled EPA legs + unit-fixed cross-matched net. Legacy epa_*
+    # legs are preserved beside the scaled twins for the A/B/C/D walk-forward.
+    df = _attach_epa_pace_scaled(df)
+    # Projected-lineup yardage (2026-11-01 challenger, unvalidated): same
+    # pool as EPA, yardage rates; scaled twins read s_game above.
+    df = _attach_yds_features(
+        df, _yds_quality_agg(games, pbp, ps, injuries, roster_unavailable,
+                             weekly_injuries, redistribute_phase1,
+                             phase1_caps, phase1_alpha, spill_matrix),
+        games)
+    df = _attach_yds_scaled(df)
     df = _attach_injury_share_features(
         df, injury_share_table(snaps, weekly_injuries, crosswalk,
                                roster_unavailable, weekly_rosters), games)
@@ -3159,6 +3753,7 @@ def build_slate_features(schedule: pd.DataFrame,
         home_v, away_v = _per_side(ladder, gids, lad_col)
         df[side_col] = home_v if side_col.endswith("home") else away_v
 
+    df = _attach_plays_projection(df, ladder, sched)
     df = _attach_record_fields(df, combined)
     if redistribute_phase1 and phase1_alpha is None:
         phase1_alpha = dict(PHASE1_ALPHA_ADOPTED)
@@ -3167,6 +3762,13 @@ def build_slate_features(schedule: pd.DataFrame,
                              weekly_injuries, redistribute_phase1,
                              phase1_caps, phase1_alpha, spill_matrix),
         sched)
+    df = _attach_epa_pace_scaled(df)
+    df = _attach_yds_features(
+        df, _yds_quality_agg(sched, pbp, ps, injuries, roster_unavailable,
+                             weekly_injuries, redistribute_phase1,
+                             phase1_caps, phase1_alpha, spill_matrix),
+        sched)
+    df = _attach_yds_scaled(df)
     df = _attach_injury_share_features(
         df, injury_share_table(snaps, weekly_injuries, crosswalk,
                                roster_unavailable, weekly_rosters), sched)
