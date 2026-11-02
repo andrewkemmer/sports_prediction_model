@@ -188,8 +188,11 @@ def run_line_feature_weights(score_regressor,
                              feature_frame: pd.DataFrame | None = None
                              ) -> dict[str, float]:
     """The RUN LINE (distribution) model's own per-feature weights: pooled,
-    n-weighted LightGBM split GAIN across the two per-side Poisson fits
-    (home-λ + away-λ), normalized to sum to 1.0 over the served features.
+    blend-weighted importances across the served score ensemble's per-side
+    fits (split-gain for tree members, |coef| for the linear member),
+    normalized to sum to 1.0 over the served features (legacy single-pair
+    ``ScoreRegressor``: pooled, n-weighted LightGBM split GAIN across the
+    two per-side Poisson fits).
 
     MLB parity (mlb ``distributions.run_line_feature_weights``): the Totals &
     Run Lines drift table's MODEL WEIGHT column reports the run line model
@@ -199,18 +202,95 @@ def run_line_feature_weights(score_regressor,
     in the two per-side Poisson fits; their pooled, n-weighted split GAIN is
     the run line's honest importance.
 
-    READ-ONLY over the SHIPPED fits (the ``ScoreRegressor`` the pipeline just
-    persisted): no refit, no second training — the weights describe exactly
-    the distribution model that priced this run's artifact. The team-ID
-    categorical columns are the trees' encoding, not served features: their
-    gain is dropped and the rest renormalized (weight_pct sums to 100 across
-    the served list). Diagnostic only — a failure returns {} so the caller
-    passes None and the frontend omits the column rather than rendering
-    moneyline weights or zeros.
+    READ-ONLY over the SHIPPED fits (the ``ScoreEnsembleRegressor`` the
+    pipeline just persisted): no refit, no second training — the weights
+    describe exactly the distribution model that priced this run's artifact.
+    The team-ID categorical columns are the trees' encoding, not served
+    features: their gain is dropped and the rest renormalized (weight_pct
+    sums to 100 across the served list). Diagnostic only — a failure
+    returns {} so the caller passes None and the frontend omits the column
+    rather than rendering moneyline weights or zeros.
     """
     if score_regressor is None:
         return {}
     try:
+        # Score-ensemble path (NBA distribution_feature_weights parity):
+        # the served distribution model is the per-side score ensemble, so
+        # the honest MODEL WEIGHT is the blend-weighted pooled importance
+        # across its members — each member's normalized vector (split-gain
+        # for the trees, |coef| on the standardized linear view for the
+        # elastic net) pooled over sides and scaled by the regressor's own
+        # earned weights. Team-ID categoricals are excluded (they carry no
+        # drift row). Fractions summing to 1.0 — the drift writer scales to
+        # weight_pct, never the moneyline blend's map.
+        members = getattr(score_regressor, "members", None)
+        if isinstance(members, dict) and members:
+            member_weights = dict(
+                getattr(score_regressor, "weights", None) or {})
+            member_columns = getattr(score_regressor, "columns", None) or {}
+            member_names = list(getattr(config, "SCORE_ENSEMBLE_MEMBERS",
+                                        None) or member_weights.keys())
+            # The drift table reports the SERVED contract (the run line
+            # consumes exactly the moneyline feature contract): member-only
+            # extras (the elastic-net full-view raw per-side columns) are
+            # dropped and the rest renormalized — the MLB team-ID rule
+            # generalized, so the displayed MODEL WEIGHT sums to 100%.
+            served = set(config.active_moneyline_feature_cols())
+            acc: dict[str, float] = {}
+            for name in member_names:
+                try:
+                    w = float(member_weights.get(name, 0.0))
+                except (TypeError, ValueError):
+                    continue
+                if not np.isfinite(w) or w <= 0:
+                    continue
+                cols = list(member_columns.get(name) or [])
+                if not cols:
+                    continue
+                for side in members:
+                    try:
+                        model, _ = members[side][name]
+                    except (KeyError, TypeError):
+                        continue
+                    try:
+                        booster = getattr(model, "booster_", None)
+                        if booster is not None:
+                            g = np.asarray(
+                                booster.feature_importance(
+                                    importance_type="gain"), dtype=float)
+                            names = list(booster.feature_name())
+                            if len(g) == len(names) and np.isfinite(g).any():
+                                total_g = float(np.nansum(g))
+                                if total_g > 0:
+                                    normed = {n: float(v) / total_g
+                                              for n, v in zip(names, g)
+                                              if np.isfinite(v)}
+                                    for col, val in normed.items():
+                                        if col not in served:
+                                            continue
+                                        acc[col] = acc.get(col, 0.0) + w * val
+                                    continue
+                        if hasattr(model, "feature_importances_"):
+                            raw = [float(v)
+                                   for v in model.feature_importances_]
+                        elif hasattr(model, "coef_"):
+                            raw = [float(abs(v)) for v in np.ravel(
+                                np.asarray(model.coef_, dtype=float))]
+                        else:
+                            continue
+                    except Exception:  # noqa: BLE001 — one bad member skips
+                        continue
+                    if len(raw) != len(cols) or sum(raw) <= 0:
+                        continue
+                    total_r = float(sum(raw))
+                    for col, v in zip(cols, raw):
+                        if col not in served:
+                            continue
+                        acc[col] = acc.get(col, 0.0) + w * v / total_r
+            total = sum(acc.values())
+            if not acc or not np.isfinite(total) or total <= 0:
+                return {}
+            return {k: v / total for k, v in acc.items()}
         n_rows = float(len(feature_frame)) if feature_frame is not None \
             and len(feature_frame) else 1.0
         gain: dict[str, float] = {}
