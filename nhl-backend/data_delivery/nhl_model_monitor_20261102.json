@@ -99,13 +99,13 @@
   },
   {
    "feature": "shots_for_per_game_diff",
-   "current_mean": -0.5067,
+   "current_mean": -0.51,
    "baseline_mean": 0.0072,
    "psi": 0.289073148350688,
    "psi_adjusted": 0.196073,
    "noise_floor": 0.093,
-   "mean_shift": -0.513867,
-   "shift_se": 1.159744,
+   "mean_shift": -0.5172,
+   "shift_se": 1.159708,
    "location_shift": false,
    "status": "OK",
    "weight_pct": 5.55,
@@ -134,8 +134,8 @@
    "psi": 0.4480207098221163,
    "psi_adjusted": 0.355021,
    "noise_floor": 0.093,
-   "mean_shift": 0.052533,
-   "shift_se": 0.032047,
+   "mean_shift": 0.052446,
+   "shift_se": 0.032031,
    "location_shift": false,
    "status": "OK",
    "weight_pct": 0.46,
@@ -429,13 +429,13 @@
   },
   {
    "feature": "shots_for_per_game_away",
-   "current_mean": 28.0167,
+   "current_mean": 28.02,
    "baseline_mean": 27.3752,
    "psi": 0.32917920819838575,
    "psi_adjusted": 0.236179,
    "noise_floor": 0.093,
-   "mean_shift": 0.641467,
-   "shift_se": 0.802582,
+   "mean_shift": 0.6448,
+   "shift_se": 0.802555,
    "location_shift": false,
    "status": "OK",
    "weight_pct": 0.6,
@@ -474,13 +474,13 @@
   },
   {
    "feature": "pp_success_home",
-   "current_mean": 0.2523,
+   "current_mean": 0.2524,
    "baseline_mean": 0.2042,
    "psi": 0.4156698639578327,
    "psi_adjusted": 0.32267,
    "noise_floor": 0.093,
-   "mean_shift": 0.048049,
-   "shift_se": 0.023614,
+   "mean_shift": 0.048232,
+   "shift_se": 0.023609,
    "location_shift": true,
    "status": "OK-SEASONAL",
    "weight_pct": 0.07,
@@ -489,13 +489,13 @@
   },
   {
    "feature": "pp_success_away",
-   "current_mean": 0.1991,
+   "current_mean": 0.1994,
    "baseline_mean": 0.2036,
-   "psi": 0.10487536900182468,
-   "psi_adjusted": 0.011875,
+   "psi": 0.1038990861949237,
+   "psi_adjusted": 0.010899,
    "noise_floor": 0.093,
-   "mean_shift": -0.004484,
-   "shift_se": 0.023665,
+   "mean_shift": -0.004213,
+   "shift_se": 0.023659,
    "location_shift": false,
    "status": "OK",
    "weight_pct": 0.32,
@@ -3831,7 +3831,7 @@
   },
   {
    "name": "lightgbm",
-   "weight": 0.3298,
+   "weight": 0.3297,
    "auc": 0.6049660142974336,
    "brier": 0.23925419800917092,
    "logloss": 0.6710419728812763,
@@ -3839,10 +3839,10 @@
   },
   {
    "name": "elasticnet",
-   "weight": 0.6702,
-   "auc": 0.6122536302909559,
-   "brier": 0.23823402607704547,
-   "logloss": 0.6689153271069347,
+   "weight": 0.6703,
+   "auc": 0.612254962019113,
+   "brier": 0.23823386563234428,
+   "logloss": 0.6689150039697429,
    "n_eval": 3891
   }
  ],
@@ -7199,7 +7199,7 @@
   },
   {
    "date": "2026-11-01",
-   "brier": 0.20834666081270253,
+   "brier": 0.20826229011285524,
    "games": 5
   }
  ],
@@ -7533,8 +7533,8 @@
    "date": "2026-11-02",
    "weights": {
     "xgboost": 0.0,
-    "lightgbm": 0.3298,
-    "elasticnet": 0.6702
+    "lightgbm": 0.3297,
+    "elasticnet": 0.6703
    },
    "auc": 0.6119,
    "brier": 0.2382,
@@ -7561,10 +7561,10 @@
   "min_val_fold_games": 40,
   "oof_regular": {
    "n": 3891,
-   "auc": 0.6117684817233627,
-   "logloss": 0.6694914931223129,
-   "brier": 0.23841789312730727,
-   "ece": 0.01036740629306023,
+   "auc": 0.6117692807602569,
+   "logloss": 0.6694912740886931,
+   "brier": 0.23841778470954855,
+   "ece": 0.010367307747302467,
    "sufficient": true
   },
   "oof_postseason": {
@@ -7585,10 +7585,10 @@
   },
   "oof_all": {
    "n": 4231,
-   "auc": 0.6099095578559148,
-   "logloss": 0.672449003314231,
-   "brier": 0.23922774883269188,
-   "ece": 0.009881498420122746,
+   "auc": 0.6099106833741597,
+   "logloss": 0.6724488018819893,
+   "brier": 0.23922764912730327,
+   "ece": 0.009881407793428507,
    "sufficient": true
   }
  },
