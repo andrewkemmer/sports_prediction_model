@@ -256,6 +256,81 @@ def tilt_shift(h, a, tilt, sport):
                     float(tilt.get("cap", 6.)))
 
 
+# C1 extremity margin stretch (NBA adopted 2026-11-04; R2 walk-forward
+# verdict margin ADOPT paired CRPS -0.0197 t -2.80, totals REFUSE t -0.71).
+# Margin residual (actual minus model margin) regressed on a quadratic in
+# margin extremity: xm is the model-margin deviation from its history mean,
+# shift = intercept + slope*xm + quad*sign(xm)*xm^2. The intercept is the
+# raw history mean (unshrunk drift); slope/quad carry 600-game ridge priors
+# toward zero (shrinkage ~ n/(n+600)). Per-game shift capped at 5 pts and
+# applied total-preserving by the caller (h+m/2, a-m/2). Returns {} on thin
+# history (<400 games), shape mismatch, or non-NBA, so flag-off,
+# early-origin, and non-NBA pricing stays byte-identical.
+STRETCH_MARGIN_MIN_HISTORY = 400
+STRETCH_MARGIN_SLOPE_PRIOR = 600.
+STRETCH_MARGIN_QUAD_PRIOR = 600.
+STRETCH_MARGIN_CAP = 5.
+
+
+def fit_margin_stretch(h, a, outcomes, sport):
+    """Fit the C1 margin extremity stretch block (NBA only)."""
+    if sport != "nba":
+        return {}
+    h = np.asarray(h, float)
+    a = np.asarray(a, float)
+    ym = np.asarray((outcomes or {}).get("margin"), float) \
+        if isinstance(outcomes, dict) else np.asarray(outcomes, float)
+    if len(h) < STRETCH_MARGIN_MIN_HISTORY:
+        return {}
+    if ym.shape != h.shape or a.shape != h.shape:
+        return {}
+    ok = np.isfinite(h) & np.isfinite(a) & np.isfinite(ym)
+    if int(ok.sum()) < STRETCH_MARGIN_MIN_HISTORY:
+        return {}
+    h, a, ym = h[ok], a[ok], ym[ok]
+    mm = h - a
+    mmean = float(mm.mean())
+    xm = mm - mmean
+    rm = ym - mm
+    x2 = np.sign(xm) * xm ** 2
+    X = np.column_stack([np.ones_like(xm), xm, x2])
+    XtX = X.T @ X
+    Xty = X.T @ rm
+    q1 = float(np.mean(xm ** 2))
+    q2 = float(np.mean(x2 ** 2))
+    D = np.diag([0.0, STRETCH_MARGIN_SLOPE_PRIOR * q1,
+                 STRETCH_MARGIN_QUAD_PRIOR * q2])
+    try:
+        beta = np.linalg.solve(XtX + D, Xty)
+    except np.linalg.LinAlgError:
+        return {}
+    if not np.all(np.isfinite(beta)):
+        return {}
+    return {"margin_stretch": {"intercept": float(beta[0]),
+                               "slope": float(beta[1]),
+                               "quad": float(beta[2]),
+                               "margin_mean": mmean,
+                               "cap": STRETCH_MARGIN_CAP}}
+
+
+def margin_stretch_shift(h, a, block, sport):
+    """Per-game additive margin-location shift (zeros when no block)."""
+    h = np.asarray(h, float)
+    a = np.asarray(a, float)
+    if not block or sport != "nba":
+        return np.zeros(h.shape)
+    try:
+        xm = (h - a) - float(block["margin_mean"])
+        m = (float(block["intercept"]) + float(block["slope"]) * xm
+             + float(block["quad"]) * np.sign(xm) * xm ** 2)
+    except (TypeError, ValueError, KeyError):
+        return np.zeros(h.shape)
+    if not np.all(np.isfinite(m)):
+        return np.zeros(h.shape)
+    return np.clip(m, -float(block.get("cap", STRETCH_MARGIN_CAP)),
+                   float(block.get("cap", STRETCH_MARGIN_CAP)))
+
+
 def fit_total_shrinkage(h, a, outcomes, sport):
     """Totals-location slope shrinkage (NHL; other sports get {}).
 
@@ -1448,6 +1523,11 @@ def raw_cdf(h, a, kind, sport, parameters=None):
         # total location toward the prior-history mean; absent block prices
         # byte-identical. Margin branch untouched by construction.
         mean = mean + shrink_shift(mean, (p or {}).get("total_shrink"))
+    else:
+        # C1 extremity margin stretch (NBA adopted 2026-11-04): additive
+        # margin-location shift from the variance params; absent block or
+        # non-NBA prices byte-identical.
+        mean = mean + margin_stretch_shift(h, a, (p or {}).get("margin_stretch"), sport)
     sd = np.sqrt(np.maximum(vh + va + (cross if kind == "total" else -cross), 1e-9))
     skew = float(p[f"{kind}_skew"])
     # Expand from predictions/parameters only, never from scored outcomes.

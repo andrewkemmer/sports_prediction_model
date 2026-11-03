@@ -3638,6 +3638,14 @@ def _distribution_fit_maps(h, a, outcomes, lattice_evidence=None):
         # correction rides the variance params; raw_cdf shifts the TOTAL
         # location only, so calibration refits against the tilted base.
         parameters.update(family.fit_tilt(h, a, outcomes, DISTRIBUTION_SPORT))
+    if DISTRIBUTION_SPORT == "nba" and bool(getattr(config, "DISTRIBUTION_EXTREMITY_STRETCH_MARGIN", False)):
+        # C1 extremity margin stretch (adopted 2026-11-04; R2 verdict
+        # margin ADOPT t -2.80, totals REFUSE t -0.71 -- totals keeps the
+        # pace tilt above, never stacked). Fits the margin stretch block on
+        # the uncorrected base; raw_cdf shifts the MARGIN location only, so
+        # calibration refits against the stretched base. Tilt is
+        # totals-only, so the branches never collide.
+        parameters.update(family.fit_margin_stretch(h, a, outcomes, DISTRIBUTION_SPORT))
     if DISTRIBUTION_SPORT == "nhl" and bool(getattr(config, "DISTRIBUTION_TOTAL_SHRINK_NHL", False)):
         # 2026-10-19: totals slope-shrinkage (measured pooled-OOF slope of
         # actual totals on mu_total ~0.14 at corr ~0.02 — the spread carries

@@ -837,6 +837,14 @@ DISTRIBUTION_CONDVARIANCE_PACE = False
 # tilt_watch panel (slope-sign guard + top-quintile gap) in
 # distribution_score_report.
 DISTRIBUTION_TOTAL_TILT_PACE = True
+# C1 extremity stretch, per-branch flags (2026-11-04, R2 verdict: margin
+# ADOPT paired CRPS -0.0197 t -2.80 with all 6 gates; totals REFUSE t -0.71
+# -- its tail miss is orthogonal to pace deviation, C2 territory). Margin
+# stretch shifts the margin location only (totals keeps the pace tilt
+# above, never stacked); calibration refits against the stretched base.
+# Revert: set DISTRIBUTION_EXTREMITY_STRETCH_MARGIN = False.
+DISTRIBUTION_EXTREMITY_STRETCH_TOTAL = False
+DISTRIBUTION_EXTREMITY_STRETCH_MARGIN = True
 # Trailing own-error location correction (TRIAL ONLY, default off): when
 # True the NBA distribution fits a per-team trailing bias block (trailing-20
 # mean of mu_total minus actual over each team's strictly-prior games, both
