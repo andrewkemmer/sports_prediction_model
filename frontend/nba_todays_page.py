@@ -230,14 +230,25 @@ def _evening_count(frame: pd.DataFrame) -> int:
 def _load_day(date: str) -> tuple[pd.DataFrame, bool]:
     """Resolve one NBA board date — the NHL ``_load_day`` structural twin.
 
-    Returns ``(frame, history_view)``: the current moneyline record filtered
-    to ``date`` when it covers that date (production view), otherwise THIS
-    date's published slate — the rolling-window ``nba_moneyline_v1_*``
-    family union (the production prediction as published, never an OOF
-    re-price) with the settled result overlaid from retained history
-    outcome columns; OOF history only seeds dates no published family
-    member ever covered (``utils.load_nba_board_games``'s resolution order).
+    Returns ``(frame, history_view)``: THIS date's published slate first —
+    the rolling-window ``nba_moneyline_v1_*`` family union (the production
+    prediction as published, never an OOF re-price) with the settled
+    result overlaid from retained history outcome columns; OOF history only
+    seeds dates no published family member ever covered
+    (``utils.load_nba_board_games``'s resolution order) — falling back to
+    the current moneyline record filtered to ``date`` (production view)
+    only when the published slate resolves nothing. Slate-first because a
+    same-day re-run overwrites its own record with a narrower late slate
+    (2026-11-03 07:34 kept only the Live TOR@LAC game): current-first
+    returned that 1-row frame for 20261102 and dropped the 14 settled
+    games the family union restores.
     """
+    try:
+        day = utils.load_nba_board_games(date)
+    except Exception:
+        day = pd.DataFrame()
+    if day is not None and not day.empty:
+        return day, True
     try:
         frame = utils.load_nba_moneyline("nba")
     except Exception:
@@ -247,13 +258,7 @@ def _load_day(date: str) -> tuple[pd.DataFrame, bool]:
         day = frame[frame.game_date.astype(str).str.replace("-", "") == date]
         if not day.empty:
             return day, False
-    try:
-        day = utils.load_nba_board_games(date)
-    except Exception:
-        day = pd.DataFrame()
-    if day is None or day.empty:
-        return pd.DataFrame(), False
-    return day, True
+    return pd.DataFrame(), False
 
 
 def _current_slate_date() -> str | None:
