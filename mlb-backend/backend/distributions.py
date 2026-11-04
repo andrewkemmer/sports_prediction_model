@@ -1810,12 +1810,12 @@ def derive_markets_v3(oof, moneyline_probs=None, n_draws=MC_DRAWS,
             key = f"market_over_{str(line).replace('.', '_')}" if kind == "total" else f"market_home_cover_{str(line).replace('.', '_')}"
             bins = np.minimum((probability * 10).astype(int), 9)
             ece = sum(float((bins == b).mean()) * abs(float(probability[bins == b].mean() - target[bins == b].mean())) for b in np.unique(bins))
-            summary[key] = {"n": int(valid.sum()), "engine_ece_raw": None, "engine_ece_calibrated": ece,
+            summary[key] = {"n": int(valid.sum()), "engine_ece_raw": None, "engine_auc": float(roc_auc_score(target, probability)) if len(np.unique(target)) == 2 else None, "engine_ece_calibrated": ece,
                             "engine_brier": float(np.mean((probability - target) ** 2)),
                             "engine_logloss": float(-np.mean(target*np.log(probability)+(~target)*np.log1p(-probability))),
                             "baseline_logloss": float(log_loss(target, np.full(len(target), np.clip(target.mean(), 1e-7, 1.-1e-7)), labels=[0, 1]))}
     summary["market_derived_moneyline"] = {"n": metrics["derived_moneyline"]["n"],
-                                          "engine_ece_raw": None, "engine_ece_calibrated": None,
+                                          "engine_ece_raw": None, "engine_auc": metrics["derived_moneyline"].get("auc"), "engine_ece_calibrated": None,
                                           "engine_brier": metrics["derived_moneyline"]["brier"],
                                           "engine_logloss": metrics["derived_moneyline"]["logloss"]}
     return {"markets": markets, "summary": summary}

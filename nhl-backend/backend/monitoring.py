@@ -1495,6 +1495,7 @@ def _run_engine_market_metrics(oof_market_rows: pd.DataFrame) -> dict:
         m = _markets_card_metrics(y, p)
         out[key] = {
             "engine_ece_raw": m.get("ece_raw"),
+            "engine_auc": m.get("auc"),
             "engine_ece_calibrated": m.get("ece_calibrated"),
             "engine_brier": m.get("brier"),
             "engine_logloss": m.get("logloss"),

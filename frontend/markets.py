@@ -1207,7 +1207,7 @@ def _render_run_engine_model_card(monitor: dict) -> None:
         rows_html.append(
             f"<tr>"
             f"<td style='color:#E2E8F0;font-weight:700;'>{label}</td>"
-            f"<td>{_fmt(r.get('engine_ece_raw'), 4)}</td>"
+            f"<td>{_fmt(r.get('engine_auc'), 4)}</td>"
             f"<td>{_fmt(r.get('engine_ece_calibrated'), 4)}</td>"
             f"<td>{_fmt(r.get('engine_brier'), 4)}</td>"
             f"<td>{_fmt(r.get('engine_logloss'), 4)}</td>"
@@ -1217,7 +1217,7 @@ def _render_run_engine_model_card(monitor: dict) -> None:
         f"""
         <div class="fb-box" style="padding:6px 8px;">
           <table class="fb-table">
-            <thead><tr><th>MARKET LINE</th><th>ECE (RAW)</th><th>ECE (CAL)</th>
+            <thead><tr><th>MARKET LINE</th><th>AUC</th><th>ECE (CAL)</th>
             <th>BRIER</th><th>LOG LOSS</th><th>N (OOF)</th></tr></thead>
             <tbody>{''.join(rows_html)}</tbody>
           </table>
