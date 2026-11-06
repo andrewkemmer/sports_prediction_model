@@ -11,7 +11,7 @@ CANDIDATE_MANIFEST: dict[str, dict] = {}
 def _candidate_manifest() -> None:
     for metric, windows in config.TEAM_CANDIDATE_TRAILING_SPECS.items():
         for window in windows:
-            base = f"nba_{metric}_{window}"
+            base = f"{metric}_{window}"
             for rep, representation in (("diff", "difference"), ("home", "raw home level"), ("away", "raw away level")):
                 CANDIDATE_MANIFEST[f"{base}_{rep}"] = {
                     "description": f"Trailing {metric} ({window}) {rep}",

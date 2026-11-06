@@ -290,10 +290,10 @@ MONEYLINE_FEATURE_COLS = [
     # is why it arrives through the binary market and not as a claim about the
     # score head. All nine are diffs, so all nine serve the linear member;
     # the six paired-form SIDES stay trial-only (PAIRED_FORM_FEATURE_COLS).
-    "nba_three_point_pct_ewm_diff", "nba_free_throw_pct_ewm_diff",
+    "three_point_pct_ewm_diff", "free_throw_pct_ewm_diff",
     "ewm_efg_against_diff", "ewm_three_against_diff", "ewm_ft_against_diff",
-    "nba_turnovers_per_game_ewm_diff",
-    "nba_rebounds_per_game_ewm_diff",
+    "turnovers_per_game_ewm_diff",
+    "rebounds_per_game_ewm_diff",
     "ewm_tov_forced_diff", "ewm_reb_against_diff",
 ]
 
@@ -373,7 +373,7 @@ TEAM_CANDIDATE_TRAILING_SPECS: dict[str, tuple[str, ...]] = {
 }
 CANDIDATE_FAMILIES = {"nba": {"base": TEAM_CANDIDATE_TRAILING_SPECS}}
 NBA_CANDIDATE_COLS = list(dict.fromkeys(
-    f"nba_{metric}_{window}_{rep}"
+    f"{metric}_{window}_{rep}"
     for metric, windows in TEAM_CANDIDATE_TRAILING_SPECS.items()
     for window in windows for rep in ("diff", "home", "away")
 ))
@@ -398,7 +398,7 @@ RAW_PER_SIDE_COLS = frozenset({
     "ewm_def_rating_home", "ewm_def_rating_away", "rest_days_home",
     "rest_days_away",
 } | set(PER_SIDE_FEATURE_COLS)
-  | {f"nba_{m}_{w}_{s}" for m, ws in TEAM_CANDIDATE_TRAILING_SPECS.items()
+  | {f"{m}_{w}_{s}" for m, ws in TEAM_CANDIDATE_TRAILING_SPECS.items()
      for w in ws for s in ("home", "away")}
   | SCHED_DENSITY_LEVEL_COLS
   # The star-out contract family and the available-lineup candidates publish

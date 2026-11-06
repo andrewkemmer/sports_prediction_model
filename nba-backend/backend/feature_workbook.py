@@ -65,7 +65,9 @@ CATEGORY_RULES: list[tuple[str, str]] = [
     (r"ewm_net_points|ewm_off_rating|ewm_def_rating", "Team Scoring Margin"),
     (r"ewm_pace|ewm_efg|ewm_turnover|ewm_rebound|ewm_ast", "Team Four Factors"),
     (r"^is_home$|^is_playoffs$|game_type", "Game Context"),
-    (r"nba_", "RFE Candidate Pool (trailing stats)"),
+    (r"turnovers_per_game|rebounds_per_game|three_point_pct|free_throw_pct|"
+     r"points_for_pg|points_against_pg|assists_per_game",
+     "RFE Candidate Pool (trailing stats)"),
 ]
 
 

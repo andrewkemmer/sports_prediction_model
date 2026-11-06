@@ -98,7 +98,7 @@ FEATURE_UPSTREAM: dict[str, str] = {
     # --- RFE candidate pool: trailing team metrics -----------------------
 }
 FEATURE_UPSTREAM.update({
-    f"nba_{metric}_{window}_{side}":
+    f"{metric}_{window}_{side}":
         f"{UPSTREAM_SEASON_LOG}: {'/'.join(columns)}"
     for metric, columns in {
         "points_for_pg": ("PTS",), "points_against_pg": ("PTS",),

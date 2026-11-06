@@ -487,9 +487,9 @@ def _attach_contract(df: pd.DataFrame, ladder: pd.DataFrame) -> pd.DataFrame:
         for window in windows:
             col = f"{metric}_{window}"
             h, a = _side(ladder, ids, col, True), _side(ladder, ids, col, False)
-            new[f"nba_{col}_diff"] = h - a
-            new[f"nba_{col}_home"] = h
-            new[f"nba_{col}_away"] = a
+            new[f"{col}_diff"] = h - a
+            new[f"{col}_home"] = h
+            new[f"{col}_away"] = a
     # Paired-form trial family (TRIAL ONLY - attached for the A/B arms, never
     # in MONEYLINE_FEATURE_COLS until a walk-forward verdict clears the 2.5
     # gate). The diff serves every member; the raw sides are tree-only via
