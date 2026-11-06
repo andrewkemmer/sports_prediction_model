@@ -78,12 +78,19 @@ def _build_candidate_manifest() -> None:
     family_source = {
         "nhl": "official NHL API boxscores (per-game rollup)",
     }
+    adopted = set(_c.MONEYLINE_FEATURE_COLS)
     for _family, family_specs in _c.CANDIDATE_FAMILIES.items():
         for _spec_name, spec in family_specs.items():
             for metric, windows in spec.items():
                 desc, definition, _cat = metric_doc[metric]
                 for window in windows:
                     base = f"{_family}_{metric}_{window}"
+                    # Adopted candidates graduate to FEATURE_MANIFEST; the
+                    # auto-builder skips them so declared == documented stays
+                    # name-for-name (first adoption: turnover C, 2026-11-06).
+                    if (f"{base}_diff" in adopted and f"{base}_home" in adopted
+                            and f"{base}_away" in adopted):
+                        continue
                     pit = (f"per-team EWM (halflife={_c.EWM_HALFLIFE}) of the per-game metric "
                            "then shift(1) — current and future games excluded"
                            if window == "ewm" else
@@ -264,6 +271,32 @@ FEATURE_MANIFEST = {
         "point_in_time_rule": "function of the team's strictly-prior game date",
         "missing_value_policy": "NaN when either team has no prior game",
         "representation": "difference flag (all model families)",
+        "model_family_availability": ["linear", "tree"],
+        "feature_version": 1,
+    },
+    "nhl_giveaways_pg_ewm_diff": {
+        "description": "Home minus away trailing giveaways per game (committed turnovers)",
+        "definition": "exponentially-weighted mean (halflife=3 games) of each team's per-game "
+                      "giveaways over strictly-prior games; home − away",
+        "source": "official NHL API boxscores (team giveaways)",
+        "lookback": "decaying (halflife=3 games)",
+        "aggregation": "per-team EWM of the per-game count",
+        "point_in_time_rule": "trailing EWM then shift(1) — strictly-prior games only",
+        "missing_value_policy": "NaN when the team has no prior games with boxscore data",
+        "representation": "difference (all model families)",
+        "model_family_availability": ["linear", "tree"],
+        "feature_version": 1,
+    },
+    "nhl_takeaways_pg_ewm_diff": {
+        "description": "Home minus away trailing takeaways per game (forced turnovers)",
+        "definition": "exponentially-weighted mean (halflife=3 games) of each team's per-game "
+                      "takeaways over strictly-prior games; home − away",
+        "source": "official NHL API boxscores (team takeaways)",
+        "lookback": "decaying (halflife=3 games)",
+        "aggregation": "per-team EWM of the per-game count",
+        "point_in_time_rule": "trailing EWM then shift(1) — strictly-prior games only",
+        "missing_value_policy": "NaN when the team has no prior games with boxscore data",
+        "representation": "difference (all model families)",
         "model_family_availability": ["linear", "tree"],
         "feature_version": 1,
     },
@@ -680,6 +713,62 @@ FEATURE_MANIFEST = {
         "aggregation": "thresholded date difference",
         "point_in_time_rule": "function of the team's strictly-prior game date",
         "missing_value_policy": "NaN for a team's first game of the window",
+        "representation": "raw away level (tree members)",
+        "model_family_availability": ["tree"],
+        "feature_version": 1,
+    },
+    "nhl_giveaways_pg_ewm_home": {
+        "description": "Home team's trailing giveaways per game",
+        "definition": "exponentially-weighted mean (halflife=3 games) of the home team's "
+                      "per-game giveaways over strictly-prior games "
+                      "(home side of nhl_giveaways_pg_ewm_diff)",
+        "source": "official NHL API boxscores (team giveaways)",
+        "lookback": "decaying (halflife=3 games)",
+        "aggregation": "per-team EWM of the per-game count",
+        "point_in_time_rule": "trailing EWM then shift(1) — strictly-prior games only",
+        "missing_value_policy": "NaN when the team has no prior games with boxscore data",
+        "representation": "raw home level (tree members)",
+        "model_family_availability": ["tree"],
+        "feature_version": 1,
+    },
+    "nhl_giveaways_pg_ewm_away": {
+        "description": "Away team's trailing giveaways per game",
+        "definition": "exponentially-weighted mean (halflife=3 games) of the away team's "
+                      "per-game giveaways over strictly-prior games "
+                      "(away side of nhl_giveaways_pg_ewm_diff)",
+        "source": "official NHL API boxscores (team giveaways)",
+        "lookback": "decaying (halflife=3 games)",
+        "aggregation": "per-team EWM of the per-game count",
+        "point_in_time_rule": "trailing EWM then shift(1) — strictly-prior games only",
+        "missing_value_policy": "NaN when the team has no prior games with boxscore data",
+        "representation": "raw away level (tree members)",
+        "model_family_availability": ["tree"],
+        "feature_version": 1,
+    },
+    "nhl_takeaways_pg_ewm_home": {
+        "description": "Home team's trailing takeaways per game",
+        "definition": "exponentially-weighted mean (halflife=3 games) of the home team's "
+                      "per-game takeaways over strictly-prior games "
+                      "(home side of nhl_takeaways_pg_ewm_diff)",
+        "source": "official NHL API boxscores (team takeaways)",
+        "lookback": "decaying (halflife=3 games)",
+        "aggregation": "per-team EWM of the per-game count",
+        "point_in_time_rule": "trailing EWM then shift(1) — strictly-prior games only",
+        "missing_value_policy": "NaN when the team has no prior games with boxscore data",
+        "representation": "raw home level (tree members)",
+        "model_family_availability": ["tree"],
+        "feature_version": 1,
+    },
+    "nhl_takeaways_pg_ewm_away": {
+        "description": "Away team's trailing takeaways per game",
+        "definition": "exponentially-weighted mean (halflife=3 games) of the away team's "
+                      "per-game takeaways over strictly-prior games "
+                      "(away side of nhl_takeaways_pg_ewm_diff)",
+        "source": "official NHL API boxscores (team takeaways)",
+        "lookback": "decaying (halflife=3 games)",
+        "aggregation": "per-team EWM of the per-game count",
+        "point_in_time_rule": "trailing EWM then shift(1) — strictly-prior games only",
+        "missing_value_policy": "NaN when the team has no prior games with boxscore data",
         "representation": "raw away level (tree members)",
         "model_family_availability": ["tree"],
         "feature_version": 1,

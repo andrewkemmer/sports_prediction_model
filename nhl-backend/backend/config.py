@@ -207,6 +207,10 @@ MONEYLINE_FEATURE_COLS = [
     "ga_per_game_diff", "shots_for_per_game_diff",
     "shots_against_per_game_diff", "pp_success_diff",
     "faceoff_win_diff", "back_to_back_diff",
+    # puck management, adopted 2026-11-06 (owner directive; turnover trial
+    # arm C: full-population paired t -0.71, market-edge t -1.24 — below
+    # the -2.5 gate, recorded override): committed/forced split
+    "nhl_giveaways_pg_ewm_diff", "nhl_takeaways_pg_ewm_diff",
     # goalie quality (season-to-date rolling SV%/GAA diffs — the NHL analog
     # of MLB's starting-pitcher ERA/K-9 pair; pre-game facts from the
     # season's rolling goalie stats, NaN when a goalie has no prior starts)
@@ -225,6 +229,8 @@ MONEYLINE_FEATURE_COLS = [
     "pp_success_home", "pp_success_away",
     "faceoff_win_home", "faceoff_win_away",
     "back_to_back_home", "back_to_back_away",
+    "nhl_giveaways_pg_ewm_home", "nhl_giveaways_pg_ewm_away",
+    "nhl_takeaways_pg_ewm_home", "nhl_takeaways_pg_ewm_away",
     "goalie_sv_pct_home", "goalie_sv_pct_away",
     "goalie_gaa_home", "goalie_gaa_away",
     "goalie_starts_home", "goalie_starts_away",
