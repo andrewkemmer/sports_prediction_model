@@ -295,6 +295,15 @@ MONEYLINE_FEATURE_COLS = [
     "turnovers_per_game_ewm_diff",
     "rebounds_per_game_ewm_diff",
     "ewm_tov_forced_diff", "ewm_reb_against_diff",
+    # Raw side levels behind two served diffs - ADOPTED 2026-11-06 by owner
+    # directive for structural alignment (every other paired family serves
+    # sides+diff; these two served diffs only). The A/B trial put B at
+    # 0.59199 vs the control's 0.59195, paired t +0.08 over 3473 graded
+    # games - a clean null, so this ships as a directive override with the
+    # re-test standing, exactly as the D-arm adoption did. Tree-only via
+    # RAW_PER_SIDE_COLS; the linear member never sees a raw level.
+    "three_point_pct_ewm_home", "three_point_pct_ewm_away",
+    "rebounds_per_game_ewm_home", "rebounds_per_game_ewm_away",
 ]
 
 #: The trailing statistics the play-by-play rollup contributes, and the window
