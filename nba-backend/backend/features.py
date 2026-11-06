@@ -354,6 +354,18 @@ def team_stats_ladder(events: pd.DataFrame,
     srt["ewm_turnover_margin"] = _ewm(srt, "turnover_margin")
     srt["ewm_rebound_margin"] = _ewm(srt, "rebound_margin")
     srt["ewm_ast_per_game"] = _ewm(srt, "ast_per_game")
+    # Allowed-side form (TRIAL ONLY - the paired-form arms read these; the
+    # served contract does not). Each is the EWM of a real opponent-side
+    # measurement from the same prior games: allowed eFG%/3P%/FT% from the
+    # opponent's shooting line, forced turnovers from the opponent's
+    # giveaways, conceded rebounds from the opponent's boards. Own-side
+    # counterparts already exist (ewm_efg_pct, the nba_* EWM candidates),
+    # so the arms pair them rather than re-deriving them here.
+    srt["ewm_efg_against"] = _ewm(srt, "opp_efg_pct")
+    srt["ewm_three_against"] = _ewm(srt, "opp_three_point_pct")
+    srt["ewm_ft_against"] = _ewm(srt, "opp_free_throw_pct")
+    srt["ewm_tov_forced"] = _ewm(srt, "opp_tov")
+    srt["ewm_reb_against"] = _ewm(srt, "opp_reb")
     for metric, windows in config.TEAM_CANDIDATE_TRAILING_SPECS.items():
         if metric not in srt:
             srt[metric] = np.nan
@@ -478,6 +490,15 @@ def _attach_contract(df: pd.DataFrame, ladder: pd.DataFrame) -> pd.DataFrame:
             new[f"nba_{col}_diff"] = h - a
             new[f"nba_{col}_home"] = h
             new[f"nba_{col}_away"] = a
+    # Paired-form trial family (TRIAL ONLY - attached for the A/B arms, never
+    # in MONEYLINE_FEATURE_COLS until a walk-forward verdict clears the 2.5
+    # gate). The diff serves every member; the raw sides are tree-only via
+    # RAW_PER_SIDE_COLS, matching every other paired level in this contract.
+    for base in ("ewm_efg_against", "ewm_three_against", "ewm_ft_against",
+                 "ewm_tov_forced", "ewm_reb_against"):
+        new[f"{base}_diff"] = _diff(ladder, ids, base)
+        new[f"{base}_home"] = _side(ladder, ids, base, True)
+        new[f"{base}_away"] = _side(ladder, ids, base, False)
     # The play-by-play contribution: every event feature is a home-minus-away
     # difference of the same trailing statistic, which is the form the rest of
     # the contract uses and the form a level feature must not take. The window

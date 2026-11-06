@@ -953,17 +953,38 @@ def team_stats_from_log(log: pd.DataFrame, games: pd.DataFrame) -> pd.DataFrame:
     # A margin is this team's count minus the opponent's count in the SAME
     # game; where the opponent's count is missing the derivation stays NaN
     # rather than wearing a 0.
-    if "tov" in out or "reb" in out:
-        # The opponent's counts, re-keyed back onto the team rows: within one
-        # game, the team named in the opponent column IS the other side, so
-        # grouping by (game, opponent) and reading the result as (game, team)
-        # puts each side's counts in front of its rival.
-        opp = (out.groupby(["nba_game_id", "opponent"], as_index=False)
-                  [[c for c in ("tov", "reb") if c in out]].sum(min_count=1)
+    # Opponent-side counts AND shooting, re-keyed onto each team row: within
+    # one game, the team named in the opponent column IS the other side, so
+    # grouping by (game, opponent) and reading the result as (game, team)
+    # puts each side's counts in front of its rival. This is the same game-
+    # paired lookup the margins below already rely on, extended from
+    # turnovers/rebounds to the shooting counts so allowed-side form
+    # (forced turnovers, conceded rebounds, allowed eFG%/3P%/FT%) reads real
+    # opponent measurements. Where the opponent's count is missing the
+    # derivation stays NaN rather than wearing a 0.
+    _opp_need = ("tov", "reb", "fgm", "fg3m", "fga", "fg3a",
+                 "ftm", "fta")
+    _opp_have = [c for c in _opp_need if c in out]
+    if _opp_have:
+        opp = (out.groupby(["nba_game_id", "opponent"], as_index=False)[_opp_have]
+                  .sum(min_count=1)
                   .rename(columns={"opponent": "team",
-                                   "tov": "opp_tov", "reb": "opp_reb"}))
+                                   **{c: f"opp_{c}" for c in _opp_have}}))
         out = out.merge(opp, on=["nba_game_id", "team"], how="left",
                         validate="many_to_one")
+    if {"opp_fgm", "opp_fg3m", "opp_fga"}.issubset(out.columns):
+        with np.errstate(divide="ignore", invalid="ignore"):
+            out["opp_efg_pct"] = np.where(
+                out.opp_fga > 0,
+                (out.opp_fgm + 0.5 * out.opp_fg3m) / out.opp_fga, np.nan)
+    if {"opp_fg3m", "opp_fg3a"}.issubset(out.columns):
+        with np.errstate(divide="ignore", invalid="ignore"):
+            out["opp_three_point_pct"] = np.where(
+                out.opp_fg3a > 0, out.opp_fg3m / out.opp_fg3a, np.nan)
+    if {"opp_ftm", "opp_fta"}.issubset(out.columns):
+        with np.errstate(divide="ignore", invalid="ignore"):
+            out["opp_free_throw_pct"] = np.where(
+                out.opp_fta > 0, out.opp_ftm / out.opp_fta, np.nan)
     if "turnover_margin" not in out:
         out["turnover_margin"] = (out.tov - out.opp_tov
                                   if {"tov", "opp_tov"}.issubset(out.columns)

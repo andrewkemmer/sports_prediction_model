@@ -655,6 +655,68 @@ _STANDALONE = {
         "units": "binary",
         "direction": "n/a (game-type flag)",
     },
+    # Paired-form allowed-side diffs (contract members since the D-arm
+    # adoption, 2026-11-06; the raw sides stay trial-only, so only the diff
+    # representation is documented here).
+    "ewm_efg_against_diff": {
+        "summary": "Home−away EWM ALLOWED effective shooting",
+        "definition": (
+            "Exponentially weighted effective field-goal percentage each team "
+            "CONCEDES, measured on the actual opponent box score of the same "
+            "prior games. Pairs with ewm_efg_pct_diff (own shooting), so the "
+            "model sees both halves of a shooting matchup."),
+        "formula": "ewm_efg_against_home − ewm_efg_against_away",
+        "source": "Season log opponent team box-score facts (FGM/FGA/FG3M)",
+        "window": "EWM(3 games)",
+        "units": "rate (0–1)",
+        "direction": "higher = home team's defense concedes better shooting",
+    },
+    "ewm_three_against_diff": {
+        "summary": "Home−away EWM allowed three-point percentage",
+        "definition": (
+            "Exponentially weighted three-point percentage each team concedes "
+            "to opponents, strictly prior to the target game."),
+        "formula": "ewm_three_against_home − ewm_three_against_away",
+        "source": "Season log opponent team box-score facts (3PM/3PA)",
+        "window": "EWM(3 games)",
+        "units": "rate (0–1)",
+        "direction": "higher = home defense concedes better 3P shooting",
+    },
+    "ewm_ft_against_diff": {
+        "summary": "Home−away EWM allowed free-throw percentage",
+        "definition": (
+            "Exponentially weighted free-throw percentage each team concedes "
+            "to opponents, strictly prior to the target game."),
+        "formula": "ewm_ft_against_home − ewm_ft_against_away",
+        "source": "Season log opponent team box-score facts (FTM/FTA)",
+        "window": "EWM(3 games)",
+        "units": "rate (0–1)",
+        "direction": "higher = home defense concedes better FT shooting",
+    },
+    "ewm_tov_forced_diff": {
+        "summary": "Home−away EWM turnovers forced",
+        "definition": (
+            "Exponentially weighted turnovers each team FORCES, read from the "
+            "opponent's box score rather than its own. Decomposes "
+            "ewm_turnover_margin_diff into the forced half."),
+        "formula": "ewm_tov_forced_home − ewm_tov_forced_away",
+        "source": "Season log opponent team box-score facts (TOV)",
+        "window": "EWM(3 games)",
+        "units": "turnovers per game",
+        "direction": "higher = home team forces more turnovers",
+    },
+    "ewm_reb_against_diff": {
+        "summary": "Home−away EWM rebounds conceded",
+        "definition": (
+            "Exponentially weighted rebounds each team ALLOWS to opponents, "
+            "read from the opponent's box score. Decomposes "
+            "ewm_rebound_margin_diff into the conceded half."),
+        "formula": "ewm_reb_against_home − ewm_reb_against_away",
+        "source": "Season log opponent team box-score facts (REB)",
+        "window": "EWM(3 games)",
+        "units": "rebounds per game",
+        "direction": "higher = home team concedes more rebounds",
+    },
     "projected_game_pace_total": {
         "summary": "Projected game pace: home x away over trailing league mean",
         "definition": (

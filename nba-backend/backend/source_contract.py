@@ -87,6 +87,15 @@ TEAM_STATS_SCHEMA: dict[str, str] = {
     "efg_pct": "float", "turnover_margin": "float", "rebound_margin": "float",
     "off_rating": "float", "def_rating": "float",
     "pace": "float",
+    # Opponent-side counts from the SAME game, re-keyed onto each team row
+    # (``nba_sources.team_stats_from_log``). They are the raw material for
+    # allowed-side form (forced turnovers, conceded rebounds, allowed
+    # shooting): real opponent measurements, never a league average, and NaN
+    # where the opponent's count is missing. Optional: the margins above are
+    # the required contract, these only decompose them.
+    "opp_tov": "float", "opp_reb": "float",
+    "opp_efg_pct": "float", "opp_three_point_pct": "float",
+    "opp_free_throw_pct": "float",
     # ``ast_per_game`` is deliberately NOT declared. The season log has no
     # per-game assist column, so declaring it made ``normalize`` manufacture
     # an all-NaN source column (2026-10-08 coverage audit: "a naming

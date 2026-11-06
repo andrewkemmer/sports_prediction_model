@@ -279,6 +279,22 @@ MONEYLINE_FEATURE_COLS = [
     # (paired t -2.04 full / -2.40 edge slice, under the 2.5 bar). The diffs
     # serve the linear member; the raw sides are tree-only (RAW_PER_SIDE_COLS).
     *O_PTS_FEATURE_COLS,
+    # Paired-form shooting and possession - ADOPTED 2026-11-06, D arm, by
+    # owner directive. The six-arm paired-form trial put D (B's allowed
+    # shooting + C's possession) at the best binary-moneyline log loss of the
+    # set: 0.59200 vs the control's 0.59231, paired t -0.45 over 3473 graded
+    # games - directionally favorable but well short of the 2.5 bar, so this
+    # ships as a directive override with the re-test standing, exactly as the
+    # O-PTS adoption did. The same arm was NOT favorable in the distribution
+    # and run-engine views (worst-or-tied-worst in 5 of 6 priced lines), which
+    # is why it arrives through the binary market and not as a claim about the
+    # score head. All nine are diffs, so all nine serve the linear member;
+    # the six paired-form SIDES stay trial-only (PAIRED_FORM_FEATURE_COLS).
+    "nba_three_point_pct_ewm_diff", "nba_free_throw_pct_ewm_diff",
+    "ewm_efg_against_diff", "ewm_three_against_diff", "ewm_ft_against_diff",
+    "nba_turnovers_per_game_ewm_diff",
+    "nba_rebounds_per_game_ewm_diff",
+    "ewm_tov_forced_diff", "ewm_reb_against_diff",
 ]
 
 #: The trailing statistics the play-by-play rollup contributes, and the window
@@ -361,6 +377,12 @@ NBA_CANDIDATE_COLS = list(dict.fromkeys(
     for metric, windows in TEAM_CANDIDATE_TRAILING_SPECS.items()
     for window in windows for rep in ("diff", "home", "away")
 ))
+#: The allowed-side stems behind the paired-form trial family. Declared here,
+#: ahead of RAW_PER_SIDE_COLS, so the tree-only side routing can name them;
+#: the full triplet list lives with the other trial families below.
+PAIRED_FORM_STEMS = (
+    "ewm_efg_against", "ewm_three_against", "ewm_ft_against",
+    "ewm_tov_forced", "ewm_reb_against")
 # Schedule-density levels route tree-only (diffs serve every family),
 # mirroring rest_days/back_to_back. Dormant: none of these names is in
 # MONEYLINE_FEATURE_COLS, so the linear view is unchanged until a trial
@@ -392,6 +414,11 @@ RAW_PER_SIDE_COLS = frozenset({
   # paired level in this contract.
   | {f"pl_o_pts_{s}" for s in ("away", "home")}
   | {f"star_out_pts_{s}" for s in ("away", "home")}
+  # The paired-form trial family publishes both sides plus a diff. The diffs
+  # serve every family; the raw sides are tree-only, matching every other
+  # paired level in this contract.
+  | {f"{stem}_{s}" for stem in PAIRED_FORM_STEMS
+     for s in ("away", "home")}
   | {f"pl_fg_pct_{s}" for s in ("away", "home")}
   | {f"pl_o_dpm_{s}" for s in ("away", "home")}
   | {f"pl_d_dpm_{s}" for s in ("away", "home")}
@@ -1302,6 +1329,21 @@ SPLIT_OD_RAPM_FEATURE_COLS = (
 FG_PCT_FEATURE_COLS: list[str] = (
     [f"pl_fg_pct_{side}" for side in ("away", "home", "diff")])
 
+# Paired-form allowed-side family. Five of the fifteen are contract members
+# as of 2026-11-06 (the _diff columns, adopted with the D arm by owner
+# directive - see MONEYLINE_FEATURE_COLS); the six away/home SIDES stay
+# TRIAL ONLY until a walk-forward verdict clears the 2.5 gate, because a raw
+# allowed-shooting level is a team-standing feature and this contract is
+# deliberately matchup-shaped. Allowed eFG%/3P%/FT%, forced turnovers and
+# conceded rebounds: the EWM of real opponent-side measurements from the same
+# prior games.
+# Own-side counterparts already exist (ewm_efg_pct plus the nba_* EWM
+# candidates); the arms below pair them. Column order: per-stem triplets
+# (away, home, diff), matching the O-PTS convention.
+PAIRED_FORM_FEATURE_COLS: list[str] = (
+    [f"{stem}_{side}" for stem in PAIRED_FORM_STEMS
+     for side in ("away", "home", "diff")])
+
 # Schedule-density family (TRIAL ONLY, 2026-10-18 density trial — NOT in
 # MONEYLINE_FEATURE_COLS, so production never serves it until a
 # walk-forward verdict clears the 2.5 gate). Column order: the 3-in-4 and
@@ -1315,7 +1357,7 @@ SCHED_DENSITY_COLS = [
 KNOWN_FEATURE_COLS = list(dict.fromkeys(
     MONEYLINE_FEATURE_COLS + RFE_CANDIDATE_COLS
     + PLAYER_RAPM_POSITION_FEATURE_COLS + STINT_RAPM_FEATURE_COLS
-    + SCHED_DENSITY_COLS + STAR_OUT_FEATURE_COLS
+    + SCHED_DENSITY_COLS + PAIRED_FORM_FEATURE_COLS + STAR_OUT_FEATURE_COLS
     + LINEUP_RAPM_IMPACT_FEATURE_COLS + SPLIT_OD_RAPM_FEATURE_COLS
     + O_PTS_FEATURE_COLS
     + FG_PCT_FEATURE_COLS
