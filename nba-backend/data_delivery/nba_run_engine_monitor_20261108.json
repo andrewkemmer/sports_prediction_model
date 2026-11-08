@@ -5,13 +5,13 @@
  "markets_persist_error": null,
  "winner_cards": {
   "over_under": {
-   "n": 3759,
-   "actual_win_rate": 0.507,
-   "win_rate": 0.507,
+   "n": 3760,
+   "actual_win_rate": 0.5072,
+   "win_rate": 0.5072,
    "predicted_mean": 0.5057,
-   "auc": 0.5091,
-   "ece_raw": 0.0184,
-   "ece_calibrated": 0.0184,
+   "auc": 0.5083,
+   "ece_raw": 0.0175,
+   "ece_calibrated": 0.0175,
    "brier": 0.2499,
    "logloss": 0.693,
    "holdout": {
@@ -19,9 +19,9 @@
     "actual_win_rate": 0.4599,
     "win_rate": 0.4599,
     "predicted_mean": 0.5052,
-    "auc": 0.5387,
-    "ece_raw": 0.1073,
-    "ece_calibrated": 0.1073,
+    "auc": 0.5385,
+    "ece_raw": 0.1079,
+    "ece_calibrated": 0.1079,
     "brier": 0.2503,
     "logloss": 0.6938
    },
@@ -29,13 +29,13 @@
    "crps": 10.3385
   },
   "run_line": {
-   "n": 1825,
-   "actual_win_rate": 0.509,
-   "win_rate": 0.509,
+   "n": 1824,
+   "actual_win_rate": 0.5093,
+   "win_rate": 0.5093,
    "predicted_mean": 0.5076,
    "auc": 0.5154,
-   "ece_raw": 0.021,
-   "ece_calibrated": 0.021,
+   "ece_raw": 0.0226,
+   "ece_calibrated": 0.0226,
    "brier": 0.2497,
    "logloss": 0.6926,
    "holdout": {
@@ -43,7 +43,7 @@
     "actual_win_rate": 0.4265,
     "win_rate": 0.4265,
     "predicted_mean": 0.5071,
-    "auc": 0.4565,
+    "auc": 0.4557,
     "ece_raw": 0.1052,
     "ece_calibrated": 0.1052,
     "brier": 0.2513,
@@ -52,7 +52,7 @@
    },
    "source": "oof_decided_store",
    "auc_n": 3712,
-   "crps": 6.4905
+   "crps": 6.4904
   },
   "derived_ml": {
    "n": 2308,
@@ -68,7 +68,7 @@
     "n": 87,
     "actual_win_rate": 0.6667,
     "win_rate": 0.6667,
-    "predicted_mean": 0.676,
+    "predicted_mean": 0.6761,
     "auc": 0.7618,
     "ece_raw": 0.1406,
     "ece_calibrated": 0.1406,
@@ -78,7 +78,7 @@
    },
    "source": "oof_decided_store",
    "auc_n": 3850,
-   "crps": 6.4905,
+   "crps": 6.4904,
    "ml_reference": {
     "source": "ml_win_prob",
     "n": 3850,
@@ -91,20 +91,20 @@
   {
    "card": "over_under",
    "date": "2026-11-08",
-   "ece_calibrated": 0.0184,
+   "ece_calibrated": 0.0175,
    "brier": 0.2499,
    "logloss": 0.693,
    "predicted_mean": 0.5057,
-   "n": 3759
+   "n": 3760
   },
   {
    "card": "run_line",
    "date": "2026-11-08",
-   "ece_calibrated": 0.021,
+   "ece_calibrated": 0.0226,
    "brier": 0.2497,
    "logloss": 0.6926,
    "predicted_mean": 0.5076,
-   "n": 1825
+   "n": 1824
   },
   {
    "card": "derived_ml",
@@ -121,23 +121,23 @@
   "family": "two_sided_asymmetric_gaussian_split_skew",
   "priced_by": "inverse_calibrated_cdf_monte_carlo",
   "variance": {
-   "home_variance": 1.1840447813988304,
-   "away_variance": 1.2123060314988348,
-   "correlation": 0.250927300908855,
-   "total_skew": 0.030889212677940685,
-   "margin_skew": -0.0030604715424374066,
+   "home_variance": 1.184045318687538,
+   "away_variance": 1.212305235806873,
+   "correlation": 0.25092796208573637,
+   "total_skew": 0.03088931319220248,
+   "margin_skew": -0.0030605409773224947,
    "total_parity_alpha": 0.0,
    "total_tilt": {
-    "slope": 26.709250655917323,
-    "intercept": 0.06941661875650194,
-    "pace_mean": 0.03668092800211035,
+    "slope": 26.709232529874768,
+    "intercept": 0.069417499521825,
+    "pace_mean": 0.036680923998631605,
     "cap": 6.0
    },
    "margin_stretch": {
-    "intercept": -0.391001182074008,
-    "slope": 0.13393696820969236,
-    "quad": 0.004912432465715956,
-    "margin_mean": 2.303161254769091,
+    "intercept": -0.391013216132225,
+    "slope": 0.13393527055241697,
+    "quad": 0.004911925883321497,
+    "margin_mean": 2.303173144626163,
     "cap": 5.0
    }
   },
@@ -149,8 +149,8 @@
     "n_test": 1155,
     "significant": false,
     "basis": "localized_per_bin_shrinkage",
-    "residual_mae_before": 0.0001917242391727751,
-    "residual_mae_after": 0.00015786121565500018,
+    "residual_mae_before": 0.00019172418018665707,
+    "residual_mae_after": 0.0001578611388606066,
     "delta_l1": 0.030116999999999998,
     "delta_max": 0.001372,
     "collateral_max_excess": 0.0,
@@ -289,7 +289,7 @@
      "template": "equal_per_active_recipient",
      "funded_by_donors": 0.013513,
      "funded_by_sink": 0.0,
-     "zero_sum_free": -0.0,
+     "zero_sum_free": 0.0,
      "collateral_max_excess": 0.0,
      "z": 1.192,
      "n_test": 1155,
@@ -301,8 +301,8 @@
     "n_test": 1155,
     "significant": false,
     "basis": "localized_per_bin_shrinkage+relief",
-    "residual_mae_before": 9.969394117796309e-05,
-    "residual_mae_after": 6.463182587469324e-05,
+    "residual_mae_before": 9.969398168503931e-05,
+    "residual_mae_after": 6.463182527590877e-05,
     "delta_l1": 0.093332,
     "delta_max": 0.009509,
     "collateral_max_excess": 0.000187,
