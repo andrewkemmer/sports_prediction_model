@@ -1,45 +1,45 @@
 {
  "status": "ok",
  "errors": [],
- "run_date": "2026-11-07",
+ "run_date": "2026-11-08",
  "artifacts": [
-  "nba_moneyline_v1_20261107.json",
-  "nba_player_leader_matchup_20261107.json",
-  "nba_calibration_20261107.json",
-  "nba_predictions_history_20261107.csv",
-  "nba_run_engine_markets_20261107.csv",
-  "nba_run_engine_markets_20261107.meta.json",
-  "nba_power_rankings_20261107.csv",
-  "nba_player_rapm_20261107.csv",
-  "nba_feature_v1_20261107.json",
-  "shap_game__DEN@IND.csv",
-  "shap_game__BKN@ATL.csv",
-  "shap_game__NYK@CLE.csv",
-  "shap_game__WAS@OKC.csv",
-  "shap_game__ORL@GSW.csv",
-  "shap_game__HOU@PHX.csv",
-  "shap_game__SAS@POR.csv",
-  "nba_feature_selection_20261107.json",
-  "nba_run_engine_feature_drift_20261107.csv",
-  "nba_run_engine_feature_coverage_20261107.csv",
+  "nba_moneyline_v1_20261108.json",
+  "nba_player_leader_matchup_20261108.json",
+  "nba_calibration_20261108.json",
+  "nba_predictions_history_20261108.csv",
+  "nba_run_engine_markets_20261108.csv",
+  "nba_run_engine_markets_20261108.meta.json",
+  "nba_power_rankings_20261108.csv",
+  "nba_player_rapm_20261108.csv",
+  "nba_feature_v1_20261108.json",
+  "shap_game__PHI@CHI.csv",
+  "shap_game__LAL@DET.csv",
+  "shap_game__UTA@MIN.csv",
+  "shap_game__BKN@DAL.csv",
+  "shap_game__BOS@MIL.csv",
+  "shap_game__NOP@LAC.csv",
+  "shap_game__MIA@SAC.csv",
+  "nba_feature_selection_20261108.json",
+  "nba_run_engine_feature_drift_20261108.csv",
+  "nba_run_engine_feature_coverage_20261108.csv",
   "models/nba_ensemble_latest.joblib",
-  "nba_model_monitor_20261107.json",
-  "nba_run_engine_monitor_20261107.json",
+  "nba_model_monitor_20261108.json",
+  "nba_run_engine_monitor_20261108.json",
   "nba_production_cards_history.csv",
   "nba_roster_history.parquet"
  ],
  "score_means_stability": {
   "status": "ok",
-  "prior_file": "nba_run_engine_markets_20261106.csv",
-  "n_common": 3834,
-  "mean_abs_dmu_home": 0.0355,
-  "mean_abs_dmu_away": 0.0361,
-  "derived_auc_new": 0.7386,
-  "derived_logloss_new": 0.59787,
-  "derived_auc_prior": 0.7385,
-  "derived_logloss_prior": 0.59798,
-  "derived_auc_delta_bps": 1.0,
-  "derived_logloss_delta_bps": -1.1
+  "prior_file": "nba_run_engine_markets_20261107.csv",
+  "n_common": 3843,
+  "mean_abs_dmu_home": 0.0001,
+  "mean_abs_dmu_away": 0.0001,
+  "derived_auc_new": 0.7393,
+  "derived_logloss_new": 0.59747,
+  "derived_auc_prior": 0.7393,
+  "derived_logloss_prior": 0.59747,
+  "derived_auc_delta_bps": 0.0,
+  "derived_logloss_delta_bps": 0.0
  },
  "weights": {
   "elasticnet": 1.0,
@@ -47,18 +47,18 @@
   "xgboost": 0.0
  },
  "folds": {
-  "n_folds": 87,
-  "partial_tail_folds": 0,
+  "n_folds": 88,
+  "partial_tail_folds": 1,
   "first_val_start": "2023-11-25",
-  "last_val_end": "2026-11-06",
+  "last_val_end": "2026-11-07",
   "min_train": 230,
-  "max_train": 4012,
-  "total_val_games": 3843,
-  "n_candidates": 87,
+  "max_train": 4073,
+  "total_val_games": 3850,
+  "n_candidates": 88,
   "dropped_windows": 0,
   "dropped_games": 0,
-  "provisional_windows": 21,
-  "provisional_games": 331,
+  "provisional_windows": 22,
+  "provisional_games": 338,
   "postseason_windows": 21,
   "min_val_fold_games": 40,
   "oof_regular": {
@@ -78,19 +78,19 @@
    "sufficient": true
   },
   "oof_provisional": {
-   "n": 331,
-   "auc": 0.6788856304985337,
-   "logloss": 0.6431948035126698,
-   "brier": 0.22448846918503065,
-   "ece": 0.058794880602762695,
+   "n": 338,
+   "auc": 0.6842123769338959,
+   "logloss": 0.6396453391057928,
+   "brier": 0.22289053776428788,
+   "ece": 0.05985092779854284,
    "sufficient": true
   },
   "oof_all": {
-   "n": 3843,
-   "auc": 0.7408792037647367,
-   "logloss": 0.5948953465939811,
-   "brier": 0.2044973294796467,
-   "ece": 0.02109331467689813,
+   "n": 3850,
+   "auc": 0.7412000704696879,
+   "logloss": 0.5946715484716192,
+   "brier": 0.2043933910790562,
+   "ece": 0.021339033221599836,
    "sufficient": true
   },
   "calibration_gate": {
@@ -790,6 +790,14 @@
      "raw_logloss": 0.5709394431583105,
      "nested_holdout_logloss": 0.5693410710874383,
      "fold_id": 86
+    },
+    {
+     "n_prior": 3485,
+     "decision": "identity",
+     "reason": "gated_no_gain",
+     "raw_logloss": 0.5598381459542557,
+     "nested_holdout_logloss": 0.5580359093079396,
+     "fold_id": 87
     }
    ],
    "final_serving": {
@@ -808,7 +816,7 @@
    "ece": 0.018193250473682327
   }
  },
- "n_settled": 4073,
+ "n_settled": 4080,
  "n_slate": 7,
  "n_features": 98,
  "features_empty": {
@@ -816,49 +824,49 @@
   "slate": []
  },
  "play_by_play": {
-  "actions": 2020149,
-  "event_rows": 8146,
-  "games_covered": 4073,
+  "actions": 2023770,
+  "event_rows": 8160,
+  "games_covered": 4080,
   "cross_check": {
    "fga": {
-    "compared": 8146,
-    "exact": 8146,
+    "compared": 8160,
+    "exact": 8160,
     "max_abs_diff": 0.0,
     "mean_abs_diff": 0.0
    },
    "fgm": {
-    "compared": 8146,
-    "exact": 8146,
+    "compared": 8160,
+    "exact": 8160,
     "max_abs_diff": 0.0,
     "mean_abs_diff": 0.0
    },
    "fg3a": {
-    "compared": 8146,
-    "exact": 8146,
+    "compared": 8160,
+    "exact": 8160,
     "max_abs_diff": 0.0,
     "mean_abs_diff": 0.0
    },
    "fg3m": {
-    "compared": 8146,
-    "exact": 8146,
+    "compared": 8160,
+    "exact": 8160,
     "max_abs_diff": 0.0,
     "mean_abs_diff": 0.0
    },
    "fta": {
-    "compared": 8146,
-    "exact": 8146,
+    "compared": 8160,
+    "exact": 8160,
     "max_abs_diff": 0.0,
     "mean_abs_diff": 0.0
    },
    "ftm": {
-    "compared": 8146,
-    "exact": 8146,
+    "compared": 8160,
+    "exact": 8160,
     "max_abs_diff": 0.0,
     "mean_abs_diff": 0.0
    },
    "oreb": {
-    "compared": 8146,
-    "exact": 7954,
+    "compared": 8160,
+    "exact": 7968,
     "max_abs_diff": 5.0,
     "mean_abs_diff": 0.0288,
     "worst_offenders": [
@@ -880,10 +888,10 @@
     ]
    },
    "dreb": {
-    "compared": 8146,
-    "exact": 7597,
+    "compared": 8160,
+    "exact": 7610,
     "max_abs_diff": 10.0,
-    "mean_abs_diff": 0.1775,
+    "mean_abs_diff": 0.1776,
     "worst_offenders": [
      {
       "game_id": "401705111",
@@ -903,16 +911,16 @@
     ]
    },
    "tov": {
-    "compared": 8146,
-    "exact": 8146,
+    "compared": 8160,
+    "exact": 8160,
     "max_abs_diff": 0.0,
     "mean_abs_diff": 0.0
    },
    "pf": {
-    "compared": 8146,
-    "exact": 7507,
+    "compared": 8160,
+    "exact": 7521,
     "max_abs_diff": 3.0,
-    "mean_abs_diff": 0.0821,
+    "mean_abs_diff": 0.082,
     "worst_offenders": [
      {
       "game_id": "401810968",
@@ -925,17 +933,17 @@
       "abs_diff": 3.0
      },
      {
-      "game_id": "401584854",
-      "team": "ORL",
+      "game_id": "401585011",
+      "team": "BKN",
       "abs_diff": 2.0
      }
     ]
    },
    "assists": {
-    "compared": 8146,
-    "exact": 7789,
+    "compared": 8160,
+    "exact": 7803,
     "max_abs_diff": 22.0,
-    "mean_abs_diff": 0.1789,
+    "mean_abs_diff": 0.1786,
     "worst_offenders": [
      {
       "game_id": "401705475",
@@ -955,14 +963,14 @@
     ]
    },
    "points": {
-    "compared": 8146,
-    "exact": 8146,
+    "compared": 8160,
+    "exact": 8160,
     "max_abs_diff": 0.0,
     "mean_abs_diff": 0.0
    }
   }
  },
- "elapsed_seconds": 5168.96,
+ "elapsed_seconds": 5841.87,
  "source_manifest": {
   "source_id": "espn schedule + stats.nba.com LeagueGameLog + playbyplayv3",
   "source_route": "espn schedule + stats.nba.com LeagueGameLog + playbyplayv3",
@@ -975,7 +983,7 @@
   },
   "window": [
    "2023-10-24",
-   "2026-11-07"
+   "2026-11-08"
   ],
   "seasons": [
    "2023-24",
@@ -984,56 +992,56 @@
    "2026-27"
   ],
   "tables": {
-   "games": 4094,
-   "team_stats": 8146,
-   "player_stats": 87749,
-   "team_events": 8146,
-   "play_by_play": 2020149
+   "games": 4101,
+   "team_stats": 8160,
+   "player_stats": 87901,
+   "team_events": 8160,
+   "play_by_play": 2023770
   },
   "event_rollup": {
-   "sweep_team_games": 8146,
+   "sweep_team_games": 8160,
    "archive_team_games": []
   },
   "play_by_play": {
    "fga": {
-    "compared": 8146,
-    "exact": 8146,
+    "compared": 8160,
+    "exact": 8160,
     "max_abs_diff": 0.0,
     "mean_abs_diff": 0.0
    },
    "fgm": {
-    "compared": 8146,
-    "exact": 8146,
+    "compared": 8160,
+    "exact": 8160,
     "max_abs_diff": 0.0,
     "mean_abs_diff": 0.0
    },
    "fg3a": {
-    "compared": 8146,
-    "exact": 8146,
+    "compared": 8160,
+    "exact": 8160,
     "max_abs_diff": 0.0,
     "mean_abs_diff": 0.0
    },
    "fg3m": {
-    "compared": 8146,
-    "exact": 8146,
+    "compared": 8160,
+    "exact": 8160,
     "max_abs_diff": 0.0,
     "mean_abs_diff": 0.0
    },
    "fta": {
-    "compared": 8146,
-    "exact": 8146,
+    "compared": 8160,
+    "exact": 8160,
     "max_abs_diff": 0.0,
     "mean_abs_diff": 0.0
    },
    "ftm": {
-    "compared": 8146,
-    "exact": 8146,
+    "compared": 8160,
+    "exact": 8160,
     "max_abs_diff": 0.0,
     "mean_abs_diff": 0.0
    },
    "oreb": {
-    "compared": 8146,
-    "exact": 7954,
+    "compared": 8160,
+    "exact": 7968,
     "max_abs_diff": 5.0,
     "mean_abs_diff": 0.0288,
     "worst_offenders": [
@@ -1055,10 +1063,10 @@
     ]
    },
    "dreb": {
-    "compared": 8146,
-    "exact": 7597,
+    "compared": 8160,
+    "exact": 7610,
     "max_abs_diff": 10.0,
-    "mean_abs_diff": 0.1775,
+    "mean_abs_diff": 0.1776,
     "worst_offenders": [
      {
       "game_id": "401705111",
@@ -1078,16 +1086,16 @@
     ]
    },
    "tov": {
-    "compared": 8146,
-    "exact": 8146,
+    "compared": 8160,
+    "exact": 8160,
     "max_abs_diff": 0.0,
     "mean_abs_diff": 0.0
    },
    "pf": {
-    "compared": 8146,
-    "exact": 7507,
+    "compared": 8160,
+    "exact": 7521,
     "max_abs_diff": 3.0,
-    "mean_abs_diff": 0.0821,
+    "mean_abs_diff": 0.082,
     "worst_offenders": [
      {
       "game_id": "401810968",
@@ -1100,17 +1108,17 @@
       "abs_diff": 3.0
      },
      {
-      "game_id": "401584854",
-      "team": "ORL",
+      "game_id": "401585011",
+      "team": "BKN",
       "abs_diff": 2.0
      }
     ]
    },
    "assists": {
-    "compared": 8146,
-    "exact": 7789,
+    "compared": 8160,
+    "exact": 7803,
     "max_abs_diff": 22.0,
-    "mean_abs_diff": 0.1789,
+    "mean_abs_diff": 0.1786,
     "worst_offenders": [
      {
       "game_id": "401705475",
@@ -1130,8 +1138,8 @@
     ]
    },
    "points": {
-    "compared": 8146,
-    "exact": 8146,
+    "compared": 8160,
+    "exact": 8160,
     "max_abs_diff": 0.0,
     "mean_abs_diff": 0.0
    }
