@@ -98,6 +98,7 @@ PBP_BUDGET_ENV = "NBA_PBP_BUDGET_SEC"
 SCHEDULE_BUDGET_ENV = "NBA_SCHEDULE_BUDGET_SEC"
 REQUEST_TIMEOUT_ENV = "NBA_REQUEST_TIMEOUT_SEC"
 REQUEST_ATTEMPTS_ENV = "NBA_REQUEST_ATTEMPTS"
+SCHEDULE_ATTEMPTS_ENV = "NBA_SCHEDULE_ATTEMPTS"
 PBP_PAUSE_SEC_ENV = "NBA_PBP_PAUSE_SEC"
 SCHEDULE_PAUSE_SEC_ENV = "NBA_SCHEDULE_PAUSE_SEC"
 SEASON_LOG_PAUSE_SEC_ENV = "NBA_SEASON_LOG_PAUSE_SEC"
@@ -118,6 +119,17 @@ DEFAULT_ATTEMPTS = 3
 #: transient brownout that 3 attempts (~4.7 min) turned into a dead run on
 #: 2026-09-29. Still bounded: a genuinely dead endpoint costs ~15 min, once.
 SEASON_LOG_ATTEMPTS = 9
+#: Schedule-sweep patience per day. The sweep calls ESPN once per day with a
+#: short 25s timeout, and until now it allowed exactly 2 attempts - about 4s
+#: of brownout tolerance per day. The 2026-11-09 Kaggle run died to a
+#: transient ~30s burst of HTTP 502s: three offseason days in a row burned
+#: their two tries inside the burst, and the 3-day breaker (which is there
+#: for a *refusing* host) ended the run. 5 attempts x 25s with the 8s-capped
+#: backoff is a ~2.5 minute ceiling per day, which rides out a short
+#: brownout that 2 attempts turned into a dead run. Still bounded: a refusal
+#: (4xx) is never retried, so a genuinely refusing host still trips the
+#: breaker after 3 days, and a dead host costs ~2.5 min per day, 3 days max.
+DEFAULT_SCHEDULE_ATTEMPTS = 5
 #: Seconds between play-by-play request STARTS, counted across EVERY worker
 #: at once - a turnstile the whole sweep passes through, not a per-thread
 #: sleep. The old per-thread pause let N workers multiply the host-side rate
@@ -1558,7 +1570,9 @@ def _fetch_schedule(start: date, end: date,
         pace.wait()
         try:
             payload = http_json(sources.espn_scoreboard_url(day), ESPN_HEADERS,
-                                timeout=25.0, attempts=2)
+                                timeout=25.0, attempts=_int_env(
+                                    SCHEDULE_ATTEMPTS_ENV,
+                                    DEFAULT_SCHEDULE_ATTEMPTS))
             day_frame = sources.espn_schedule_frame(payload.get("events", []))
             answered = _answered_a_different_day(day_frame, day)
             if answered is not None:
