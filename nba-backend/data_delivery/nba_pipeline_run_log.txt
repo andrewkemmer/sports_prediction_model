@@ -3,136 +3,309 @@
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
   PHASE 1-3  NBA data acquisition - ESPN schedule, stats.nba.com features, play-by-play
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-2026-11-09 17:53:45,696 INFO NBA window 2023-10-24..2026-11-09 (download allowed)
-2026-11-09 17:53:45,697 INFO NBA_FULL_REPULL is set; every schedule day is refetched
-2026-11-09 17:53:45,697 INFO schedule: 1113 day(s) from 2023-10-24 to 2026-11-09, one request per day (ESPN's scoreboard has no date range); 4 worker(s), at most one request start every 0.10s
-2026-11-09 17:53:45,781 INFO preflight: ESPN's scoreboard (site.api.espn.com) answered in 0.08s
-2026-11-09 17:53:46,265 INFO   Chunk: 2023-10-24 -> 2023-12-22
-2026-11-09 17:53:52,847 INFO     -> 418 game(s) over 60 day(s) (60 fetched, 0 from cache)
-schedule: 100%|##########| 60/60 [00:06<00:00,  9.12day/s]
-2026-11-09 17:53:52,848 INFO   Chunk: 2023-12-23 -> 2024-02-20
-2026-11-09 17:53:58,483 WARNING dropping 401623259 on 2024-02-18 00:00:00 (EAST vs WEST): a side is not one of the 30 franchises, and the season log has no player lines for it, so it is not a game this model can score
-2026-11-09 17:53:58,713 INFO     -> 405 game(s) over 60 day(s) (60 fetched, 0 from cache)
-schedule: 100%|##########| 60/60 [00:05<00:00, 10.23day/s]
-2026-11-09 17:53:58,714 INFO   Chunk: 2024-02-21 -> 2024-04-20
-2026-11-09 17:54:04,729 INFO     -> 414 game(s) over 60 day(s) (60 fetched, 0 from cache)
-schedule: 100%|##########| 60/60 [00:06<00:00,  9.98day/s]
-2026-11-09 17:54:04,730 INFO   Chunk: 2024-04-21 -> 2024-06-19
-2026-11-09 17:54:10,923 INFO     -> 78 game(s) over 60 day(s) (60 fetched, 0 from cache)
-schedule: 100%|##########| 60/60 [00:06<00:00,  9.69day/s]
-2026-11-09 17:54:10,924 INFO   Chunk: 2024-06-20 -> 2024-08-18
-2026-11-09 17:54:12,017 INFO   https://site.api.espn.com/apis/site/v2/sports/basketball/nba/scoreboard failed (HTTPError: HTTP Error 502: Bad Gateway); retry 1/2 in 2s
-2026-11-09 17:54:14,130 WARNING ESPN scoreboard unavailable for 2024-07-03 (1 in a row): HostUnavailable: https://site.api.espn.com/apis/site/v2/sports/basketball/nba/scoreboard did not answer after 2 attempt(s): HTTPError: HTTP Error 502: Bad Gateway
-2026-11-09 17:54:14,245 INFO   https://site.api.espn.com/apis/site/v2/sports/basketball/nba/scoreboard failed (HTTPError: HTTP Error 502: Bad Gateway); retry 1/2 in 2s
-2026-11-09 17:54:18,201 INFO   https://site.api.espn.com/apis/site/v2/sports/basketball/nba/scoreboard failed (HTTPError: HTTP Error 502: Bad Gateway); retry 1/2 in 2s
-2026-11-09 17:54:18,341 INFO   https://site.api.espn.com/apis/site/v2/sports/basketball/nba/scoreboard failed (HTTPError: HTTP Error 502: Bad Gateway); retry 1/2 in 2s
-2026-11-09 17:54:20,261 WARNING ESPN scoreboard unavailable for 2024-07-05 (1 in a row): HostUnavailable: https://site.api.espn.com/apis/site/v2/sports/basketball/nba/scoreboard did not answer after 2 attempt(s): HTTPError: HTTP Error 502: Bad Gateway
-2026-11-09 17:54:20,261 WARNING ESPN scoreboard unavailable for 2024-07-06 (2 in a row): HostUnavailable: https://site.api.espn.com/apis/site/v2/sports/basketball/nba/scoreboard did not answer after 2 attempt(s): HTTPError: HTTP Error 502: Bad Gateway
-2026-11-09 17:54:20,410 WARNING ESPN scoreboard unavailable for 2024-07-07 (3 in a row): HostUnavailable: https://site.api.espn.com/apis/site/v2/sports/basketball/nba/scoreboard did not answer after 2 attempt(s): HTTPError: HTTP Error 502: Bad Gateway
-2026-11-09 17:54:24,334 INFO   https://site.api.espn.com/apis/site/v2/sports/basketball/nba/scoreboard failed (HTTPError: HTTP Error 502: Bad Gateway); retry 1/2 in 2s
-2026-11-09 17:54:26,414 INFO     -> 0 game(s) over 60 day(s) (14 fetched, 0 from cache)
-schedule:  30%|###       | 18/60 [00:15<00:36,  1.16day/s]
-Traceback (most recent call last):
-  File "/kaggle/working/sports_prediction_model/nba-backend/backend/ingestion.py", line 648, in http_json
-    with urllib.request.urlopen(request, timeout=timeout) as response:
-         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-  File "/usr/lib/python3.12/urllib/request.py", line 215, in urlopen
-    return opener.open(url, data, timeout)
-           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-  File "/usr/lib/python3.12/urllib/request.py", line 521, in open
-    response = meth(req, response)
-               ^^^^^^^^^^^^^^^^^^^
-  File "/usr/lib/python3.12/urllib/request.py", line 630, in http_response
-    response = self.parent.error(
-               ^^^^^^^^^^^^^^^^^^
-  File "/usr/lib/python3.12/urllib/request.py", line 559, in error
-    return self._call_chain(*args)
-           ^^^^^^^^^^^^^^^^^^^^^^^
-  File "/usr/lib/python3.12/urllib/request.py", line 492, in _call_chain
-    result = func(*args)
-             ^^^^^^^^^^^
-  File "/usr/lib/python3.12/urllib/request.py", line 639, in http_error_default
-    raise HTTPError(req.full_url, code, msg, hdrs, fp)
-urllib.error.HTTPError: HTTP Error 502: Bad Gateway
+2026-11-09 22:18:19,416 INFO NBA window 2023-10-24..2026-11-09 (download allowed)
+2026-11-09 22:18:19,417 INFO NBA_FULL_REPULL is set; every schedule day is refetched
+2026-11-09 22:18:19,417 INFO schedule: 1113 day(s) from 2023-10-24 to 2026-11-09, one request per day (ESPN's scoreboard has no date range); 4 worker(s), at most one request start every 0.10s
+2026-11-09 22:18:19,525 INFO preflight: ESPN's scoreboard (site.api.espn.com) answered in 0.11s
+2026-11-09 22:18:20,011 INFO   Chunk: 2023-10-24 -> 2023-12-22
+2026-11-09 22:18:29,262 INFO     -> 418 game(s) over 60 day(s) (60 fetched, 0 from cache)
+schedule: 100%|##########| 60/60 [00:09<00:00,  6.49day/s]
+2026-11-09 22:18:29,263 INFO   Chunk: 2023-12-23 -> 2024-02-20
+2026-11-09 22:18:34,965 WARNING dropping 401623259 on 2024-02-18 00:00:00 (EAST vs WEST): a side is not one of the 30 franchises, and the season log has no player lines for it, so it is not a game this model can score
+2026-11-09 22:18:35,262 INFO     -> 405 game(s) over 60 day(s) (60 fetched, 0 from cache)
+schedule: 100%|##########| 60/60 [00:05<00:00, 10.00day/s]
+2026-11-09 22:18:35,262 INFO   Chunk: 2024-02-21 -> 2024-04-20
+2026-11-09 22:18:41,321 INFO     -> 414 game(s) over 60 day(s) (60 fetched, 0 from cache)
+schedule: 100%|##########| 60/60 [00:06<00:00,  9.90day/s]
+2026-11-09 22:18:41,322 INFO   Chunk: 2024-04-21 -> 2024-06-19
+2026-11-09 22:18:50,494 INFO     -> 78 game(s) over 60 day(s) (60 fetched, 0 from cache)
+schedule: 100%|##########| 60/60 [00:09<00:00,  6.54day/s]
+2026-11-09 22:18:50,495 INFO   Chunk: 2024-06-20 -> 2024-08-18
+2026-11-09 22:18:56,502 INFO     -> 0 game(s) over 60 day(s) (60 fetched, 0 from cache)
+schedule: 100%|##########| 60/60 [00:06<00:00,  9.99day/s]
+2026-11-09 22:18:56,503 INFO   Chunk: 2024-08-19 -> 2024-10-17
+2026-11-09 22:19:02,481 INFO     -> 0 game(s) over 60 day(s) (60 fetched, 0 from cache)
+schedule: 100%|##########| 60/60 [00:05<00:00, 10.04day/s]
+2026-11-09 22:19:02,482 INFO   Chunk: 2024-10-18 -> 2024-12-16
+2026-11-09 22:19:08,474 INFO     -> 389 game(s) over 60 day(s) (60 fetched, 0 from cache)
+schedule: 100%|##########| 60/60 [00:05<00:00, 10.01day/s]
+2026-11-09 22:19:08,475 INFO   Chunk: 2024-12-17 -> 2025-02-14
+2026-11-09 22:19:14,474 INFO     -> 431 game(s) over 60 day(s) (60 fetched, 0 from cache)
+schedule: 100%|##########| 60/60 [00:05<00:00, 10.00day/s]
+2026-11-09 22:19:14,475 INFO   Chunk: 2025-02-15 -> 2025-04-15
+2026-11-09 22:19:14,557 WARNING dropping 401752955 on 2025-02-16 00:00:00 (CHK vs KEN): a side is not one of the 30 franchises, and the season log has no player lines for it, so it is not a game this model can score
+2026-11-09 22:19:14,558 WARNING dropping 401752956 on 2025-02-16 00:00:00 (SHQ vs CAN): a side is not one of the 30 franchises, and the season log has no player lines for it, so it is not a game this model can score
+2026-11-09 22:19:14,560 WARNING dropping 401752957 on 2025-02-16 00:00:00 (CHK vs SHQ): a side is not one of the 30 franchises, and the season log has no player lines for it, so it is not a game this model can score
+2026-11-09 22:19:20,453 INFO     -> 416 game(s) over 60 day(s) (60 fetched, 0 from cache)
+schedule: 100%|##########| 60/60 [00:05<00:00, 10.04day/s]
+2026-11-09 22:19:20,453 INFO   Chunk: 2025-04-16 -> 2025-06-14
+2026-11-09 22:19:26,470 INFO     -> 81 game(s) over 60 day(s) (60 fetched, 0 from cache)
+schedule: 100%|##########| 60/60 [00:06<00:00,  9.97day/s]
+2026-11-09 22:19:26,470 INFO   Chunk: 2025-06-15 -> 2025-08-13
+2026-11-09 22:19:32,503 INFO     -> 3 game(s) over 60 day(s) (60 fetched, 0 from cache)
+schedule: 100%|##########| 60/60 [00:06<00:00,  9.95day/s]
+2026-11-09 22:19:32,504 INFO   Chunk: 2025-08-14 -> 2025-10-12
+2026-11-09 22:19:38,470 INFO     -> 0 game(s) over 60 day(s) (60 fetched, 0 from cache)
+schedule: 100%|##########| 60/60 [00:05<00:00, 10.06day/s]
+2026-11-09 22:19:38,470 INFO   Chunk: 2025-10-13 -> 2025-12-11
+2026-11-09 22:19:44,505 INFO     -> 365 game(s) over 60 day(s) (60 fetched, 0 from cache)
+schedule: 100%|##########| 60/60 [00:06<00:00,  9.94day/s]
+2026-11-09 22:19:44,506 INFO   Chunk: 2025-12-12 -> 2026-02-09
+2026-11-09 22:19:50,488 INFO     -> 438 game(s) over 60 day(s) (60 fetched, 0 from cache)
+schedule: 100%|##########| 60/60 [00:05<00:00, 10.03day/s]
+2026-11-09 22:19:50,489 INFO   Chunk: 2026-02-10 -> 2026-04-10
+2026-11-09 22:19:50,961 WARNING dropping 401838140 on 2026-02-15 00:00:00 (STARS vs WORLD): a side is not one of the 30 franchises, and the season log has no player lines for it, so it is not a game this model can score
+2026-11-09 22:19:50,962 WARNING dropping 401838141 on 2026-02-15 00:00:00 (STRIPES vs STARS): a side is not one of the 30 franchises, and the season log has no player lines for it, so it is not a game this model can score
+2026-11-09 22:19:50,964 WARNING dropping 401838142 on 2026-02-15 00:00:00 (STRIPES vs WORLD): a side is not one of the 30 franchises, and the season log has no player lines for it, so it is not a game this model can score
+2026-11-09 22:19:50,966 WARNING dropping 401838143 on 2026-02-15 00:00:00 (STRIPES vs STARS): a side is not one of the 30 franchises, and the season log has no player lines for it, so it is not a game this model can score
+2026-11-09 22:19:56,767 INFO     -> 417 game(s) over 60 day(s) (60 fetched, 0 from cache)
+schedule: 100%|##########| 60/60 [00:06<00:00,  9.56day/s]
+2026-11-09 22:19:56,768 INFO   Chunk: 2026-04-11 -> 2026-06-09
+2026-11-09 22:20:02,465 INFO     -> 98 game(s) over 60 day(s) (60 fetched, 0 from cache)
+schedule: 100%|##########| 60/60 [00:05<00:00, 10.53day/s]
+2026-11-09 22:20:02,465 INFO   Chunk: 2026-06-10 -> 2026-08-08
+2026-11-09 22:20:08,555 INFO     -> 2 game(s) over 60 day(s) (60 fetched, 0 from cache)
+schedule: 100%|##########| 60/60 [00:06<00:00,  9.85day/s]
+2026-11-09 22:20:08,556 INFO   Chunk: 2026-08-09 -> 2026-10-07
+2026-11-09 22:20:14,612 INFO     -> 0 game(s) over 60 day(s) (60 fetched, 0 from cache)
+schedule: 100%|##########| 60/60 [00:06<00:00,  9.91day/s]
+2026-11-09 22:20:14,613 INFO   Chunk: 2026-10-08 -> 2026-11-09
+2026-11-09 22:20:17,770 INFO     -> 154 game(s) over 33 day(s) (33 fetched, 0 from cache)
+schedule: 100%|##########| 33/33 [00:03<00:00, 10.45day/s]
+2026-11-09 22:20:17,839 INFO schedule: 4109 games over 1113 days (1113 fetched, 0 from cache); 9.40 day/s against a 10.00/s gate (94% of ceiling)
+2026-11-09 22:20:17,859 INFO season log: 36 request(s) of up to 60 day(s) over 2023-10-24..2026-11-09 (NBA_SLICE_DAYS overrides the width); 4 worker(s)
+2026-11-09 22:20:18,464 INFO preflight: stats.nba.com answered in 0.60s
+2026-11-09 22:20:21,695 INFO   Chunk: 2023-10-24 -> 2023-12-22  2023-24 Regular Season
+2026-11-09 22:20:21,696 INFO 2023-24 Regular Season 2023-10-24..2023-12-22: 8975 player rows
+2026-11-09 22:20:21,697 INFO   Chunk: 2023-10-24 -> 2023-12-22  2023-24 Playoffs
+2026-11-09 22:20:21,699 INFO 2023-24 Playoffs 2023-10-24..2023-12-22: no rows (no games in this window)
+2026-11-09 22:20:21,699 INFO   Chunk: 2023-12-23 -> 2024-02-20  2023-24 Regular Season
+2026-11-09 22:20:21,700 INFO 2023-24 Regular Season 2023-12-23..2024-02-20: 8662 player rows
+2026-11-09 22:20:21,701 INFO   Chunk: 2023-12-23 -> 2024-02-20  2023-24 Playoffs
+2026-11-09 22:20:21,703 INFO 2023-24 Playoffs 2023-12-23..2024-02-20: no rows (no games in this window)
+2026-11-09 22:20:23,648 INFO   Chunk: 2024-02-21 -> 2024-04-20  2023-24 Regular Season
+2026-11-09 22:20:23,649 INFO 2023-24 Regular Season 2024-02-21..2024-04-20: 8764 player rows
+2026-11-09 22:20:23,650 INFO   Chunk: 2024-02-21 -> 2024-04-20  2023-24 Playoffs
+2026-11-09 22:20:23,650 INFO 2023-24 Playoffs 2024-02-21..2024-04-20: 81 player rows
+2026-11-09 22:20:23,650 INFO   Chunk: 2024-04-21 -> 2024-06-19  2023-24 Regular Season
+2026-11-09 22:20:23,651 INFO 2023-24 Regular Season 2024-04-21..2024-06-19: no rows (no games in this window)
+2026-11-09 22:20:24,373 INFO   Chunk: 2024-04-21 -> 2024-06-19  2023-24 Playoffs
+2026-11-09 22:20:24,374 INFO 2023-24 Playoffs 2024-04-21..2024-06-19: 1604 player rows
+2026-11-09 22:20:24,418 INFO   Chunk: 2024-06-20 -> 2024-07-31  2023-24 Regular Season
+2026-11-09 22:20:24,419 INFO 2023-24 Regular Season 2024-06-20..2024-07-31: no rows (no games in this window)
+2026-11-09 22:20:25,029 INFO   Chunk: 2024-06-20 -> 2024-07-31  2023-24 Playoffs
+2026-11-09 22:20:25,030 INFO 2023-24 Playoffs 2024-06-20..2024-07-31: no rows (no games in this window)
+2026-11-09 22:20:26,334 INFO   Chunk: 2024-10-01 -> 2024-11-29  2024-25 Regular Season
+2026-11-09 22:20:26,335 INFO 2024-25 Regular Season 2024-10-01..2024-11-29: 6274 player rows
+2026-11-09 22:20:26,335 INFO   Chunk: 2024-10-01 -> 2024-11-29  2024-25 Playoffs
+2026-11-09 22:20:26,336 INFO 2024-25 Playoffs 2024-10-01..2024-11-29: no rows (no games in this window)
+2026-11-09 22:20:27,521 INFO   Chunk: 2024-11-30 -> 2025-01-28  2024-25 Regular Season
+2026-11-09 22:20:27,521 INFO 2024-25 Regular Season 2024-11-30..2025-01-28: 8550 player rows
+2026-11-09 22:20:27,522 INFO   Chunk: 2024-11-30 -> 2025-01-28  2024-25 Playoffs
+2026-11-09 22:20:27,523 INFO 2024-25 Playoffs 2024-11-30..2025-01-28: no rows (no games in this window)
+2026-11-09 22:20:29,391 INFO   Chunk: 2025-01-29 -> 2025-03-29  2024-25 Regular Season
+2026-11-09 22:20:29,392 INFO 2024-25 Regular Season 2025-01-29..2025-03-29: 8926 player rows
+2026-11-09 22:20:29,393 INFO   Chunk: 2025-01-29 -> 2025-03-29  2024-25 Playoffs
+2026-11-09 22:20:29,393 INFO 2024-25 Playoffs 2025-01-29..2025-03-29: no rows (no games in this window)
+2026-11-09 22:20:29,395 INFO   Chunk: 2025-03-30 -> 2025-05-28  2024-25 Regular Season
+2026-11-09 22:20:29,396 INFO 2024-25 Regular Season 2025-03-30..2025-05-28: 2556 player rows
+2026-11-09 22:20:29,657 INFO   Chunk: 2025-03-30 -> 2025-05-28  2024-25 Playoffs
+2026-11-09 22:20:29,658 INFO 2024-25 Playoffs 2025-03-30..2025-05-28: 1595 player rows
+2026-11-09 22:20:30,162 INFO   Chunk: 2025-05-29 -> 2025-07-27  2024-25 Regular Season
+2026-11-09 22:20:30,163 INFO 2024-25 Regular Season 2025-05-29..2025-07-27: no rows (no games in this window)
+2026-11-09 22:20:31,212 INFO   Chunk: 2025-05-29 -> 2025-07-27  2024-25 Playoffs
+2026-11-09 22:20:31,213 INFO 2024-25 Playoffs 2025-05-29..2025-07-27: 209 player rows
+2026-11-09 22:20:31,213 INFO   Chunk: 2025-07-28 -> 2025-07-31  2024-25 Regular Season
+2026-11-09 22:20:31,215 INFO 2024-25 Regular Season 2025-07-28..2025-07-31: no rows (no games in this window)
+2026-11-09 22:20:31,528 INFO   Chunk: 2025-07-28 -> 2025-07-31  2024-25 Playoffs
+2026-11-09 22:20:31,528 INFO 2024-25 Playoffs 2025-07-28..2025-07-31: no rows (no games in this window)
+2026-11-09 22:20:33,087 INFO   Chunk: 2025-10-01 -> 2025-11-29  2025-26 Regular Season
+2026-11-09 22:20:33,088 INFO 2025-26 Regular Season 2025-10-01..2025-11-29: 6403 player rows
+2026-11-09 22:20:33,088 INFO   Chunk: 2025-10-01 -> 2025-11-29  2025-26 Playoffs
+2026-11-09 22:20:33,089 INFO 2025-26 Playoffs 2025-10-01..2025-11-29: no rows (no games in this window)
+2026-11-09 22:20:34,085 INFO   Chunk: 2025-11-30 -> 2026-01-28  2025-26 Regular Season
+2026-11-09 22:20:34,086 INFO 2025-26 Regular Season 2025-11-30..2026-01-28: 8937 player rows
+2026-11-09 22:20:34,087 INFO   Chunk: 2025-11-30 -> 2026-01-28  2025-26 Playoffs
+2026-11-09 22:20:34,089 INFO 2025-26 Playoffs 2025-11-30..2026-01-28: no rows (no games in this window)
+2026-11-09 22:20:34,815 INFO   Chunk: 2026-01-29 -> 2026-03-29  2025-26 Regular Season
+2026-11-09 22:20:34,815 INFO 2025-26 Regular Season 2026-01-29..2026-03-29: 8921 player rows
+2026-11-09 22:20:34,816 INFO   Chunk: 2026-01-29 -> 2026-03-29  2025-26 Playoffs
+2026-11-09 22:20:34,817 INFO 2025-26 Playoffs 2026-01-29..2026-03-29: no rows (no games in this window)
+2026-11-09 22:20:35,409 INFO   Chunk: 2026-03-30 -> 2026-05-28  2025-26 Regular Season
+2026-11-09 22:20:35,409 INFO 2025-26 Regular Season 2026-03-30..2026-05-28: 2390 player rows
+2026-11-09 22:20:36,123 INFO   Chunk: 2026-03-30 -> 2026-05-28  2025-26 Playoffs
+2026-11-09 22:20:36,123 INFO 2025-26 Playoffs 2026-03-30..2026-05-28: 1801 player rows
+2026-11-09 22:20:36,124 INFO   Chunk: 2026-05-29 -> 2026-07-27  2025-26 Regular Season
+2026-11-09 22:20:36,126 INFO 2025-26 Regular Season 2026-05-29..2026-07-27: no rows (no games in this window)
+2026-11-09 22:20:36,819 INFO   Chunk: 2026-05-29 -> 2026-07-27  2025-26 Playoffs
+2026-11-09 22:20:36,820 INFO 2025-26 Playoffs 2026-05-29..2026-07-27: 120 player rows
+2026-11-09 22:20:36,978 INFO   Chunk: 2026-07-28 -> 2026-07-31  2025-26 Regular Season
+2026-11-09 22:20:36,979 INFO 2025-26 Regular Season 2026-07-28..2026-07-31: no rows (no games in this window)
+2026-11-09 22:20:37,535 INFO   Chunk: 2026-07-28 -> 2026-07-31  2025-26 Playoffs
+2026-11-09 22:20:37,536 INFO 2025-26 Playoffs 2026-07-28..2026-07-31: no rows (no games in this window)
+2026-11-09 22:20:38,627 INFO   Chunk: 2026-10-01 -> 2026-11-09  2026-27 Regular Season
+2026-11-09 22:20:38,628 INFO 2026-27 Regular Season 2026-10-01..2026-11-09: 3294 player rows
+2026-11-09 22:20:38,629 INFO   Chunk: 2026-10-01 -> 2026-11-09  2026-27 Playoffs
+2026-11-09 22:20:38,629 INFO 2026-27 Playoffs 2026-10-01..2026-11-09: no rows (no games in this window)
+season log slices: 100%|##########| 36/36 [00:20<00:00,  1.73slice/s]
+2026-11-09 22:20:38,631 INFO season log: 88062 player row(s) over 36 slice(s); 1.73 slice/s against a 2.00/s gate (87% of ceiling)
+2026-11-09 22:20:40,932 WARNING 22 scheduled game(s) have no season-log match; they have no player lines and no play-by-play: 401607495 (2023-12-09 LAL@IND), 401585204 (2024-01-17 UTA@GSW), 401585217 (2024-01-19 GSW@DAL), 401734908 (2024-12-17 OKC@MIL), 401705090 (2025-01-09 LAL@CHA), 401705098 (2025-01-11 ATL@HOU), 401705103 (2025-01-11 LAL@SAS), 401705104 (2025-01-11 LAC@CHA), 401705183 (2025-01-22 NOP@MIL), 401809839 (2025-12-16 NYK@SAS), 401810384 (2026-01-08 CHI@MIA), 401810499 (2026-01-24 MIN@GSW), 401810506 (2026-01-25 MEM@DEN), 401810507 (2026-01-25 MIL@DAL), 401909952 (2026-11-09 ATL@LAL), 401909953 (2026-11-09 CHA@CLE), 401909954 (2026-11-09 DET@WAS), 401909955 (2026-11-09 TOR@MEM), 401909956 (2026-11-09 DAL@IND), 401909957 (2026-11-09 HOU@DEN), 401909958 (2026-11-09 PHX@SAS), 401909959 (2026-11-09 GSW@NOP)
+2026-11-09 22:20:41,137 WARNING 22 game(s) carry no NBA game id; they have no play-by-play to fetch and are not swept: 401607495 (2023-12-09 LAL@IND), 401585204 (2024-01-17 UTA@GSW), 401585217 (2024-01-19 GSW@DAL), 401734908 (2024-12-17 OKC@MIL), 401705090 (2025-01-09 LAL@CHA), 401705098 (2025-01-11 ATL@HOU), 401705103 (2025-01-11 LAL@SAS), 401705104 (2025-01-11 LAC@CHA), 401705183 (2025-01-22 NOP@MIL), 401809839 (2025-12-16 NYK@SAS), 401810384 (2026-01-08 CHI@MIA), 401810499 (2026-01-24 MIN@GSW), 401810506 (2026-01-25 MEM@DEN), 401810507 (2026-01-25 MIL@DAL), 401909952 (2026-11-09 ATL@LAL), 401909953 (2026-11-09 CHA@CLE), 401909954 (2026-11-09 DET@WAS), 401909955 (2026-11-09 TOR@MEM), 401909956 (2026-11-09 DAL@IND), 401909957 (2026-11-09 HOU@DEN), 401909958 (2026-11-09 PHX@SAS), 401909959 (2026-11-09 GSW@NOP)
+2026-11-09 22:20:41,225 INFO play-by-play backfill: 4087 game(s) have no cached rollup; the sweep covers the full window
+2026-11-09 22:20:41,226 INFO play-by-play: 4087 candidate game(s), sweeping 4087 on 4 worker(s), at most one request start every 0.25s
+play-by-play: 100%|##########| 4087/4087 [17:06<00:00,  3.98game/s, 0022600202]
+2026-11-09 22:37:48,113 INFO play-by-play: 4087 fetched, 0 from cache, 0 unavailable; 3.98 game/s against a 4.00/s gate (99% of ceiling)
+2026-11-09 22:38:40,433 INFO event rollup archive not absorbed under NBA_FULL_REPULL; this run's sweep of 8174 team-game(s) is the only source
+2026-11-09 22:38:40,512 INFO 3 finished game(s) have no season-log player lines and so no features; they are excluded from training. These are the postponed, neutral-site and all-star games, not a join failure: 2023-12-09 IND@LAL, 2024-12-17 MIL@OKC, 2025-12-16 SAS@NYK
+2026-11-09 22:38:40,548 INFO NBA facts: 4109 games, 8174 team rows, 88062 player rows, 2027308 play-by-play actions, 8174 event rows
+2026-11-09 22:38:40,548 INFO ingest timing: 1221s = schedule 118s + season log 21s + play-by-play 1032s + contract 1s + archive 50s (download allowed; 4109 game(s), 88062 player row(s), 2027308 play-by-play action(s))
+  ✅ facts: 4109 games, 88062 player rows, 8174 event rows, 2027308 play-by-play actions
+2026-11-09 22:38:41,129 INFO   phase 1/10  ingest schedule  (1m58s)
+2026-11-09 22:38:41,130 INFO   phase 2/10  ingest features  (21s)
+2026-11-09 22:38:41,130 INFO   phase 3/10  ingest play-by-play  (18m01s)
+2026-11-09 22:38:41,158 INFO 3 finished game(s) have no season-log player lines and so no features; they are excluded from training. These are the postponed, neutral-site and all-star games, not a join failure: 2023-12-09 IND@LAL, 2024-12-17 MIL@OKC, 2025-12-16 SAS@NYK
+2026-11-09 22:38:41,167 INFO excluding 11 postponed game(s) from the slate: 401585204, 401585217, 401705090, 401705098, 401705103, 401705104, 401705183, 401810384, 401810499, 401810506, 401810507
+2026-11-09 22:38:49,989 INFO game feature build: 9s (4087 decided game(s), 185 column(s))
+2026-11-09 22:38:50,487 INFO positions for 2023-24 written: 572 players from 3 of 3 positions
+2026-11-09 22:38:51,489 INFO positions for 2024-25 written: 569 players from 3 of 3 positions
+2026-11-09 22:38:54,194 INFO positions for 2025-26 written: 582 players from 3 of 3 positions
+2026-11-09 22:38:56,280 INFO positions for 2026-27 written: 461 players from 3 of 3 positions
+2026-11-09 22:38:57,489 INFO designation archive repopulate: resolving 644 decided day(s) 2023-10-24..2026-11-08 (archive covers 642 day(s))
+2026-11-09 22:40:38,082 INFO designation archive repopulate: 25/644 day(s) resolved (25 with rows)
+2026-11-09 22:40:44,852 WARNING no filing lists BOS@NYK before tipoff on 2023-10-25: game uncovered
+2026-11-09 22:42:19,254 INFO designation archive repopulate: 50/644 day(s) resolved (50 with rows)
+2026-11-09 22:44:03,854 INFO designation archive repopulate: 75/644 day(s) resolved (75 with rows)
+2026-11-09 22:46:09,956 INFO designation archive repopulate: 100/644 day(s) resolved (100 with rows)
+2026-11-09 22:46:28,194 WARNING no filing lists DAL@GSW before tipoff on 2024-01-19: game uncovered
+2026-11-09 22:48:04,721 INFO designation archive repopulate: 125/644 day(s) resolved (125 with rows)
+2026-11-09 22:50:01,612 INFO designation archive repopulate: 150/644 day(s) resolved (150 with rows)
+2026-11-09 22:51:20,926 INFO designation archive repopulate: 175/644 day(s) resolved (175 with rows)
+2026-11-09 22:51:41,837 INFO designation archive repopulate: 200/644 day(s) resolved (200 with rows)
+2026-11-09 22:53:12,998 INFO designation archive repopulate: 225/644 day(s) resolved (225 with rows)
+2026-11-09 22:55:13,910 INFO designation archive repopulate: 250/644 day(s) resolved (250 with rows)
+2026-11-09 22:56:58,368 INFO designation archive repopulate: 275/644 day(s) resolved (275 with rows)
+2026-11-09 22:59:02,045 INFO designation archive repopulate: 300/644 day(s) resolved (300 with rows)
+2026-11-09 23:01:12,773 INFO designation archive repopulate: 325/644 day(s) resolved (325 with rows)
+2026-11-09 23:03:33,996 INFO designation archive repopulate: 350/644 day(s) resolved (350 with rows)
+2026-11-09 23:05:19,353 INFO designation archive repopulate: 375/644 day(s) resolved (375 with rows)
+2026-11-09 23:05:48,324 INFO designation archive repopulate: 400/644 day(s) resolved (400 with rows)
+2026-11-09 23:06:47,182 INFO designation archive repopulate: 425/644 day(s) resolved (425 with rows)
+2026-11-09 23:07:22,190 WARNING no filing lists NYK@BOS before tipoff on 2025-05-05: game uncovered
+2026-11-09 23:08:34,457 INFO designation archive repopulate: 450/644 day(s) resolved (450 with rows)
+2026-11-09 23:10:03,229 INFO designation archive repopulate: 475/644 day(s) resolved (475 with rows)
+2026-11-09 23:12:21,671 INFO designation archive repopulate: 500/644 day(s) resolved (500 with rows)
+2026-11-09 23:14:44,664 INFO designation archive repopulate: 525/644 day(s) resolved (525 with rows)
+2026-11-09 23:17:01,288 INFO designation archive repopulate: 550/644 day(s) resolved (550 with rows)
+2026-11-09 23:19:23,318 INFO designation archive repopulate: 575/644 day(s) resolved (575 with rows)
+2026-11-09 23:20:26,938 INFO designation archive repopulate: 600/644 day(s) resolved (600 with rows)
+2026-11-09 23:21:19,839 INFO designation archive repopulate: 625/644 day(s) resolved (625 with rows)
+2026-11-09 23:22:35,523 WARNING no filing lists NYK@CLE before tipoff on 2026-05-23: game uncovered
+2026-11-09 23:22:38,452 WARNING no filing lists CLE@NYK before tipoff on 2026-05-21: game uncovered
+2026-11-09 23:23:16,333 INFO designation archive repopulate: 644/644 day(s) resolved (642 with rows)
+consolidated 43236 records from 54 shard(s) -> /root/.cache/sports_prediction_model/nba/nba_designations.parquet
+2026-11-09 23:23:18,628 INFO designation archive full: 642 day(s) resolved, 43236 new row(s), archive now 43236 row(s) -> /kaggle/working/sports_prediction_model/nba-backend/data_delivery/nba_designations.parquet (injury-report host answered 423 403(s) during refresh)
+2026-11-09 23:23:18,629 INFO designation archive full timing: 2662s phase = resolve 2659s + merge 0s + write 2s; filings 4893 parsed in 2455s (502 ms each, 0 unparseable), pdfs 4216 disk-hit / 4417 fetched; requests 4840 in 6118s worker-time, 423 403(s), 84 known-missing skip(s)
+2026-11-09 23:23:18,629 WARNING injury-report host answered 423 403(s) resolving the archive; days it throttled are uncovered, not filled - a rate-limited refresh looks like an empty archive
+2026-11-09 23:23:19,029 INFO PIT designations: 43236 record(s) from the published archive
+2026-11-09 23:23:55,425 WARNING no filing lists DAL@GSW before tipoff on 2024-01-19: game uncovered
+2026-11-09 23:24:10,301 WARNING injury-report host answered 423 403(s) resolving the slate; designation coverage may be incomplete
+2026-11-09 23:24:10,304 INFO slate designations resolved live: 208 record(s) across 8 date(s), 200 with a submission status
+2026-11-09 23:24:11,462 WARNING current roster unresolved (ValueError: incomplete or ambiguous official league roster); using dated history/strict-prior appearances
+2026-11-09 23:27:53,358 INFO DARKO history: 352029 rows for 876 player(s)
+2026-11-09 23:27:54,208 INFO DARKO rating: 100.0% of rows carry a DPM value
+2026-11-09 23:28:10,433 INFO DARKO expected minutes: 39.4% of rows carry x_minutes
+2026-11-09 23:34:21,647 INFO waterfall minutes redistribution (position-feature build): 12401 donor(s), 273367.3 minute(s) absorbed, 20388.3 vanished (489 no-survivor), 30810 spill(s)
+2026-11-09 23:34:21,724 INFO projected-lineup feature build: 3332s (4090 row(s), 23 feature column(s))
+2026-11-09 23:34:21,757 INFO pl_dpm features attached: 4064/4087 decided rows carry them
+2026-11-09 23:34:21,757 INFO star-out features attached: 4072/4087 decided rows carry them
+2026-11-09 23:34:21,758 INFO o-pts features attached: 4072/4087 decided rows carry them
+2026-11-09 23:34:21,780 INFO pl_dpm coverage gap: 23/4087 decided rows lack position-rapm features; by days into their season: 23 within the 10-day pool lookback, 0 more within the 30-day recency window, 0 beyond it - early-season rows are structural, not a build failure
+2026-11-09 23:34:21,895 WARNING OOF validation population is thin on 22 of 88 window(s) (< MIN_VAL_FOLD_GAMES=40 games): [2024-04-23..2024-04-29 n=22 postseason], [2024-04-30..2024-05-06 n=13 postseason], [2024-05-07..2024-05-13 n=13 postseason], [2024-05-14..2024-05-21 n=10 postseason], [2024-05-22..2024-05-28 n=7 postseason], +17 more - retained and scored, but PROVISIONAL: excluded from pooled metrics, blend weights and calibration (playoff weeks and season ramps are the usual cause)
+2026-11-09 23:34:21,900 INFO OOF season-type split: 21 window(s) carry postseason games (251 rows); their playoff rows are reported as oof_postseason and never grade the blend
 
-The above exception was the direct cause of the following exception:
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  features
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+2026-11-09 23:34:21,902 INFO   phase 4/10  features  (55m40s)
+  ✅ 4087 games, 98 features, 88 folds
+2026-11-09 23:34:56,816 INFO moneyline OOF fold 25/88
+2026-11-09 23:35:31,244 INFO moneyline OOF fold 50/88
+2026-11-09 23:36:15,042 INFO moneyline OOF fold 75/88
+2026-11-09 23:36:45,587 INFO Published blend: 3857 OOF rows — headline metrics grade the causal rolling blend; final weights {'elasticnet': '100.0%', 'lightgbm': '0.0%', 'xgboost': '0.0%'} replay only in p_ensemble_retrospective (NOT OOF)
+2026-11-09 23:36:45,681 INFO moneyline retrospective final-weight replay (NOT OOF): {'n': 3485, 'auc': 0.7475005814146649, 'logloss': 0.589791678088988, 'brier': 0.20241417290974345, 'ece': 0.0181934785138371}
+2026-11-09 23:36:45,682 INFO final serving calibration gate: identity (gated_no_gain)
+2026-11-09 23:36:45,682 INFO final serving calibrator: identity map (no fitted correction)
+2026-11-09 23:38:25,271 INFO score-ensemble OOF fold 25/88
+2026-11-09 23:40:36,759 INFO score-ensemble OOF fold 50/88
+2026-11-09 23:43:08,521 INFO score-ensemble OOF fold 75/88
+2026-11-09 23:44:33,906 INFO score-ensemble serving weights (OOF-earned): {'elasticnet': 0.7787, 'lightgbm': 0.0, 'xgboost': 0.2213}
+2026-11-09 23:44:33,928 INFO run-line fit check: home pearson 1.1843 dev 1.19028 (baseline 1.44767) | away pearson 1.2127 dev 1.21653 (baseline 1.49268)
+2026-11-09 23:44:33,957 INFO marketize (expand=False merge): 0.0s over 3857 rows
+2026-11-09 23:44:34,014 INFO causal_distribution_frame: 3857 rows over 88 origins (n_draws=50000)
+2026-11-09 23:44:34,544 INFO causal_distribution_frame: origin 0/88 (0.5s)
+2026-11-09 23:45:38,416 INFO causal_distribution_frame: origin 25/88 (64.4s)
+2026-11-09 23:47:47,544 INFO causal_distribution_frame: origin 50/88 (193.5s)
+2026-11-09 23:50:39,825 INFO causal_distribution_frame: origin 75/88 (365.8s)
+2026-11-09 23:52:39,700 INFO calibrate_market_frame: 485.7s over 3857 rows (88 origins)
 
-Traceback (most recent call last):
-  File "/kaggle/working/sports_prediction_model/nba-backend/backend/ingestion.py", line 1560, in _serve_one
-    payload = http_json(sources.espn_scoreboard_url(day), ESPN_HEADERS,
-              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-  File "/kaggle/working/sports_prediction_model/nba-backend/backend/ingestion.py", line 667, in http_json
-    raise HostUnavailable(
-ingestion.HostUnavailable: https://site.api.espn.com/apis/site/v2/sports/basketball/nba/scoreboard did not answer after 2 attempt(s): HTTPError: HTTP Error 502: Bad Gateway
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  walk-forward
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+2026-11-09 23:52:39,744 INFO   phase 5/10  walk-forward  (18m17s)
+  ✅ 3857 out-of-fold rows over 88 folds
+2026-11-09 23:52:48,806 INFO moneyline freeze: 8/8 slate games carry first-published pre-tip probabilities (0 live)
+2026-11-09 23:53:06,986 INFO markets freeze: 8/8 slate games carry first-published legs (886 columns)
 
-The above exception was the direct cause of the following exception:
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  final fit
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+2026-11-09 23:53:09,819 INFO   phase 6/10  final fit  (30s)
+  ✅ 3 ensemble member(s), 8 upcoming game(s) scored
+2026-11-09 23:53:42,702 INFO DARKO history: 214722 rows for 524 player(s)
+2026-11-09 23:53:42,856 INFO DARKO rating: 100.0% of rows carry a DPM value
+2026-11-09 23:53:42,986 INFO DARKO expected minutes: 53.8% of rows carry x_minutes
+2026-11-09 23:53:55,247 INFO waterfall minutes redistribution (rating writer): 0 donor(s), 0.0 minute(s) absorbed, 0.0 vanished (0 no-survivor), 0 spill(s)
+2026-11-09 23:53:55,373 INFO projected lineups: 8218 team-game(s) (16 priced, 8202 pool-refusal mask rows), mean pool 17.6 / healthy 11.2 over priced rows
+2026-11-09 23:53:59,160 INFO   lineup_rapm_mean_diff            8/4109 rows  distinct 8
+2026-11-09 23:53:59,160 INFO   lineup_rapm_top3_diff            8/4109 rows  distinct 8
+2026-11-09 23:53:59,161 INFO   lineup_rapm_std_diff             8/4109 rows  distinct 8
+2026-11-09 23:53:59,161 INFO   lineup_rapm_rest_count_diff      8/4109 rows  distinct 1  CONSTANT
+2026-11-09 23:53:59,162 INFO   lineup_out_count_diff            8/4109 rows  distinct 4
+2026-11-09 23:53:59,162 INFO   lineup_healthy_frac_diff         8/4109 rows  distinct 5
+2026-11-09 23:53:59,163 INFO   lineup_rapm_concentration_diff   8/4109 rows  distinct 8
+2026-11-09 23:54:04,855 INFO NBA SHAP attributions written for 8 game(s)
+2026-11-09 23:54:04,855 INFO SHAP attributions written: 8
 
-Traceback (most recent call last):
-  File "/kaggle/working/sports_prediction_model/nba-backend/backend/master_pipeline.py", line 2639, in <module>
-    raise SystemExit(main())
-                     ^^^^^^
-  File "/kaggle/working/sports_prediction_model/nba-backend/backend/master_pipeline.py", line 2633, in main
-    summary = run(args.run_date, args.out_dir, args.skip_pull)
-              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-  File "/kaggle/working/sports_prediction_model/nba-backend/backend/master_pipeline.py", line 1776, in run
-    facts = ingestion.load_ingested(
-            ^^^^^^^^^^^^^^^^^^^^^^^^
-  File "/kaggle/working/sports_prediction_model/nba-backend/backend/ingestion.py", line 2620, in load_ingested
-    games = _fetch_schedule(window_start, window_end)
-            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-  File "/kaggle/working/sports_prediction_model/nba-backend/backend/ingestion.py", line 1625, in _fetch_schedule
-    raise ScheduleUnavailable(
-ingestion.ScheduleUnavailable: ESPN's scoreboard failed 3 days in a row (last 2024-07-07), so the sweep stopped rather than ask the same question 855 more time(s). It had spent 35s of its budget proving one thing, which is what a host refusing this client looks like: an instant 403, a connection that is accepted and then never answered, or an answer about a different day entirely. The last one was: HostUnavailable: https://site.api.espn.com/apis/site/v2/sports/basketball/nba/scoreboard did not answer after 2 attempt(s): HTTPError: HTTP Error 502: Bad Gateway. Nothing this pipeline sends will change any of them. Run where ESPN is reachable, or warm the cache here and re-run with --skip-pull.
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  serve
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+2026-11-09 23:54:04,856 INFO   phase 7/10  serve  (55s)
+  ✅ 17 artifact(s) written to /kaggle/working/sports_prediction_model/nba-backend/data_delivery
+2026-11-09 23:54:05,464 INFO feature importance weights are blend-weighted across 3 member(s) with shares {'xgboost': 0.0, 'lightgbm': 0.0, 'elasticnet': 1.0}; each member's own elo_diff importance {'xgboost': 5.2262, 'lightgbm': 2.8918, 'elasticnet': 9.6352} - a concentrated share means the MODEL WEIGHT column is that member's profile
+2026-11-09 23:54:05,662 INFO feature drift: 132 features, 132 evaluated, 0 INSUFFICIENT, 0 warning(s), 18 alert(s); statuses on noise-adjusted PSI with a location gate [alerts: is_playoffs, win_pct_home, ewm_off_rating_away, ewm_efg_pct_away, event_three_rate_home, event_rim_rate_home, event_rim_rate_away, event_shot_distance_home, event_shot_distance_away, pl_o_pts_away, pl_o_pts_home, three_point_pct_ewm_away, ewm_tov_forced_away, turnovers_per_game_ewm_home, turnovers_per_game_ewm_away, ewm_tov_forced_home, turnovers_per_game_roll_home, turnovers_per_game_roll_away]
+2026-11-09 23:54:05,839 INFO run-engine drift/coverage view: DISTRIBUTION model - pooled per-side Poisson importances over 132 feature(s) summing to 100.0000%; 132 input(s) in the monitoring view
 
-  ❌ PIPELINE CRASH 2026-11-09 17:54:26 — ScheduleUnavailable: ESPN's scoreboard failed 3 days in a row (last 2024-07-07), so the sweep stopped rather than ask the same question 855 more time(s). It had spent 35s of its budget proving one thing, which is what a host refusing this client looks like: an instant 403, a connection that is accepted and then never answered, or an answer about a different day entirely. The last one was: HostUnavailable: https://site.api.espn.com/apis/site/v2/sports/basketball/nba/scoreboard did not answer after 2 attempt(s): HTTPError: HTTP Error 502: Bad Gateway. Nothing this pipeline sends will change any of them. Run where ESPN is reachable, or warm the cache here and re-run with --skip-pull.
-Traceback (most recent call last):
-  File "/kaggle/working/sports_prediction_model/nba-backend/backend/ingestion.py", line 648, in http_json
-    with urllib.request.urlopen(request, timeout=timeout) as response:
-         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-  File "/usr/lib/python3.12/urllib/request.py", line 215, in urlopen
-    return opener.open(url, data, timeout)
-           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-  File "/usr/lib/python3.12/urllib/request.py", line 521, in open
-    response = meth(req, response)
-               ^^^^^^^^^^^^^^^^^^^
-  File "/usr/lib/python3.12/urllib/request.py", line 630, in http_response
-    response = self.parent.error(
-               ^^^^^^^^^^^^^^^^^^
-  File "/usr/lib/python3.12/urllib/request.py", line 559, in error
-    return self._call_chain(*args)
-           ^^^^^^^^^^^^^^^^^^^^^^^
-  File "/usr/lib/python3.12/urllib/request.py", line 492, in _call_chain
-    result = func(*args)
-             ^^^^^^^^^^^
-  File "/usr/lib/python3.12/urllib/request.py", line 639, in http_error_default
-    raise HTTPError(req.full_url, code, msg, hdrs, fp)
-urllib.error.HTTPError: HTTP Error 502: Bad Gateway
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  feature report
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+2026-11-09 23:54:05,840 INFO   phase 8/10  feature report  (0s)
+  ✅ selection nba_feature_selection_20261109.json, 2 drift/coverage file(s)
+2026-11-09 23:54:06,136 INFO feature drift: 98 features, 98 evaluated, 0 INSUFFICIENT, 0 warning(s), 12 alert(s); statuses on noise-adjusted PSI with a location gate [alerts: is_playoffs, win_pct_home, ewm_off_rating_away, ewm_efg_pct_away, event_three_rate_home, event_rim_rate_home, event_rim_rate_away, event_shot_distance_home, event_shot_distance_away, pl_o_pts_away, pl_o_pts_home, three_point_pct_ewm_away]
+2026-11-09 23:54:06,638 INFO run-line OOF:  {"n": 3857, "n_pushes": 0, "crps": 7.972296301801711, "auc": 0.5241187154541245, "logloss": 0.6925950010295991, "logscore": 0.6925950010295991, "brier": 0.24972394455296862, "predicted_mean": 0.4999389784806844, "actual_win_rate": 0.5058335493907182, "ece_cover": 0.0095995436868032, "reliability": [{"n": 1918, "predicted": 0.4927763503649635, "actual": 0.48905109489051096, "gap": 0.0037252554744525157}, {"n": 1939, "predicted": 0.5070240330067045, "actual": 0.5224342444559051, "gap": -0.015410211449200628}], "calibration_in_the_large": -0.005894570910033814, "threshold_policy": "closest_half_point_to_model_50_percent"}
+2026-11-09 23:54:06,638 INFO totals OOF:    {"n": 3857, "n_pushes": 0, "crps": 10.422037692684677, "auc": 0.5108931337119257, "logloss": 0.6929927309637723, "logscore": 0.6929927309637723, "brier": 0.2499227837334716, "predicted_mean": 0.5000217474721287, "actual_win_rate": 0.4977962146746176, "ece_cover": 0.002225532797511017, "reliability": [{"n": 1931, "predicted": 0.4945801035732781, "actual": 0.490937338166753, "gap": 0.0036427654065250836}, {"n": 1926, "predicted": 0.505477518172378, "actual": 0.5046728971962616, "gap": 0.0008046209761163325}], "calibration_in_the_large": 0.0022255327975110872, "threshold_policy": "closest_half_point_to_model_50_percent"}
 
-The above exception was the direct cause of the following exception:
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  monitor
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+2026-11-09 23:54:17,747 INFO   phase 9/10  monitor  (11s)
+  ✅ rolling Brier: 0.2042 games-weighted over 611 day(s) (3857 game(s)); last day 2026-11-08 0.1247 over 7 game(s), 3 ensemble member(s)
+2026-11-09 23:54:18,265 INFO score-means stability vs prior delivery: {'status': 'ok', 'prior_file': 'nba_run_engine_markets_20261108.csv', 'n_common': 3850, 'mean_abs_dmu_home': 0.0165, 'mean_abs_dmu_away': 0.0331, 'derived_auc_new': 0.7396, 'derived_logloss_new': 0.59736, 'derived_auc_prior': 0.7395, 'derived_logloss_prior': 0.59738, 'derived_auc_delta_bps': 1.0, 'derived_logloss_delta_bps': -0.2}
+2026-11-09 23:54:18,307 INFO PIT designations: 43236 record(s) from the published archive
+2026-11-09 23:54:18,823 INFO designation archive published: 43236 record(s)
+2026-11-09 23:54:18,997 INFO event rollup archive published: 8174 team-game(s)
 
-Traceback (most recent call last):
-  File "/kaggle/working/sports_prediction_model/nba-backend/backend/ingestion.py", line 1560, in _serve_one
-    payload = http_json(sources.espn_scoreboard_url(day), ESPN_HEADERS,
-              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-  File "/kaggle/working/sports_prediction_model/nba-backend/backend/ingestion.py", line 667, in http_json
-    raise HostUnavailable(
-ingestion.HostUnavailable: https://site.api.espn.com/apis/site/v2/sports/basketball/nba/scoreboard did not answer after 2 attempt(s): HTTPError: HTTP Error 502: Bad Gateway
-
-The above exception was the direct cause of the following exception:
-
-Traceback (most recent call last):
-  File "/kaggle/working/sports_prediction_model/nba-backend/backend/master_pipeline.py", line 2639, in <module>
-    raise SystemExit(main())
-                     ^^^^^^
-  File "/kaggle/working/sports_prediction_model/nba-backend/backend/master_pipeline.py", line 2633, in main
-    summary = run(args.run_date, args.out_dir, args.skip_pull)
-              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-  File "/kaggle/working/sports_prediction_model/nba-backend/backend/master_pipeline.py", line 1776, in run
-    facts = ingestion.load_ingested(
-            ^^^^^^^^^^^^^^^^^^^^^^^^
-  File "/kaggle/working/sports_prediction_model/nba-backend/backend/ingestion.py", line 2620, in load_ingested
-    games = _fetch_schedule(window_start, window_end)
-            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-  File "/kaggle/working/sports_prediction_model/nba-backend/backend/ingestion.py", line 1625, in _fetch_schedule
-    raise ScheduleUnavailable(
-ingestion.ScheduleUnavailable: ESPN's scoreboard failed 3 days in a row (last 2024-07-07), so the sweep stopped rather than ask the same question 855 more time(s). It had spent 35s of its budget proving one thing, which is what a host refusing this client looks like: an instant 403, a connection that is accepted and then never answered, or an answer about a different day entirely. The last one was: HostUnavailable: https://site.api.espn.com/apis/site/v2/sports/basketball/nba/scoreboard did not answer after 2 attempt(s): HTTPError: HTTP Error 502: Bad Gateway. Nothing this pipeline sends will change any of them. Run where ESPN is reachable, or warm the cache here and re-run with --skip-pull.
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  publish
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+2026-11-09 23:54:19,075 INFO   phase 10/10  publish  (1s)
+  ✅ status ok, 5758.88s
