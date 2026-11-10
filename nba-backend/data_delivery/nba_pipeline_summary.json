@@ -823,15 +823,22 @@
   "slate": []
  },
  "play_by_play": {
-  "actions": 2031249,
+  "actions": 2031246,
   "event_rows": 8190,
   "games_covered": 4095,
   "cross_check": {
    "fga": {
     "compared": 8190,
-    "exact": 8190,
-    "max_abs_diff": 0.0,
-    "mean_abs_diff": 0.0
+    "exact": 8189,
+    "max_abs_diff": 1.0,
+    "mean_abs_diff": 0.0001,
+    "worst_offenders": [
+     {
+      "game_id": "401909958",
+      "team": "SAS",
+      "abs_diff": 1.0
+     }
+    ]
    },
    "fgm": {
     "compared": 8190,
@@ -865,9 +872,9 @@
    },
    "oreb": {
     "compared": 8190,
-    "exact": 7998,
+    "exact": 7997,
     "max_abs_diff": 5.0,
-    "mean_abs_diff": 0.0287,
+    "mean_abs_diff": 0.0288,
     "worst_offenders": [
      {
       "game_id": "401705312",
@@ -875,13 +882,13 @@
       "abs_diff": 5.0
      },
      {
-      "game_id": "401584915",
+      "game_id": "401705305",
       "team": "OKC",
       "abs_diff": 3.0
      },
      {
-      "game_id": "401704831",
-      "team": "ORL",
+      "game_id": "401705293",
+      "team": "SAC",
       "abs_diff": 3.0
      }
     ]
@@ -969,7 +976,7 @@
    }
   }
  },
- "elapsed_seconds": 6330.17,
+ "elapsed_seconds": 5327.17,
  "source_manifest": {
   "source_id": "espn schedule + stats.nba.com LeagueGameLog + playbyplayv3",
   "source_route": "espn schedule + stats.nba.com LeagueGameLog + playbyplayv3",
@@ -995,7 +1002,7 @@
    "team_stats": 8190,
    "player_stats": 88247,
    "team_events": 8190,
-   "play_by_play": 2031249
+   "play_by_play": 2031246
   },
   "event_rollup": {
    "sweep_team_games": 8190,
@@ -1004,9 +1011,16 @@
   "play_by_play": {
    "fga": {
     "compared": 8190,
-    "exact": 8190,
-    "max_abs_diff": 0.0,
-    "mean_abs_diff": 0.0
+    "exact": 8189,
+    "max_abs_diff": 1.0,
+    "mean_abs_diff": 0.0001,
+    "worst_offenders": [
+     {
+      "game_id": "401909958",
+      "team": "SAS",
+      "abs_diff": 1.0
+     }
+    ]
    },
    "fgm": {
     "compared": 8190,
@@ -1040,9 +1054,9 @@
    },
    "oreb": {
     "compared": 8190,
-    "exact": 7998,
+    "exact": 7997,
     "max_abs_diff": 5.0,
-    "mean_abs_diff": 0.0287,
+    "mean_abs_diff": 0.0288,
     "worst_offenders": [
      {
       "game_id": "401705312",
@@ -1050,13 +1064,13 @@
       "abs_diff": 5.0
      },
      {
-      "game_id": "401584915",
+      "game_id": "401705305",
       "team": "OKC",
       "abs_diff": 3.0
      },
      {
-      "game_id": "401704831",
-      "team": "ORL",
+      "game_id": "401705293",
+      "team": "SAC",
       "abs_diff": 3.0
      }
     ]
