@@ -1,6 +1,6 @@
 {
- "created_utc": "2026-10-30T19:23:01.528147+00:00",
- "feature_set_version": "nfl-prod-v9.9-pending-state",
+ "created_utc": "2026-11-10T13:54:03.983667+00:00",
+ "feature_set_version": "nfl-prod-v10.2-pbwr",
  "manifest": {
   "elo_diff": {
    "description": "Home minus away pre-game Elo rating",
@@ -779,181 +779,269 @@
    ],
    "feature_version": 10
   },
-  "epa_qb_home": {
-   "description": "Home team's projected-lineup quality",
-   "definition": "The home team's projected EPA per game from the quarterbacks: each member's shrunk EPA-per-opportunity rating, weighted by his own projected opportunities per game (dropbacks), summed over the lineup; ratings from an 8-game strictly-prior window shrunk to a position-segmented league prior",
-   "source": "nflverse play-by-play EPA + qb_dropback/pass_attempt/rush_attempt opportunity flags; weekly player stats for position labels; weekly roster snapshots (nflverse weekly_rosters)",
+  "pl_epa_qb_home": {
+   "description": "Home team's pace-scaled lineup quality",
+   "definition": "The home team's pl_epa_qb leg x s_game",
+   "source": "projected-lineup EPA legs x expected-game pace scaler",
    "lookback": "8 player-games; 21-calendar-day roster window",
-   "aggregation": "opportunity-weighted mean by position among the team's top 11 prior-opportunity leaders after excluding players with an Out/IR/Doubtful report published strictly before target kickoff or a weekly-roster-snapshot unavailability (carried RES/SUS/PUP, same-week INA/CUT); each member's weight is his own rolling-8 opportunity total, so the blend is the projected lineup's combined shrunk EPA over combined opportunities",
-   "point_in_time_rule": "rolling(8) player rating from games dated before the target date; candidate ratings come from the prior 21 calendar days to span bye weeks; an Out, IR/Injured Reserve, or Doubtful designation excludes a player from the target pool through any of three unioned channels: a strict-PIT report published before kickoff (2016-2024), the weekly report-cycle row for the player's own team-week (the only channel covering 2025/2026, where the PIT feed lacks timestamps), or a weekly-roster-snapshot unavailability",
-   "missing_value_policy": "NaN when no projected player at this position has a prior rating; non-injury statuses (incl. Questionable), missing/unreported status, and missing PIT timestamps do not erase player history; exclusion requires an Out/IR/Doubtful designation on one of the three channels; in-model handling",
-   "representation": "raw home level (tree members)",
+   "aggregation": "pace-scaled EPA/game (one scaler both sides)",
+   "point_in_time_rule": "s_game inputs strictly-prior; s_game NaN -> NaN",
+   "missing_value_policy": "NaN when the leg or s_game is NaN; in-model handling",
+   "representation": "raw side level (tree members)",
    "model_family_availability": [
     "tree"
    ],
-   "feature_version": 9
+   "feature_version": 1
   },
-  "epa_qb_away": {
-   "description": "Away team's projected-lineup quality",
-   "definition": "The away team's projected EPA per game from the quarterbacks: each member's shrunk EPA-per-opportunity rating, weighted by his own projected opportunities per game (dropbacks), summed over the lineup; ratings from an 8-game strictly-prior window shrunk to a position-segmented league prior",
-   "source": "nflverse play-by-play EPA + qb_dropback/pass_attempt/rush_attempt opportunity flags; weekly player stats for position labels; weekly roster snapshots (nflverse weekly_rosters)",
+  "pl_epa_qb_away": {
+   "description": "Away team's pace-scaled lineup quality",
+   "definition": "The away team's pl_epa_qb leg x s_game",
+   "source": "projected-lineup EPA legs x expected-game pace scaler",
    "lookback": "8 player-games; 21-calendar-day roster window",
-   "aggregation": "opportunity-weighted mean by position among the team's top 11 prior-opportunity leaders after excluding players with an Out/IR/Doubtful report published strictly before target kickoff or a weekly-roster-snapshot unavailability (carried RES/SUS/PUP, same-week INA/CUT); each member's weight is his own rolling-8 opportunity total, so the blend is the projected lineup's combined shrunk EPA over combined opportunities",
-   "point_in_time_rule": "rolling(8) player rating from games dated before the target date; candidate ratings come from the prior 21 calendar days to span bye weeks; an Out, IR/Injured Reserve, or Doubtful designation excludes a player from the target pool through any of three unioned channels: a strict-PIT report published before kickoff (2016-2024), the weekly report-cycle row for the player's own team-week (the only channel covering 2025/2026, where the PIT feed lacks timestamps), or a weekly-roster-snapshot unavailability",
-   "missing_value_policy": "NaN when no projected player at this position has a prior rating; non-injury statuses (incl. Questionable), missing/unreported status, and missing PIT timestamps do not erase player history; exclusion requires an Out/IR/Doubtful designation on one of the three channels; in-model handling",
-   "representation": "raw away level (tree members)",
+   "aggregation": "pace-scaled EPA/game (one scaler both sides)",
+   "point_in_time_rule": "s_game inputs strictly-prior; s_game NaN -> NaN",
+   "missing_value_policy": "NaN when the leg or s_game is NaN; in-model handling",
+   "representation": "raw side level (tree members)",
    "model_family_availability": [
     "tree"
    ],
-   "feature_version": 9
+   "feature_version": 1
   },
-  "epa_qb_diff": {
-   "description": "Home minus away quarterback quality",
-   "definition": "epa_qb_home - epa_qb_away",
-   "source": "nflverse play-by-play EPA + qb_dropback/pass_attempt/rush_attempt opportunity flags; weekly player stats for position labels; weekly roster snapshots (nflverse weekly_rosters)",
+  "pl_epa_qb_diff": {
+   "description": "Home minus away pace pl_epa_qb quality",
+   "definition": "pl_epa_qb_home - pl_epa_qb_away",
+   "source": "projected-lineup EPA legs x expected-game pace scaler",
    "lookback": "8 player-games; 21-calendar-day roster window",
-   "aggregation": "opportunity-weighted mean by position among the team's top 11 prior-opportunity leaders after excluding players with an Out/IR/Doubtful report published strictly before target kickoff or a weekly-roster-snapshot unavailability (carried RES/SUS/PUP, same-week INA/CUT); each member's weight is his own rolling-8 opportunity total, so the blend is the projected lineup's combined shrunk EPA over combined opportunities",
-   "point_in_time_rule": "rolling(8) player rating from games dated before the target date; candidate ratings come from the prior 21 calendar days to span bye weeks; an Out, IR/Injured Reserve, or Doubtful designation excludes a player from the target pool through any of three unioned channels: a strict-PIT report published before kickoff (2016-2024), the weekly report-cycle row for the player's own team-week (the only channel covering 2025/2026, where the PIT feed lacks timestamps), or a weekly-roster-snapshot unavailability",
-   "missing_value_policy": "NaN when no projected player at this position has a prior rating; non-injury statuses (incl. Questionable), missing/unreported status, and missing PIT timestamps do not erase player history; exclusion requires an Out/IR/Doubtful designation on one of the three channels; in-model handling",
+   "aggregation": "pace-scaled EPA/game diff (one scaler both sides)",
+   "point_in_time_rule": "s_game inputs strictly-prior; s_game NaN -> NaN",
+   "missing_value_policy": "NaN when the leg or s_game is NaN; in-model handling",
    "representation": "difference (all model families)",
    "model_family_availability": [
     "linear",
     "tree",
     "mlp"
    ],
-   "feature_version": 9
+   "feature_version": 1
   },
-  "epa_wr_home": {
-   "description": "Home team's projected-lineup quality",
-   "definition": "The home team's projected EPA per game from the wide receivers: each member's shrunk EPA-per-opportunity rating, weighted by his own projected opportunities per game (targets), summed over the lineup",
-   "source": "nflverse play-by-play EPA + opportunity flags; weekly player stats for position labels; weekly roster snapshots (nflverse weekly_rosters)",
+  "pl_epa_wr_home": {
+   "description": "Home team's pace-scaled lineup quality",
+   "definition": "The home team's pl_epa_wr leg x s_game",
+   "source": "projected-lineup EPA legs x expected-game pace scaler",
    "lookback": "8 player-games; 21-calendar-day roster window",
-   "aggregation": "opportunity-weighted mean by position among the team's top 11 prior-opportunity leaders after excluding players with an Out/IR/Doubtful report published strictly before target kickoff or a weekly-roster-snapshot unavailability (carried RES/SUS/PUP, same-week INA/CUT); each member's weight is his own rolling-8 opportunity total, so the blend is the projected lineup's combined shrunk EPA over combined opportunities",
-   "point_in_time_rule": "rolling(8) player rating from games dated before the target date; candidate ratings come from the prior 21 calendar days to span bye weeks; an Out, IR/Injured Reserve, or Doubtful designation excludes a player from the target pool through any of three unioned channels: a strict-PIT report published before kickoff (2016-2024), the weekly report-cycle row for the player's own team-week (the only channel covering 2025/2026, where the PIT feed lacks timestamps), or a weekly-roster-snapshot unavailability",
-   "missing_value_policy": "NaN when no projected player at this position has a prior rating; other/missing statuses (incl. Questionable) and missing PIT timestamps do not exclude the player; exclusion requires an Out/IR/Doubtful designation on one of the three channels; in-model handling",
-   "representation": "raw home level (tree members)",
+   "aggregation": "pace-scaled EPA/game (one scaler both sides)",
+   "point_in_time_rule": "s_game inputs strictly-prior; s_game NaN -> NaN",
+   "missing_value_policy": "NaN when the leg or s_game is NaN; in-model handling",
+   "representation": "raw side level (tree members)",
    "model_family_availability": [
     "tree"
    ],
-   "feature_version": 9
+   "feature_version": 1
   },
-  "epa_wr_away": {
-   "description": "Away team's projected-lineup quality",
-   "definition": "The away team's projected EPA per game from the wide receivers: each member's shrunk EPA-per-opportunity rating, weighted by his own projected opportunities per game (targets), summed over the lineup",
-   "source": "nflverse play-by-play EPA + opportunity flags; weekly player stats for position labels; weekly roster snapshots (nflverse weekly_rosters)",
+  "pl_epa_wr_away": {
+   "description": "Away team's pace-scaled lineup quality",
+   "definition": "The away team's pl_epa_wr leg x s_game",
+   "source": "projected-lineup EPA legs x expected-game pace scaler",
    "lookback": "8 player-games; 21-calendar-day roster window",
-   "aggregation": "opportunity-weighted mean by position among the team's top 11 prior-opportunity leaders after excluding players with an Out/IR/Doubtful report published strictly before target kickoff or a weekly-roster-snapshot unavailability (carried RES/SUS/PUP, same-week INA/CUT); each member's weight is his own rolling-8 opportunity total, so the blend is the projected lineup's combined shrunk EPA over combined opportunities",
-   "point_in_time_rule": "rolling(8) player rating from games dated before the target date; candidate ratings come from the prior 21 calendar days to span bye weeks; an Out, IR/Injured Reserve, or Doubtful designation excludes a player from the target pool through any of three unioned channels: a strict-PIT report published before kickoff (2016-2024), the weekly report-cycle row for the player's own team-week (the only channel covering 2025/2026, where the PIT feed lacks timestamps), or a weekly-roster-snapshot unavailability",
-   "missing_value_policy": "NaN when no projected player at this position has a prior rating; other/missing statuses (incl. Questionable) and missing PIT timestamps do not exclude the player; exclusion requires an Out/IR/Doubtful designation on one of the three channels; in-model handling",
-   "representation": "raw away level (tree members)",
+   "aggregation": "pace-scaled EPA/game (one scaler both sides)",
+   "point_in_time_rule": "s_game inputs strictly-prior; s_game NaN -> NaN",
+   "missing_value_policy": "NaN when the leg or s_game is NaN; in-model handling",
+   "representation": "raw side level (tree members)",
    "model_family_availability": [
     "tree"
    ],
-   "feature_version": 9
+   "feature_version": 1
   },
-  "epa_wr_diff": {
-   "description": "Home minus away wide receiver quality",
-   "definition": "epa_wr_home - epa_wr_away",
-   "source": "nflverse play-by-play EPA + opportunity flags; weekly player stats for position labels; weekly roster snapshots (nflverse weekly_rosters)",
+  "pl_epa_wr_diff": {
+   "description": "Home minus away pace pl_epa_wr quality",
+   "definition": "pl_epa_wr_home - pl_epa_wr_away",
+   "source": "projected-lineup EPA legs x expected-game pace scaler",
    "lookback": "8 player-games; 21-calendar-day roster window",
-   "aggregation": "opportunity-weighted mean by position among the team's top 11 prior-opportunity leaders after excluding players with an Out/IR/Doubtful report published strictly before target kickoff or a weekly-roster-snapshot unavailability (carried RES/SUS/PUP, same-week INA/CUT); each member's weight is his own rolling-8 opportunity total, so the blend is the projected lineup's combined shrunk EPA over combined opportunities",
-   "point_in_time_rule": "rolling(8) player rating from games dated before the target date; candidate ratings come from the prior 21 calendar days to span bye weeks; an Out, IR/Injured Reserve, or Doubtful designation excludes a player from the target pool through any of three unioned channels: a strict-PIT report published before kickoff (2016-2024), the weekly report-cycle row for the player's own team-week (the only channel covering 2025/2026, where the PIT feed lacks timestamps), or a weekly-roster-snapshot unavailability",
-   "missing_value_policy": "NaN when no projected player at this position has a prior rating; other/missing statuses (incl. Questionable) and missing PIT timestamps do not exclude the player; exclusion requires an Out/IR/Doubtful designation on one of the three channels; in-model handling",
+   "aggregation": "pace-scaled EPA/game diff (one scaler both sides)",
+   "point_in_time_rule": "s_game inputs strictly-prior; s_game NaN -> NaN",
+   "missing_value_policy": "NaN when the leg or s_game is NaN; in-model handling",
    "representation": "difference (all model families)",
    "model_family_availability": [
     "linear",
     "tree",
     "mlp"
    ],
-   "feature_version": 9
+   "feature_version": 1
   },
-  "epa_te_home": {
-   "description": "Home team's projected-lineup quality",
-   "definition": "The home team's projected EPA per game from the tight ends: each member's shrunk EPA-per-opportunity rating, weighted by his own projected opportunities per game (targets), summed over the lineup",
-   "source": "nflverse play-by-play EPA + opportunity flags; weekly player stats for position labels; weekly roster snapshots (nflverse weekly_rosters)",
+  "pl_epa_te_home": {
+   "description": "Home team's pace-scaled lineup quality",
+   "definition": "The home team's pl_epa_te leg x s_game",
+   "source": "projected-lineup EPA legs x expected-game pace scaler",
    "lookback": "8 player-games; 21-calendar-day roster window",
-   "aggregation": "opportunity-weighted mean by position among the team's top 11 prior-opportunity leaders after excluding players with an Out/IR/Doubtful report published strictly before target kickoff or a weekly-roster-snapshot unavailability (carried RES/SUS/PUP, same-week INA/CUT); each member's weight is his own rolling-8 opportunity total, so the blend is the projected lineup's combined shrunk EPA over combined opportunities",
-   "point_in_time_rule": "rolling(8) player rating from games dated before the target date; candidate ratings come from the prior 21 calendar days to span bye weeks; an Out, IR/Injured Reserve, or Doubtful designation excludes a player from the target pool through any of three unioned channels: a strict-PIT report published before kickoff (2016-2024), the weekly report-cycle row for the player's own team-week (the only channel covering 2025/2026, where the PIT feed lacks timestamps), or a weekly-roster-snapshot unavailability",
-   "missing_value_policy": "NaN when no projected player at this position has a prior rating; other/missing statuses (incl. Questionable) and missing PIT timestamps do not exclude the player; exclusion requires an Out/IR/Doubtful designation on one of the three channels; in-model handling",
-   "representation": "raw home level (tree members)",
+   "aggregation": "pace-scaled EPA/game (one scaler both sides)",
+   "point_in_time_rule": "s_game inputs strictly-prior; s_game NaN -> NaN",
+   "missing_value_policy": "NaN when the leg or s_game is NaN; in-model handling",
+   "representation": "raw side level (tree members)",
    "model_family_availability": [
     "tree"
    ],
-   "feature_version": 9
+   "feature_version": 1
   },
-  "epa_te_away": {
-   "description": "Away team's projected-lineup quality",
-   "definition": "The away team's projected EPA per game from the tight ends: each member's shrunk EPA-per-opportunity rating, weighted by his own projected opportunities per game (targets), summed over the lineup",
-   "source": "nflverse play-by-play EPA + opportunity flags; weekly player stats for position labels; weekly roster snapshots (nflverse weekly_rosters)",
+  "pl_epa_te_away": {
+   "description": "Away team's pace-scaled lineup quality",
+   "definition": "The away team's pl_epa_te leg x s_game",
+   "source": "projected-lineup EPA legs x expected-game pace scaler",
    "lookback": "8 player-games; 21-calendar-day roster window",
-   "aggregation": "opportunity-weighted mean by position among the team's top 11 prior-opportunity leaders after excluding players with an Out/IR/Doubtful report published strictly before target kickoff or a weekly-roster-snapshot unavailability (carried RES/SUS/PUP, same-week INA/CUT); each member's weight is his own rolling-8 opportunity total, so the blend is the projected lineup's combined shrunk EPA over combined opportunities",
-   "point_in_time_rule": "rolling(8) player rating from games dated before the target date; candidate ratings come from the prior 21 calendar days to span bye weeks; an Out, IR/Injured Reserve, or Doubtful designation excludes a player from the target pool through any of three unioned channels: a strict-PIT report published before kickoff (2016-2024), the weekly report-cycle row for the player's own team-week (the only channel covering 2025/2026, where the PIT feed lacks timestamps), or a weekly-roster-snapshot unavailability",
-   "missing_value_policy": "NaN when no projected player at this position has a prior rating; other/missing statuses (incl. Questionable) and missing PIT timestamps do not exclude the player; exclusion requires an Out/IR/Doubtful designation on one of the three channels; in-model handling",
-   "representation": "raw away level (tree members)",
+   "aggregation": "pace-scaled EPA/game (one scaler both sides)",
+   "point_in_time_rule": "s_game inputs strictly-prior; s_game NaN -> NaN",
+   "missing_value_policy": "NaN when the leg or s_game is NaN; in-model handling",
+   "representation": "raw side level (tree members)",
    "model_family_availability": [
     "tree"
    ],
-   "feature_version": 9
+   "feature_version": 1
   },
-  "epa_te_diff": {
-   "description": "Home minus away tight end quality",
-   "definition": "epa_te_home - epa_te_away",
-   "source": "nflverse play-by-play EPA + opportunity flags; weekly player stats for position labels; weekly roster snapshots (nflverse weekly_rosters)",
+  "pl_epa_te_diff": {
+   "description": "Home minus away pace pl_epa_te quality",
+   "definition": "pl_epa_te_home - pl_epa_te_away",
+   "source": "projected-lineup EPA legs x expected-game pace scaler",
    "lookback": "8 player-games; 21-calendar-day roster window",
-   "aggregation": "opportunity-weighted mean by position among the team's top 11 prior-opportunity leaders after excluding players with an Out/IR/Doubtful report published strictly before target kickoff or a weekly-roster-snapshot unavailability (carried RES/SUS/PUP, same-week INA/CUT); each member's weight is his own rolling-8 opportunity total, so the blend is the projected lineup's combined shrunk EPA over combined opportunities",
-   "point_in_time_rule": "rolling(8) player rating from games dated before the target date; candidate ratings come from the prior 21 calendar days to span bye weeks; an Out, IR/Injured Reserve, or Doubtful designation excludes a player from the target pool through any of three unioned channels: a strict-PIT report published before kickoff (2016-2024), the weekly report-cycle row for the player's own team-week (the only channel covering 2025/2026, where the PIT feed lacks timestamps), or a weekly-roster-snapshot unavailability",
-   "missing_value_policy": "NaN when no projected player at this position has a prior rating; other/missing statuses (incl. Questionable) and missing PIT timestamps do not exclude the player; exclusion requires an Out/IR/Doubtful designation on one of the three channels; in-model handling",
+   "aggregation": "pace-scaled EPA/game diff (one scaler both sides)",
+   "point_in_time_rule": "s_game inputs strictly-prior; s_game NaN -> NaN",
+   "missing_value_policy": "NaN when the leg or s_game is NaN; in-model handling",
    "representation": "difference (all model families)",
    "model_family_availability": [
     "linear",
     "tree",
     "mlp"
    ],
-   "feature_version": 9
+   "feature_version": 1
   },
-  "epa_rb_home": {
-   "description": "Home team's projected-lineup quality",
-   "definition": "The home team's projected EPA per game from the running backs: each member's shrunk EPA-per-opportunity rating, weighted by his own projected opportunities per game (rush attempts + targets), summed over the lineup",
-   "source": "nflverse play-by-play EPA + opportunity flags; weekly player stats for position labels; weekly roster snapshots (nflverse weekly_rosters)",
+  "pl_epa_rb_home": {
+   "description": "Home team's pace-scaled lineup quality",
+   "definition": "The home team's pl_epa_rb leg x s_game",
+   "source": "projected-lineup EPA legs x expected-game pace scaler",
    "lookback": "8 player-games; 21-calendar-day roster window",
-   "aggregation": "opportunity-weighted mean by position among the team's top 11 prior-opportunity leaders after excluding players with an Out/IR/Doubtful report published strictly before target kickoff or a weekly-roster-snapshot unavailability (carried RES/SUS/PUP, same-week INA/CUT); each member's weight is his own rolling-8 opportunity total, so the blend is the projected lineup's combined shrunk EPA over combined opportunities",
-   "point_in_time_rule": "rolling(8) player rating from games dated before the target date; candidate ratings come from the prior 21 calendar days to span bye weeks; an Out, IR/Injured Reserve, or Doubtful designation excludes a player from the target pool through any of three unioned channels: a strict-PIT report published before kickoff (2016-2024), the weekly report-cycle row for the player's own team-week (the only channel covering 2025/2026, where the PIT feed lacks timestamps), or a weekly-roster-snapshot unavailability",
-   "missing_value_policy": "NaN when no projected player at this position has a prior rating; other/missing statuses (incl. Questionable) and missing PIT timestamps do not exclude the player; exclusion requires an Out/IR/Doubtful designation on one of the three channels; in-model handling",
-   "representation": "raw home level (tree members)",
+   "aggregation": "pace-scaled EPA/game (one scaler both sides)",
+   "point_in_time_rule": "s_game inputs strictly-prior; s_game NaN -> NaN",
+   "missing_value_policy": "NaN when the leg or s_game is NaN; in-model handling",
+   "representation": "raw side level (tree members)",
    "model_family_availability": [
     "tree"
    ],
-   "feature_version": 9
+   "feature_version": 1
   },
-  "epa_rb_away": {
-   "description": "Away team's projected-lineup quality",
-   "definition": "The away team's projected EPA per game from the running backs: each member's shrunk EPA-per-opportunity rating, weighted by his own projected opportunities per game (rush attempts + targets), summed over the lineup",
-   "source": "nflverse play-by-play EPA + opportunity flags; weekly player stats for position labels; weekly roster snapshots (nflverse weekly_rosters)",
+  "pl_epa_rb_away": {
+   "description": "Away team's pace-scaled lineup quality",
+   "definition": "The away team's pl_epa_rb leg x s_game",
+   "source": "projected-lineup EPA legs x expected-game pace scaler",
    "lookback": "8 player-games; 21-calendar-day roster window",
-   "aggregation": "opportunity-weighted mean by position among the team's top 11 prior-opportunity leaders after excluding players with an Out/IR/Doubtful report published strictly before target kickoff or a weekly-roster-snapshot unavailability (carried RES/SUS/PUP, same-week INA/CUT); each member's weight is his own rolling-8 opportunity total, so the blend is the projected lineup's combined shrunk EPA over combined opportunities",
-   "point_in_time_rule": "rolling(8) player rating from games dated before the target date; candidate ratings come from the prior 21 calendar days to span bye weeks; an Out, IR/Injured Reserve, or Doubtful designation excludes a player from the target pool through any of three unioned channels: a strict-PIT report published before kickoff (2016-2024), the weekly report-cycle row for the player's own team-week (the only channel covering 2025/2026, where the PIT feed lacks timestamps), or a weekly-roster-snapshot unavailability",
-   "missing_value_policy": "NaN when no projected player at this position has a prior rating; other/missing statuses (incl. Questionable) and missing PIT timestamps do not exclude the player; exclusion requires an Out/IR/Doubtful designation on one of the three channels; in-model handling",
-   "representation": "raw away level (tree members)",
+   "aggregation": "pace-scaled EPA/game (one scaler both sides)",
+   "point_in_time_rule": "s_game inputs strictly-prior; s_game NaN -> NaN",
+   "missing_value_policy": "NaN when the leg or s_game is NaN; in-model handling",
+   "representation": "raw side level (tree members)",
    "model_family_availability": [
     "tree"
    ],
-   "feature_version": 9
+   "feature_version": 1
   },
-  "epa_rb_diff": {
-   "description": "Home minus away running back quality",
-   "definition": "epa_rb_home - epa_rb_away",
-   "source": "nflverse play-by-play EPA + opportunity flags; weekly player stats for position labels; weekly roster snapshots (nflverse weekly_rosters)",
+  "pl_epa_rb_diff": {
+   "description": "Home minus away pace pl_epa_rb quality",
+   "definition": "pl_epa_rb_home - pl_epa_rb_away",
+   "source": "projected-lineup EPA legs x expected-game pace scaler",
    "lookback": "8 player-games; 21-calendar-day roster window",
-   "aggregation": "opportunity-weighted mean by position among the team's top 11 prior-opportunity leaders after excluding players with an Out/IR/Doubtful report published strictly before target kickoff or a weekly-roster-snapshot unavailability (carried RES/SUS/PUP, same-week INA/CUT); each member's weight is his own rolling-8 opportunity total, so the blend is the projected lineup's combined shrunk EPA over combined opportunities",
-   "point_in_time_rule": "rolling(8) player rating from games dated before the target date; candidate ratings come from the prior 21 calendar days to span bye weeks; an Out, IR/Injured Reserve, or Doubtful designation excludes a player from the target pool through any of three unioned channels: a strict-PIT report published before kickoff (2016-2024), the weekly report-cycle row for the player's own team-week (the only channel covering 2025/2026, where the PIT feed lacks timestamps), or a weekly-roster-snapshot unavailability",
-   "missing_value_policy": "NaN when no projected player at this position has a prior rating; other/missing statuses (incl. Questionable) and missing PIT timestamps do not exclude the player; exclusion requires an Out/IR/Doubtful designation on one of the three channels; in-model handling",
+   "aggregation": "pace-scaled EPA/game diff (one scaler both sides)",
+   "point_in_time_rule": "s_game inputs strictly-prior; s_game NaN -> NaN",
+   "missing_value_policy": "NaN when the leg or s_game is NaN; in-model handling",
    "representation": "difference (all model families)",
    "model_family_availability": [
     "linear",
     "tree",
     "mlp"
    ],
-   "feature_version": 9
+   "feature_version": 1
+  },
+  "pl_exp_pass_yds_home": {
+   "description": "The home team's Pace-scaled projected-lineup gross passing yards",
+   "definition": "the projected-lineup pl_exp_pass_yds leg x s_game",
+   "source": "projected-lineup passing legs x expected-game pace scaler",
+   "lookback": "8 player-games; 4 trailing games (sides); 30d (pace)",
+   "aggregation": "pace-scaled yards/game (one scaler both sides)",
+   "point_in_time_rule": "s_game inputs strictly-prior; s_game NaN -> NaN",
+   "missing_value_policy": "NaN when the leg or s_game is NaN; in-model handling",
+   "representation": "raw home level (tree members)",
+   "model_family_availability": [
+    "tree"
+   ],
+   "feature_version": 11
+  },
+  "pl_exp_pass_yds_away": {
+   "description": "The away team's Pace-scaled projected-lineup gross passing yards",
+   "definition": "the projected-lineup pl_exp_pass_yds leg x s_game",
+   "source": "projected-lineup passing legs x expected-game pace scaler",
+   "lookback": "8 player-games; 4 trailing games (sides); 30d (pace)",
+   "aggregation": "pace-scaled yards/game (one scaler both sides)",
+   "point_in_time_rule": "s_game inputs strictly-prior; s_game NaN -> NaN",
+   "missing_value_policy": "NaN when the leg or s_game is NaN; in-model handling",
+   "representation": "raw away level (tree members)",
+   "model_family_availability": [
+    "tree"
+   ],
+   "feature_version": 11
+  },
+  "pl_exp_pass_yds_diff": {
+   "description": "Home minus away Pace-scaled projected-lineup gross passing yards",
+   "definition": "pl_exp_pass_yds_home - pl_exp_pass_yds_away",
+   "source": "projected-lineup passing legs x expected-game pace scaler",
+   "lookback": "8 player-games; 4 trailing games (sides); 30d (pace)",
+   "aggregation": "pace-scaled yards/game (one scaler both sides)",
+   "point_in_time_rule": "s_game inputs strictly-prior; s_game NaN -> NaN",
+   "missing_value_policy": "NaN when the leg or s_game is NaN; in-model handling",
+   "representation": "difference (all model families)",
+   "model_family_availability": [
+    "linear",
+    "tree",
+    "mlp"
+   ],
+   "feature_version": 11
+  },
+  "pl_exp_rush_yds_home": {
+   "description": "The home team's Pace-scaled projected-lineup rushing yards",
+   "definition": "the projected-lineup pl_exp_rush_yds leg x s_game",
+   "source": "projected-lineup rushing legs x expected-game pace scaler",
+   "lookback": "8 player-games; 4 trailing games (sides); 30d (pace)",
+   "aggregation": "pace-scaled yards/game (one scaler both sides)",
+   "point_in_time_rule": "s_game inputs strictly-prior; s_game NaN -> NaN",
+   "missing_value_policy": "NaN when the leg or s_game is NaN; in-model handling",
+   "representation": "raw home level (tree members)",
+   "model_family_availability": [
+    "tree"
+   ],
+   "feature_version": 11
+  },
+  "pl_exp_rush_yds_away": {
+   "description": "The away team's Pace-scaled projected-lineup rushing yards",
+   "definition": "the projected-lineup pl_exp_rush_yds leg x s_game",
+   "source": "projected-lineup rushing legs x expected-game pace scaler",
+   "lookback": "8 player-games; 4 trailing games (sides); 30d (pace)",
+   "aggregation": "pace-scaled yards/game (one scaler both sides)",
+   "point_in_time_rule": "s_game inputs strictly-prior; s_game NaN -> NaN",
+   "missing_value_policy": "NaN when the leg or s_game is NaN; in-model handling",
+   "representation": "raw away level (tree members)",
+   "model_family_availability": [
+    "tree"
+   ],
+   "feature_version": 11
+  },
+  "pl_exp_rush_yds_diff": {
+   "description": "Home minus away Pace-scaled projected-lineup rushing yards",
+   "definition": "pl_exp_rush_yds_home - pl_exp_rush_yds_away",
+   "source": "projected-lineup rushing legs x expected-game pace scaler",
+   "lookback": "8 player-games; 4 trailing games (sides); 30d (pace)",
+   "aggregation": "pace-scaled yards/game (one scaler both sides)",
+   "point_in_time_rule": "s_game inputs strictly-prior; s_game NaN -> NaN",
+   "missing_value_policy": "NaN when the leg or s_game is NaN; in-model handling",
+   "representation": "difference (all model families)",
+   "model_family_availability": [
+    "linear",
+    "tree",
+    "mlp"
+   ],
+   "feature_version": 11
   },
   "pbp_air_yards_att_ewm_diff": {
    "description": "Home minus away trailing air yards per attempt",
@@ -1048,6 +1136,53 @@
    ],
    "feature_version": 4,
    "candidate": false
+  },
+  "pbp_pbwr_edge_ewm_diff": {
+   "description": "Home minus away trailing net pass-block-win matchup edge",
+   "definition": "pbp_pbwr_edge_ewm_home - pbp_pbwr_edge_ewm_away \u2014 Team own shrunk prior OL clean-pocket rate minus the opponent shrunk prior DL pressure rate, both strictly prior (positive = this team QB walks into a cleaner pocket than the opposing rush usually allows); the served diff is (home OL - away DL) - (away OL - home DL)",
+   "source": "nflverse play-by-play (per-game rollup)",
+   "lookback": "decaying (halflife=2 games)",
+   "aggregation": "per-team trailing mean of the per-game metric",
+   "point_in_time_rule": "per-team EWM (halflife=2) of the per-game metric then shift(1) \u2014 current and future games excluded",
+   "missing_value_policy": "NaN when the team has no prior games, the source data is unavailable for a season (pre-v3 pbp cache / unpublished season / absent source column); in-model handling",
+   "representation": "difference (all model families)",
+   "model_family_availability": [
+    "linear",
+    "tree",
+    "mlp"
+   ],
+   "feature_version": 4,
+   "candidate": false
+  },
+  "pbp_pbwr_edge_ewm_home": {
+   "description": "Home team's trailing net pass-block-win matchup edge",
+   "definition": "The home team's own Team own shrunk prior OL clean-pocket rate minus the opponent shrunk prior DL pressure rate, both strictly prior (positive = this team QB walks into a cleaner pocket than the opposing rush usually allows); the served diff is (home OL - away DL) - (away OL - home DL) \u2014 Team own shrunk prior OL clean-pocket rate minus the opponent shrunk prior DL pressure rate, both strictly prior (positive = this team QB walks into a cleaner pocket than the opposing rush usually allows); the served diff is (home OL - away DL) - (away OL - home DL)",
+   "source": "nflverse play-by-play (per-game rollup)",
+   "lookback": "decaying (halflife=2 games)",
+   "aggregation": "per-team trailing mean of the per-game metric",
+   "point_in_time_rule": "per-team EWM (halflife=2) of the per-game metric then shift(1) \u2014 current and future games excluded",
+   "missing_value_policy": "NaN when the team has no prior games, the source data is unavailable for a season (pre-v3 pbp cache / unpublished season / absent source column); in-model handling",
+   "representation": "raw home level (tree members)",
+   "model_family_availability": [
+    "tree"
+   ],
+   "feature_version": 4,
+   "candidate": false
+  },
+  "pbp_pbwr_edge_ewm_away": {
+   "description": "Away team's trailing net pass-block-win matchup edge",
+   "definition": "The away team's own Team own shrunk prior OL clean-pocket rate minus the opponent shrunk prior DL pressure rate, both strictly prior (positive = this team QB walks into a cleaner pocket than the opposing rush usually allows); the served diff is (home OL - away DL) - (away OL - home DL) \u2014 Team own shrunk prior OL clean-pocket rate minus the opponent shrunk prior DL pressure rate, both strictly prior (positive = this team QB walks into a cleaner pocket than the opposing rush usually allows); the served diff is (home OL - away DL) - (away OL - home DL)",
+   "source": "nflverse play-by-play (per-game rollup)",
+   "lookback": "decaying (halflife=2 games)",
+   "aggregation": "per-team trailing mean of the per-game metric",
+   "point_in_time_rule": "per-team EWM (halflife=2) of the per-game metric then shift(1) \u2014 current and future games excluded",
+   "missing_value_policy": "NaN when the team has no prior games, the source data is unavailable for a season (pre-v3 pbp cache / unpublished season / absent source column); in-model handling",
+   "representation": "raw away level (tree members)",
+   "model_family_availability": [
+    "tree"
+   ],
+   "feature_version": 4,
+   "candidate": false
   }
  },
  "served_columns": [
@@ -1090,18 +1225,24 @@
   "rest_days_away",
   "pace_plays_min_home",
   "pace_plays_min_away",
-  "epa_qb_home",
-  "epa_qb_away",
-  "epa_qb_diff",
-  "epa_wr_home",
-  "epa_wr_away",
-  "epa_wr_diff",
-  "epa_te_home",
-  "epa_te_away",
-  "epa_te_diff",
-  "epa_rb_home",
-  "epa_rb_away",
-  "epa_rb_diff",
+  "pl_epa_qb_home",
+  "pl_epa_qb_away",
+  "pl_epa_qb_diff",
+  "pl_epa_wr_home",
+  "pl_epa_wr_away",
+  "pl_epa_wr_diff",
+  "pl_epa_te_home",
+  "pl_epa_te_away",
+  "pl_epa_te_diff",
+  "pl_epa_rb_home",
+  "pl_epa_rb_away",
+  "pl_epa_rb_diff",
+  "pl_exp_pass_yds_home",
+  "pl_exp_pass_yds_away",
+  "pl_exp_pass_yds_diff",
+  "pl_exp_rush_yds_home",
+  "pl_exp_rush_yds_away",
+  "pl_exp_rush_yds_diff",
   "inj_ol_out_home",
   "inj_ol_out_away",
   "inj_ol_out_diff",
@@ -1120,549 +1261,615 @@
   "def_key_out_home",
   "def_key_out_away",
   "def_key_out_diff",
+  "pbp_pbwr_edge_ewm_diff",
+  "pbp_pbwr_edge_ewm_home",
+  "pbp_pbwr_edge_ewm_away",
   "is_home"
  ],
  "coverage": [
   {
    "feature": "elo_diff",
-   "n_games": 2869,
+   "n_games": 2897,
    "coverage_pct": 100.0,
-   "mean": 0.6011936179563269,
-   "std": 121.4808422944262
+   "mean": 0.7538861805944105,
+   "std": 121.54437275526486
   },
   {
    "feature": "win_pct_diff",
-   "n_games": 2869,
-   "coverage_pct": 99.44,
-   "mean": 0.0001957889444745388,
-   "std": 0.2836734135561521
+   "n_games": 2897,
+   "coverage_pct": 99.45,
+   "mean": 0.000324049239356424,
+   "std": 0.2836532874840009
   },
   {
    "feature": "rest_days_diff",
-   "n_games": 2869,
-   "coverage_pct": 93.83,
-   "mean": 0.03863298662704309,
-   "std": 2.5600177507594113
+   "n_games": 2897,
+   "coverage_pct": 93.89,
+   "mean": 0.04007352941176471,
+   "std": 2.5777096374686517
   },
   {
    "feature": "is_dome_home",
-   "n_games": 2869,
+   "n_games": 2897,
    "coverage_pct": 100.0,
-   "mean": 0.2879051934471941,
-   "std": 0.4528656278876942
+   "mean": 0.28753883327580254,
+   "std": 0.4526930435424195
   },
   {
    "feature": "ewm_net_pts_diff",
-   "n_games": 2869,
-   "coverage_pct": 99.44,
-   "mean": -0.31182169380609376,
-   "std": 10.081123950919878
+   "n_games": 2897,
+   "coverage_pct": 99.45,
+   "mean": -0.31666793202847143,
+   "std": 10.077071975805842
   },
   {
    "feature": "ewm_ypp_diff",
-   "n_games": 2869,
-   "coverage_pct": 99.44,
-   "mean": -0.007905015817683995,
-   "std": 0.6884180109844801
+   "n_games": 2897,
+   "coverage_pct": 90.2,
+   "mean": -0.002273109863582147,
+   "std": 0.6946166022028729
   },
   {
    "feature": "pace_plays_min_diff",
-   "n_games": 2869,
-   "coverage_pct": 99.44,
-   "mean": -0.002082898010254262,
-   "std": 0.12267430400628493
+   "n_games": 2897,
+   "coverage_pct": 90.2,
+   "mean": -0.0019483291474195548,
+   "std": 0.1228943170832613
   },
   {
    "feature": "rest_short_diff",
-   "n_games": 2869,
+   "n_games": 2897,
    "coverage_pct": 100.0,
-   "mean": 0.013593586615545486,
-   "std": 0.3603761062811699
+   "mean": 0.014152571625819814,
+   "std": 0.36052627305743973
   },
   {
    "feature": "rest_short_home",
-   "n_games": 2869,
+   "n_games": 2897,
    "coverage_pct": 100.0,
-   "mean": 0.15580341582432902,
-   "std": 0.36273209427875425
+   "mean": 0.15567828788401794,
+   "std": 0.3626126668903474
   },
   {
    "feature": "rest_short_away",
-   "n_games": 2869,
+   "n_games": 2897,
    "coverage_pct": 100.0,
-   "mean": 0.14220982920878356,
-   "std": 0.3493261044146618
+   "mean": 0.14152571625819813,
+   "std": 0.3486232077750315
   },
   {
    "feature": "div_game",
-   "n_games": 2869,
+   "n_games": 2897,
    "coverage_pct": 100.0,
-   "mean": 0.3520390379923318,
-   "std": 0.4776893228145339
+   "mean": 0.35174318260269244,
+   "std": 0.47759674648608125
   },
   {
    "feature": "travel_miles_diff",
-   "n_games": 2869,
-   "coverage_pct": 98.71,
-   "mean": -935.9735666401181,
-   "std": 682.4684975656098
+   "n_games": 2897,
+   "coverage_pct": 98.72,
+   "mean": -934.7337587280222,
+   "std": 681.931644778348
   },
   {
    "feature": "altitude_home",
-   "n_games": 2869,
+   "n_games": 2897,
    "coverage_pct": 100.0,
-   "mean": 597.1364935517603,
-   "std": 964.5748010260505
+   "mean": 596.9546427338627,
+   "std": 965.0860080756715
   },
   {
    "feature": "prime_time",
-   "n_games": 2869,
+   "n_games": 2897,
    "coverage_pct": 100.0,
-   "mean": 0.22028581387242943,
-   "std": 0.41451159512605484
+   "mean": 0.21988263721090784,
+   "std": 0.41423845126752207
   },
   {
    "feature": "is_turf_home",
-   "n_games": 2869,
-   "coverage_pct": 96.97,
+   "n_games": 2897,
+   "coverage_pct": 96.03,
    "mean": 0.4284687275341481,
    "std": 0.4949457878337749
   },
   {
    "feature": "temp_f",
-   "n_games": 2869,
-   "coverage_pct": 71.21,
-   "mean": 57.81894273127754,
-   "std": 17.242769878514228
+   "n_games": 2897,
+   "coverage_pct": 71.25,
+   "mean": 57.85949612403101,
+   "std": 17.185926248415626
   },
   {
    "feature": "wind_mph",
-   "n_games": 2869,
-   "coverage_pct": 71.21,
-   "mean": 7.917278511992169,
-   "std": 4.438845535807423
+   "n_games": 2897,
+   "coverage_pct": 71.25,
+   "mean": 7.903924418604651,
+   "std": 4.435599290133393
   },
   {
    "feature": "is_precip",
-   "n_games": 2869,
-   "coverage_pct": 71.21,
-   "mean": 0.012236906510034264,
-   "std": 0.10996855871832888
+   "n_games": 2897,
+   "coverage_pct": 71.25,
+   "mean": 0.012596899224806201,
+   "std": 0.1115537831897376
   },
   {
    "feature": "is_snow",
-   "n_games": 2869,
-   "coverage_pct": 71.21,
-   "mean": 0.006852667645619187,
-   "std": 0.08251691618030024
+   "n_games": 2897,
+   "coverage_pct": 71.25,
+   "mean": 0.006782945736434108,
+   "std": 0.08209873924605837
   },
   {
    "feature": "pbp_air_yards_att_ewm_diff",
-   "n_games": 2869,
-   "coverage_pct": 99.44,
-   "mean": -0.006250691428667458,
-   "std": 1.5605737341298622
+   "n_games": 2897,
+   "coverage_pct": 90.2,
+   "mean": -0.004074620306886768,
+   "std": 1.5863742730698867
   },
   {
    "feature": "pbp_air_yards_att_ewm_home",
-   "n_games": 2869,
-   "coverage_pct": 99.44,
-   "mean": 7.970793056138912,
-   "std": 1.1205860903130864
+   "n_games": 2897,
+   "coverage_pct": 90.23,
+   "mean": 7.92187488604922,
+   "std": 1.1237230824391802
   },
   {
    "feature": "pbp_air_yards_att_ewm_away",
-   "n_games": 2869,
-   "coverage_pct": 99.44,
-   "mean": 7.97704374756758,
-   "std": 1.1136804041392743
+   "n_games": 2897,
+   "coverage_pct": 90.23,
+   "mean": 7.925307167174657,
+   "std": 1.123942136690122
   },
   {
    "feature": "pbp_def_epa_play_ewm_diff",
-   "n_games": 2869,
-   "coverage_pct": 99.44,
-   "mean": -0.00020961881803164623,
-   "std": 0.10733438072151151
+   "n_games": 2897,
+   "coverage_pct": 90.2,
+   "mean": -0.0006116241376632311,
+   "std": 0.10859144222094963
   },
   {
    "feature": "pbp_def_epa_play_ewm_home",
-   "n_games": 2869,
-   "coverage_pct": 99.44,
-   "mean": -0.009179645078806871,
-   "std": 0.07564198899434224
+   "n_games": 2897,
+   "coverage_pct": 90.23,
+   "mean": -0.009406842684682608,
+   "std": 0.0776895291668821
   },
   {
    "feature": "pbp_def_epa_play_ewm_away",
-   "n_games": 2869,
-   "coverage_pct": 99.44,
-   "mean": -0.008970026260775225,
-   "std": 0.07891366542938205
+   "n_games": 2897,
+   "coverage_pct": 90.23,
+   "mean": -0.008709431890374873,
+   "std": 0.07956089512063594
   },
   {
    "feature": "travel_miles_home",
-   "n_games": 2869,
-   "coverage_pct": 98.81,
-   "mean": 76.72489744426893,
-   "std": 571.4360050656555
+   "n_games": 2897,
+   "coverage_pct": 98.83,
+   "mean": 77.48150054391226,
+   "std": 574.1725925879208
   },
   {
    "feature": "travel_miles_away",
-   "n_games": 2869,
-   "coverage_pct": 99.23,
-   "mean": 1014.0432671268585,
-   "std": 778.6232882706604
+   "n_games": 2897,
+   "coverage_pct": 99.24,
+   "mean": 1013.5502756696395,
+   "std": 779.2884016352018
   },
   {
    "feature": "elo_home",
-   "n_games": 2869,
+   "n_games": 2897,
    "coverage_pct": 100.0,
-   "mean": 1504.8870917249064,
-   "std": 90.86304987349305
+   "mean": 1504.949239498438,
+   "std": 90.83134307565625
   },
   {
    "feature": "elo_away",
-   "n_games": 2869,
+   "n_games": 2897,
    "coverage_pct": 100.0,
-   "mean": 1504.2858981069505,
-   "std": 87.73395670140037
+   "mean": 1504.1953533178437,
+   "std": 87.7495126257594
   },
   {
    "feature": "win_pct_home",
-   "n_games": 2869,
-   "coverage_pct": 99.44,
-   "mean": 0.5005538333614044,
-   "std": 0.2082291829805555
+   "n_games": 2897,
+   "coverage_pct": 99.45,
+   "mean": 0.5004616753141571,
+   "std": 0.20821014781542804
   },
   {
    "feature": "win_pct_away",
-   "n_games": 2869,
-   "coverage_pct": 99.44,
-   "mean": 0.5003580444169298,
-   "std": 0.20557477729610152
+   "n_games": 2897,
+   "coverage_pct": 99.45,
+   "mean": 0.5001376260748006,
+   "std": 0.2054803252691689
   },
   {
    "feature": "ewm_net_pts_home",
-   "n_games": 2869,
-   "coverage_pct": 99.44,
-   "mean": -0.15346174284355113,
-   "std": 7.49745258377297
+   "n_games": 2897,
+   "coverage_pct": 99.45,
+   "mean": -0.1573136504762283,
+   "std": 7.487308432622706
   },
   {
    "feature": "ewm_net_pts_away",
-   "n_games": 2869,
-   "coverage_pct": 99.44,
-   "mean": 0.15835995096254266,
-   "std": 7.356613926197992
+   "n_games": 2897,
+   "coverage_pct": 99.45,
+   "mean": 0.15935428155224313,
+   "std": 7.3499457484036865
   },
   {
    "feature": "ewm_ypp_home",
-   "n_games": 2869,
-   "coverage_pct": 99.44,
-   "mean": 4.201248655726621,
-   "std": 0.5028618094846689
+   "n_games": 2897,
+   "coverage_pct": 90.23,
+   "mean": 4.197012799182637,
+   "std": 0.5086793824777798
   },
   {
    "feature": "ewm_ypp_away",
-   "n_games": 2869,
-   "coverage_pct": 99.44,
-   "mean": 4.209153671544305,
-   "std": 0.4970885509795969
+   "n_games": 2897,
+   "coverage_pct": 90.23,
+   "mean": 4.199401753487208,
+   "std": 0.5049130972801383
   },
   {
    "feature": "rest_days_home",
-   "n_games": 2869,
-   "coverage_pct": 93.87,
-   "mean": 7.505012996658002,
-   "std": 2.179294561603654
+   "n_games": 2897,
+   "coverage_pct": 93.92,
+   "mean": 7.511944138184491,
+   "std": 2.1873518282178095
   },
   {
    "feature": "rest_days_away",
-   "n_games": 2869,
-   "coverage_pct": 93.87,
-   "mean": 7.466765688822874,
-   "std": 2.0746001180368006
+   "n_games": 2897,
+   "coverage_pct": 93.92,
+   "mean": 7.472252848217567,
+   "std": 2.0791467326872834
   },
   {
    "feature": "pace_plays_min_home",
-   "n_games": 2869,
-   "coverage_pct": 99.44,
-   "mean": 1.3553429989577903,
-   "std": 0.08924823854407238
+   "n_games": 2897,
+   "coverage_pct": 90.23,
+   "mean": 1.3522855426122864,
+   "std": 0.08859447622106682
   },
   {
    "feature": "pace_plays_min_away",
-   "n_games": 2869,
-   "coverage_pct": 99.44,
-   "mean": 1.3574258969680444,
-   "std": 0.08836978064089585
+   "n_games": 2897,
+   "coverage_pct": 90.23,
+   "mean": 1.3542841338118046,
+   "std": 0.08845041746566097
   },
   {
-   "feature": "epa_qb_home",
-   "n_games": 2869,
-   "coverage_pct": 92.09,
-   "mean": 0.8052291663571826,
-   "std": 4.3528462127412215
+   "feature": "pl_epa_qb_home",
+   "n_games": 2897,
+   "coverage_pct": 88.78,
+   "mean": 0.7884098227312072,
+   "std": 4.50681925046446
   },
   {
-   "feature": "epa_qb_away",
-   "n_games": 2869,
-   "coverage_pct": 91.91,
-   "mean": 0.7755976941216565,
-   "std": 4.370926850177781
+   "feature": "pl_epa_qb_away",
+   "n_games": 2897,
+   "coverage_pct": 88.85,
+   "mean": 0.7175672328576465,
+   "std": 4.4466262557217835
   },
   {
-   "feature": "epa_qb_diff",
-   "n_games": 2869,
-   "coverage_pct": 90.73,
-   "mean": 0.011829741740445491,
-   "std": 6.010921793437446
+   "feature": "pl_epa_qb_diff",
+   "n_games": 2897,
+   "coverage_pct": 87.81,
+   "mean": 0.06821838792627542,
+   "std": 6.19172263359782
   },
   {
-   "feature": "epa_wr_home",
-   "n_games": 2869,
-   "coverage_pct": 93.13,
-   "mean": 4.77354071987612,
-   "std": 3.386537660452517
+   "feature": "pl_epa_wr_home",
+   "n_games": 2897,
+   "coverage_pct": 89.85,
+   "mean": 4.9666242875191,
+   "std": 3.5745077551506994
   },
   {
-   "feature": "epa_wr_away",
-   "n_games": 2869,
-   "coverage_pct": 93.1,
-   "mean": 4.752372938828126,
-   "std": 3.415320318915966
+   "feature": "pl_epa_wr_away",
+   "n_games": 2897,
+   "coverage_pct": 89.82,
+   "mean": 4.899087796903979,
+   "std": 3.564370876488256
   },
   {
-   "feature": "epa_wr_diff",
-   "n_games": 2869,
-   "coverage_pct": 92.89,
-   "mean": 0.021168064320207194,
-   "std": 4.682361215850607
+   "feature": "pl_epa_wr_diff",
+   "n_games": 2897,
+   "coverage_pct": 89.82,
+   "mean": 0.06874662015033192,
+   "std": 4.835285360579036
   },
   {
-   "feature": "epa_te_home",
-   "n_games": 2869,
-   "coverage_pct": 92.3,
-   "mean": 1.7167471256841877,
-   "std": 1.7626228233026076
+   "feature": "pl_epa_te_home",
+   "n_games": 2897,
+   "coverage_pct": 89.13,
+   "mean": 1.6942552020721426,
+   "std": 1.8225782430865252
   },
   {
-   "feature": "epa_te_away",
-   "n_games": 2869,
-   "coverage_pct": 92.33,
-   "mean": 1.6693678578993778,
-   "std": 1.7281971105432332
+   "feature": "pl_epa_te_away",
+   "n_games": 2897,
+   "coverage_pct": 89.2,
+   "mean": 1.6204824855569107,
+   "std": 1.7867140102248829
   },
   {
-   "feature": "epa_te_diff",
-   "n_games": 2869,
-   "coverage_pct": 91.32,
-   "mean": 0.046841969371131185,
-   "std": 2.458159501125023
+   "feature": "pl_epa_te_diff",
+   "n_games": 2897,
+   "coverage_pct": 88.47,
+   "mean": 0.07724701401202418,
+   "std": 2.5464018170569296
   },
   {
-   "feature": "epa_rb_home",
-   "n_games": 2869,
-   "coverage_pct": 93.13,
-   "mean": -1.6323105870913703,
-   "std": 2.565084770513063
+   "feature": "pl_epa_rb_home",
+   "n_games": 2897,
+   "coverage_pct": 89.85,
+   "mean": -1.6302400163828057,
+   "std": 2.5691779556544247
   },
   {
-   "feature": "epa_rb_away",
-   "n_games": 2869,
-   "coverage_pct": 93.1,
-   "mean": -1.6415341056086203,
-   "std": 2.5196581049607096
+   "feature": "pl_epa_rb_away",
+   "n_games": 2897,
+   "coverage_pct": 89.82,
+   "mean": -1.6649271164947552,
+   "std": 2.538920416275501
   },
   {
-   "feature": "epa_rb_diff",
-   "n_games": 2869,
-   "coverage_pct": 92.89,
-   "mean": 0.010066024264267656,
-   "std": 3.610312680177327
+   "feature": "pl_epa_rb_diff",
+   "n_games": 2897,
+   "coverage_pct": 89.82,
+   "mean": 0.03530291248796962,
+   "std": 3.6322716338134864
+  },
+  {
+   "feature": "pl_exp_pass_yds_home",
+   "n_games": 2897,
+   "coverage_pct": 88.82,
+   "mean": 240.55837603822107,
+   "std": 62.08405495169654
+  },
+  {
+   "feature": "pl_exp_pass_yds_away",
+   "n_games": 2897,
+   "coverage_pct": 88.75,
+   "mean": 240.70361781288295,
+   "std": 58.301806939121484
+  },
+  {
+   "feature": "pl_exp_pass_yds_diff",
+   "n_games": 2897,
+   "coverage_pct": 87.75,
+   "mean": -0.005145842858346595,
+   "std": 73.83707204255606
+  },
+  {
+   "feature": "pl_exp_rush_yds_home",
+   "n_games": 2897,
+   "coverage_pct": 89.85,
+   "mean": 125.48404455208738,
+   "std": 35.51496098267831
+  },
+  {
+   "feature": "pl_exp_rush_yds_away",
+   "n_games": 2897,
+   "coverage_pct": 89.85,
+   "mean": 126.5438970774037,
+   "std": 36.422339124563464
+  },
+  {
+   "feature": "pl_exp_rush_yds_diff",
+   "n_games": 2897,
+   "coverage_pct": 89.85,
+   "mean": -1.059852525316313,
+   "std": 46.1604284641193
   },
   {
    "feature": "inj_ol_out_home",
-   "n_games": 2869,
+   "n_games": 2897,
    "coverage_pct": 100.0,
-   "mean": 2.3028929940745906,
-   "std": 1.5524069119965287
+   "mean": 2.294442526751812,
+   "std": 1.5506905123693226
   },
   {
    "feature": "inj_ol_out_away",
-   "n_games": 2869,
+   "n_games": 2897,
    "coverage_pct": 100.0,
-   "mean": 2.315092366678285,
-   "std": 1.5338073634183307
+   "mean": 2.3068691750086296,
+   "std": 1.5330377914339393
   },
   {
    "feature": "inj_ol_out_diff",
-   "n_games": 2869,
+   "n_games": 2897,
    "coverage_pct": 100.0,
-   "mean": -0.012199372603694667,
-   "std": 2.013602022220596
+   "mean": -0.012426648256817397,
+   "std": 2.0114960212048087
   },
   {
    "feature": "ol_snaps_lost_share_home",
-   "n_games": 2869,
+   "n_games": 2897,
    "coverage_pct": 100.0,
-   "mean": 1.4627173189596507,
-   "std": 1.1273113279956508
+   "mean": 1.4568017818104115,
+   "std": 1.1264927697212284
   },
   {
    "feature": "ol_snaps_lost_share_away",
-   "n_games": 2869,
+   "n_games": 2897,
    "coverage_pct": 100.0,
-   "mean": 1.4809642276220352,
-   "std": 1.1163424285493257
+   "mean": 1.4746729868336705,
+   "std": 1.1162475519741422
   },
   {
    "feature": "ol_snaps_lost_share_diff",
-   "n_games": 2869,
+   "n_games": 2897,
    "coverage_pct": 100.0,
-   "mean": -0.01824690866238445,
-   "std": 1.4956928918648487
+   "mean": -0.01787120502325888,
+   "std": 1.493617564031036
   },
   {
    "feature": "ol_key_out_home",
-   "n_games": 2869,
+   "n_games": 2897,
    "coverage_pct": 100.0,
-   "mean": 0.7176716626002091,
-   "std": 0.45021072344430607
+   "mean": 0.7162581981360028,
+   "std": 0.4508908611513711
   },
   {
    "feature": "ol_key_out_away",
-   "n_games": 2869,
+   "n_games": 2897,
    "coverage_pct": 100.0,
-   "mean": 0.7337051237364935,
-   "std": 0.4420973195297408
+   "mean": 0.731446323783224,
+   "std": 0.44328368810890295
   },
   {
    "feature": "ol_key_out_diff",
-   "n_games": 2869,
+   "n_games": 2897,
    "coverage_pct": 100.0,
-   "mean": -0.01603346113628442,
-   "std": 0.6196633980746643
+   "mean": -0.015188125647221263,
+   "std": 0.6205871068649682
   },
   {
    "feature": "inj_def_out_home",
-   "n_games": 2869,
+   "n_games": 2897,
    "coverage_pct": 100.0,
-   "mean": 7.139769954688044,
-   "std": 3.27350167201913
+   "mean": 7.1266827752847774,
+   "std": 3.2674577559582985
   },
   {
    "feature": "inj_def_out_away",
-   "n_games": 2869,
+   "n_games": 2897,
    "coverage_pct": 100.0,
-   "mean": 7.189264552108749,
-   "std": 3.323043533005115
+   "mean": 7.183983431135657,
+   "std": 3.3130276516684445
   },
   {
    "feature": "inj_def_out_diff",
-   "n_games": 2869,
+   "n_games": 2897,
    "coverage_pct": 100.0,
-   "mean": -0.04949459742070408,
-   "std": 4.089436495810446
+   "mean": -0.05730065585088022,
+   "std": 4.08636427153086
   },
   {
    "feature": "def_snaps_lost_share_home",
-   "n_games": 2869,
+   "n_games": 2897,
    "coverage_pct": 100.0,
-   "mean": 3.0798961186077776,
-   "std": 1.6083045140910124
+   "mean": 3.074919617173759,
+   "std": 1.606159447446886
   },
   {
    "feature": "def_snaps_lost_share_away",
-   "n_games": 2869,
+   "n_games": 2897,
    "coverage_pct": 100.0,
-   "mean": 3.114458015900679,
-   "std": 1.6122187181294307
+   "mean": 3.1134102643128356,
+   "std": 1.6107659962331566
   },
   {
    "feature": "def_snaps_lost_share_diff",
-   "n_games": 2869,
+   "n_games": 2897,
    "coverage_pct": 100.0,
-   "mean": -0.034561897292901135,
-   "std": 2.1135179554826014
+   "mean": -0.03849064713907655,
+   "std": 2.1164015122367417
   },
   {
    "feature": "def_key_out_home",
-   "n_games": 2869,
+   "n_games": 2897,
    "coverage_pct": 100.0,
-   "mean": 0.8525618682467759,
-   "std": 0.35460394464137357
+   "mean": 0.8526061442871936,
+   "std": 0.35455930529394086
   },
   {
    "feature": "def_key_out_away",
-   "n_games": 2869,
+   "n_games": 2897,
    "coverage_pct": 100.0,
-   "mean": 0.8581387242941791,
-   "std": 0.3489686242243989
+   "mean": 0.8577839143942009,
+   "std": 0.34933192589727974
   },
   {
    "feature": "def_key_out_diff",
-   "n_games": 2869,
+   "n_games": 2897,
    "coverage_pct": 100.0,
-   "mean": -0.0055768560474032764,
-   "std": 0.48689620202080486
+   "mean": -0.0051777701070072485,
+   "std": 0.4877371690575328
+  },
+  {
+   "feature": "pbp_pbwr_edge_ewm_diff",
+   "n_games": 2897,
+   "coverage_pct": 89.71,
+   "mean": 0.0004897068472351987,
+   "std": 0.05801319168964337
+  },
+  {
+   "feature": "pbp_pbwr_edge_ewm_home",
+   "n_games": 2897,
+   "coverage_pct": 89.71,
+   "mean": 0.6567841615535592,
+   "std": 0.04250827578605235
+  },
+  {
+   "feature": "pbp_pbwr_edge_ewm_away",
+   "n_games": 2897,
+   "coverage_pct": 89.71,
+   "mean": 0.6562944547063241,
+   "std": 0.042745728441480536
   },
   {
    "feature": "is_home",
-   "n_games": 2869,
+   "n_games": 2897,
    "coverage_pct": 100.0,
    "mean": 1.0,
    "std": 0.0
   }
  ],
  "fold_geometry": {
-  "n_folds": 203,
+  "n_folds": 204,
   "first_val_start": "2017-09-07",
-  "last_val_end": "2026-11-04",
+  "last_val_end": "2026-11-11",
   "min_train": 267,
-  "max_train": 2868,
-  "total_val_games": 2602,
-  "n_candidates": 203,
+  "max_train": 2882,
+  "total_val_games": 2630,
+  "n_candidates": 204,
   "dropped_windows": 0,
   "dropped_games": 0,
   "provisional_windows": 95,
-  "provisional_games": 898,
+  "provisional_games": 911,
   "postseason_windows": 36,
   "min_val_fold_games": 15,
   "oof_regular": {
-   "n": 1704,
-   "auc": 0.6999505643441166,
-   "logloss": 0.6277336186892353,
-   "brier": 0.21907766380637253,
-   "ece": 0.03239452860639328,
+   "n": 1719,
+   "auc": 0.7047855150012682,
+   "logloss": 0.6252077856914153,
+   "brier": 0.21788747531048017,
+   "ece": 0.026517957326918164,
    "sufficient": true
   },
   "oof_postseason": {
    "n": 111,
-   "auc": 0.6331953071083506,
-   "logloss": 0.6352939738548932,
-   "brier": 0.2222495212935731,
-   "ece": 0.053767511756845215,
+   "auc": 0.6432022084195999,
+   "logloss": 0.6291781095467303,
+   "brier": 0.21943558998128815,
+   "ece": 0.1143476342601758,
    "sufficient": true
   },
   "oof_provisional": {
-   "n": 898,
-   "auc": 0.6854363796063402,
-   "logloss": 0.6378838272434284,
-   "brier": 0.2234235189761028,
-   "ece": 0.03273155602164156,
+   "n": 911,
+   "auc": 0.6861855449983987,
+   "logloss": 0.6374901595922311,
+   "brier": 0.2231119003231679,
+   "ece": 0.028032414197591952,
    "sufficient": true
   },
   "oof_all": {
-   "n": 2602,
-   "auc": 0.6951942533387292,
-   "logloss": 0.6312366499273849,
-   "brier": 0.22057750160130632,
-   "ece": 0.02515722078925606,
+   "n": 2630,
+   "auc": 0.6985900201758515,
+   "logloss": 0.6294622505673253,
+   "brier": 0.21969715256772673,
+   "ece": 0.023361510478472753,
    "sufficient": true
   }
  },
  "config": {
-  "feature_set_version": "nfl-prod-v9.9-pending-state",
+  "feature_set_version": "nfl-prod-v10.2-pbwr",
   "warmup_seasons": [
    2016
   ],
@@ -1744,18 +1951,24 @@
     "rest_days_away",
     "pace_plays_min_home",
     "pace_plays_min_away",
-    "epa_qb_home",
-    "epa_qb_away",
-    "epa_qb_diff",
-    "epa_wr_home",
-    "epa_wr_away",
-    "epa_wr_diff",
-    "epa_te_home",
-    "epa_te_away",
-    "epa_te_diff",
-    "epa_rb_home",
-    "epa_rb_away",
-    "epa_rb_diff",
+    "pl_epa_qb_home",
+    "pl_epa_qb_away",
+    "pl_epa_qb_diff",
+    "pl_epa_wr_home",
+    "pl_epa_wr_away",
+    "pl_epa_wr_diff",
+    "pl_epa_te_home",
+    "pl_epa_te_away",
+    "pl_epa_te_diff",
+    "pl_epa_rb_home",
+    "pl_epa_rb_away",
+    "pl_epa_rb_diff",
+    "pl_exp_pass_yds_home",
+    "pl_exp_pass_yds_away",
+    "pl_exp_pass_yds_diff",
+    "pl_exp_rush_yds_home",
+    "pl_exp_rush_yds_away",
+    "pl_exp_rush_yds_diff",
     "inj_ol_out_home",
     "inj_ol_out_away",
     "inj_ol_out_diff",
@@ -1774,6 +1987,9 @@
     "def_key_out_home",
     "def_key_out_away",
     "def_key_out_diff",
+    "pbp_pbwr_edge_ewm_diff",
+    "pbp_pbwr_edge_ewm_home",
+    "pbp_pbwr_edge_ewm_away",
     "is_home"
    ],
    "appended_categorical_cols": [
@@ -2321,8 +2537,8 @@
      "n_prior": 503,
      "decision": "identity",
      "reason": "gated_no_gain",
-     "nested_holdout_logloss": 0.63895,
-     "raw_logloss": 0.634164,
+     "nested_holdout_logloss": 0.637577,
+     "raw_logloss": 0.631844,
      "params": null,
      "fold_id": 57
     },
@@ -2330,8 +2546,8 @@
      "n_prior": 519,
      "decision": "identity",
      "reason": "gated_no_gain",
-     "nested_holdout_logloss": 0.627837,
-     "raw_logloss": 0.626888,
+     "nested_holdout_logloss": 0.62659,
+     "raw_logloss": 0.625049,
      "params": null,
      "fold_id": 58
     },
@@ -2339,8 +2555,8 @@
      "n_prior": 535,
      "decision": "identity",
      "reason": "gated_no_gain",
-     "nested_holdout_logloss": 0.633877,
-     "raw_logloss": 0.631932,
+     "nested_holdout_logloss": 0.634136,
+     "raw_logloss": 0.631582,
      "params": null,
      "fold_id": 59
     },
@@ -2348,8 +2564,8 @@
      "n_prior": 535,
      "decision": "identity",
      "reason": "gated_no_gain",
-     "nested_holdout_logloss": 0.633877,
-     "raw_logloss": 0.631932,
+     "nested_holdout_logloss": 0.634136,
+     "raw_logloss": 0.631582,
      "params": null,
      "fold_id": 60
     },
@@ -2357,8 +2573,8 @@
      "n_prior": 535,
      "decision": "identity",
      "reason": "gated_no_gain",
-     "nested_holdout_logloss": 0.633877,
-     "raw_logloss": 0.631932,
+     "nested_holdout_logloss": 0.634136,
+     "raw_logloss": 0.631582,
      "params": null,
      "fold_id": 61
     },
@@ -2366,8 +2582,8 @@
      "n_prior": 535,
      "decision": "identity",
      "reason": "gated_no_gain",
-     "nested_holdout_logloss": 0.633877,
-     "raw_logloss": 0.631932,
+     "nested_holdout_logloss": 0.634136,
+     "raw_logloss": 0.631582,
      "params": null,
      "fold_id": 62
     },
@@ -2375,8 +2591,8 @@
      "n_prior": 535,
      "decision": "identity",
      "reason": "gated_no_gain",
-     "nested_holdout_logloss": 0.633877,
-     "raw_logloss": 0.631932,
+     "nested_holdout_logloss": 0.634136,
+     "raw_logloss": 0.631582,
      "params": null,
      "fold_id": 63
     },
@@ -2384,8 +2600,8 @@
      "n_prior": 551,
      "decision": "identity",
      "reason": "gated_no_gain",
-     "nested_holdout_logloss": 0.637227,
-     "raw_logloss": 0.635036,
+     "nested_holdout_logloss": 0.638801,
+     "raw_logloss": 0.635776,
      "params": null,
      "fold_id": 64
     },
@@ -2393,8 +2609,8 @@
      "n_prior": 567,
      "decision": "identity",
      "reason": "gated_no_gain",
-     "nested_holdout_logloss": 0.631876,
-     "raw_logloss": 0.630594,
+     "nested_holdout_logloss": 0.634137,
+     "raw_logloss": 0.632011,
      "params": null,
      "fold_id": 65
     },
@@ -2402,8 +2618,8 @@
      "n_prior": 583,
      "decision": "identity",
      "reason": "gated_no_gain",
-     "nested_holdout_logloss": 0.649298,
-     "raw_logloss": 0.645448,
+     "nested_holdout_logloss": 0.649475,
+     "raw_logloss": 0.643443,
      "params": null,
      "fold_id": 66
     },
@@ -2411,8 +2627,8 @@
      "n_prior": 598,
      "decision": "identity",
      "reason": "gated_no_gain",
-     "nested_holdout_logloss": 0.651921,
-     "raw_logloss": 0.646631,
+     "nested_holdout_logloss": 0.649098,
+     "raw_logloss": 0.643074,
      "params": null,
      "fold_id": 67
     },
@@ -2420,8 +2636,8 @@
      "n_prior": 598,
      "decision": "identity",
      "reason": "gated_no_gain",
-     "nested_holdout_logloss": 0.651921,
-     "raw_logloss": 0.646631,
+     "nested_holdout_logloss": 0.649098,
+     "raw_logloss": 0.643074,
      "params": null,
      "fold_id": 68
     },
@@ -2429,8 +2645,8 @@
      "n_prior": 598,
      "decision": "identity",
      "reason": "gated_no_gain",
-     "nested_holdout_logloss": 0.651921,
-     "raw_logloss": 0.646631,
+     "nested_holdout_logloss": 0.649098,
+     "raw_logloss": 0.643074,
      "params": null,
      "fold_id": 69
     },
@@ -2438,8 +2654,8 @@
      "n_prior": 598,
      "decision": "identity",
      "reason": "gated_no_gain",
-     "nested_holdout_logloss": 0.651921,
-     "raw_logloss": 0.646631,
+     "nested_holdout_logloss": 0.649098,
+     "raw_logloss": 0.643074,
      "params": null,
      "fold_id": 70
     },
@@ -2447,8 +2663,8 @@
      "n_prior": 598,
      "decision": "identity",
      "reason": "gated_no_gain",
-     "nested_holdout_logloss": 0.651921,
-     "raw_logloss": 0.646631,
+     "nested_holdout_logloss": 0.649098,
+     "raw_logloss": 0.643074,
      "params": null,
      "fold_id": 71
     },
@@ -2456,8 +2672,8 @@
      "n_prior": 598,
      "decision": "identity",
      "reason": "gated_no_gain",
-     "nested_holdout_logloss": 0.651921,
-     "raw_logloss": 0.646631,
+     "nested_holdout_logloss": 0.649098,
+     "raw_logloss": 0.643074,
      "params": null,
      "fold_id": 72
     },
@@ -2465,8 +2681,8 @@
      "n_prior": 598,
      "decision": "identity",
      "reason": "gated_no_gain",
-     "nested_holdout_logloss": 0.651921,
-     "raw_logloss": 0.646631,
+     "nested_holdout_logloss": 0.649098,
+     "raw_logloss": 0.643074,
      "params": null,
      "fold_id": 73
     },
@@ -2474,8 +2690,8 @@
      "n_prior": 598,
      "decision": "identity",
      "reason": "gated_no_gain",
-     "nested_holdout_logloss": 0.651921,
-     "raw_logloss": 0.646631,
+     "nested_holdout_logloss": 0.649098,
+     "raw_logloss": 0.643074,
      "params": null,
      "fold_id": 74
     },
@@ -2483,8 +2699,8 @@
      "n_prior": 614,
      "decision": "identity",
      "reason": "gated_no_gain",
-     "nested_holdout_logloss": 0.642489,
-     "raw_logloss": 0.639794,
+     "nested_holdout_logloss": 0.637401,
+     "raw_logloss": 0.634603,
      "params": null,
      "fold_id": 75
     },
@@ -2492,8 +2708,8 @@
      "n_prior": 629,
      "decision": "identity",
      "reason": "gated_no_gain",
-     "nested_holdout_logloss": 0.637145,
-     "raw_logloss": 0.636232,
+     "nested_holdout_logloss": 0.636082,
+     "raw_logloss": 0.633828,
      "params": null,
      "fold_id": 76
     },
@@ -2501,8 +2717,8 @@
      "n_prior": 645,
      "decision": "identity",
      "reason": "gated_no_gain",
-     "nested_holdout_logloss": 0.63884,
-     "raw_logloss": 0.638771,
+     "nested_holdout_logloss": 0.63804,
+     "raw_logloss": 0.637149,
      "params": null,
      "fold_id": 77
     },
@@ -2510,8 +2726,8 @@
      "n_prior": 661,
      "decision": "identity",
      "reason": "gated_no_gain",
-     "nested_holdout_logloss": 0.645714,
-     "raw_logloss": 0.644858,
+     "nested_holdout_logloss": 0.645389,
+     "raw_logloss": 0.644113,
      "params": null,
      "fold_id": 78
     },
@@ -2519,8 +2735,8 @@
      "n_prior": 677,
      "decision": "identity",
      "reason": "gated_no_gain",
-     "nested_holdout_logloss": 0.637224,
-     "raw_logloss": 0.636691,
+     "nested_holdout_logloss": 0.638492,
+     "raw_logloss": 0.638197,
      "params": null,
      "fold_id": 79
     },
@@ -2528,8 +2744,8 @@
      "n_prior": 693,
      "decision": "identity",
      "reason": "gated_no_gain",
-     "nested_holdout_logloss": 0.634557,
-     "raw_logloss": 0.63411,
+     "nested_holdout_logloss": 0.635386,
+     "raw_logloss": 0.635155,
      "params": null,
      "fold_id": 80
     },
@@ -2537,8 +2753,8 @@
      "n_prior": 693,
      "decision": "identity",
      "reason": "gated_no_gain",
-     "nested_holdout_logloss": 0.634557,
-     "raw_logloss": 0.63411,
+     "nested_holdout_logloss": 0.635386,
+     "raw_logloss": 0.635155,
      "params": null,
      "fold_id": 81
     },
@@ -2546,8 +2762,8 @@
      "n_prior": 693,
      "decision": "identity",
      "reason": "gated_no_gain",
-     "nested_holdout_logloss": 0.634557,
-     "raw_logloss": 0.63411,
+     "nested_holdout_logloss": 0.635386,
+     "raw_logloss": 0.635155,
      "params": null,
      "fold_id": 82
     },
@@ -2555,8 +2771,8 @@
      "n_prior": 693,
      "decision": "identity",
      "reason": "gated_no_gain",
-     "nested_holdout_logloss": 0.634557,
-     "raw_logloss": 0.63411,
+     "nested_holdout_logloss": 0.635386,
+     "raw_logloss": 0.635155,
      "params": null,
      "fold_id": 83
     },
@@ -2564,8 +2780,8 @@
      "n_prior": 693,
      "decision": "identity",
      "reason": "gated_no_gain",
-     "nested_holdout_logloss": 0.634557,
-     "raw_logloss": 0.63411,
+     "nested_holdout_logloss": 0.635386,
+     "raw_logloss": 0.635155,
      "params": null,
      "fold_id": 84
     },
@@ -2573,8 +2789,8 @@
      "n_prior": 709,
      "decision": "identity",
      "reason": "gated_no_gain",
-     "nested_holdout_logloss": 0.642177,
-     "raw_logloss": 0.642029,
+     "nested_holdout_logloss": 0.647284,
+     "raw_logloss": 0.646084,
      "params": null,
      "fold_id": 85
     },
@@ -2582,8 +2798,8 @@
      "n_prior": 725,
      "decision": "identity",
      "reason": "gated_no_gain",
-     "nested_holdout_logloss": 0.634566,
-     "raw_logloss": 0.634692,
+     "nested_holdout_logloss": 0.634362,
+     "raw_logloss": 0.63434,
      "params": null,
      "fold_id": 86
     },
@@ -2591,8 +2807,8 @@
      "n_prior": 741,
      "decision": "identity",
      "reason": "gated_no_gain",
-     "nested_holdout_logloss": 0.632595,
-     "raw_logloss": 0.633754,
+     "nested_holdout_logloss": 0.629552,
+     "raw_logloss": 0.630026,
      "params": null,
      "fold_id": 87
     },
@@ -2600,8 +2816,8 @@
      "n_prior": 757,
      "decision": "identity",
      "reason": "gated_no_gain",
-     "nested_holdout_logloss": 0.644058,
-     "raw_logloss": 0.64524,
+     "nested_holdout_logloss": 0.639716,
+     "raw_logloss": 0.639756,
      "params": null,
      "fold_id": 88
     },
@@ -2609,8 +2825,8 @@
      "n_prior": 773,
      "decision": "identity",
      "reason": "gated_no_gain",
-     "nested_holdout_logloss": 0.629219,
-     "raw_logloss": 0.631021,
+     "nested_holdout_logloss": 0.625801,
+     "raw_logloss": 0.626514,
      "params": null,
      "fold_id": 89
     },
@@ -2618,8 +2834,8 @@
      "n_prior": 773,
      "decision": "identity",
      "reason": "gated_no_gain",
-     "nested_holdout_logloss": 0.629219,
-     "raw_logloss": 0.631021,
+     "nested_holdout_logloss": 0.625801,
+     "raw_logloss": 0.626514,
      "params": null,
      "fold_id": 90
     },
@@ -2627,8 +2843,8 @@
      "n_prior": 773,
      "decision": "identity",
      "reason": "gated_no_gain",
-     "nested_holdout_logloss": 0.629219,
-     "raw_logloss": 0.631021,
+     "nested_holdout_logloss": 0.625801,
+     "raw_logloss": 0.626514,
      "params": null,
      "fold_id": 91
     },
@@ -2636,8 +2852,8 @@
      "n_prior": 788,
      "decision": "identity",
      "reason": "gated_no_gain",
-     "nested_holdout_logloss": 0.632702,
-     "raw_logloss": 0.634135,
+     "nested_holdout_logloss": 0.632518,
+     "raw_logloss": 0.632912,
      "params": null,
      "fold_id": 92
     },
@@ -2645,8 +2861,8 @@
      "n_prior": 788,
      "decision": "identity",
      "reason": "gated_no_gain",
-     "nested_holdout_logloss": 0.632702,
-     "raw_logloss": 0.634135,
+     "nested_holdout_logloss": 0.632518,
+     "raw_logloss": 0.632912,
      "params": null,
      "fold_id": 93
     },
@@ -2654,8 +2870,8 @@
      "n_prior": 788,
      "decision": "identity",
      "reason": "gated_no_gain",
-     "nested_holdout_logloss": 0.632702,
-     "raw_logloss": 0.634135,
+     "nested_holdout_logloss": 0.632518,
+     "raw_logloss": 0.632912,
      "params": null,
      "fold_id": 94
     },
@@ -2663,8 +2879,8 @@
      "n_prior": 803,
      "decision": "identity",
      "reason": "gated_no_gain",
-     "nested_holdout_logloss": 0.640035,
-     "raw_logloss": 0.640793,
+     "nested_holdout_logloss": 0.640078,
+     "raw_logloss": 0.640068,
      "params": null,
      "fold_id": 95
     },
@@ -2672,8 +2888,8 @@
      "n_prior": 818,
      "decision": "identity",
      "reason": "gated_no_gain",
-     "nested_holdout_logloss": 0.647578,
-     "raw_logloss": 0.648296,
+     "nested_holdout_logloss": 0.650693,
+     "raw_logloss": 0.650009,
      "params": null,
      "fold_id": 96
     },
@@ -2681,8 +2897,8 @@
      "n_prior": 818,
      "decision": "identity",
      "reason": "gated_no_gain",
-     "nested_holdout_logloss": 0.647578,
-     "raw_logloss": 0.648296,
+     "nested_holdout_logloss": 0.650693,
+     "raw_logloss": 0.650009,
      "params": null,
      "fold_id": 97
     },
@@ -2690,8 +2906,8 @@
      "n_prior": 818,
      "decision": "identity",
      "reason": "gated_no_gain",
-     "nested_holdout_logloss": 0.647578,
-     "raw_logloss": 0.648296,
+     "nested_holdout_logloss": 0.650693,
+     "raw_logloss": 0.650009,
      "params": null,
      "fold_id": 98
     },
@@ -2699,8 +2915,8 @@
      "n_prior": 834,
      "decision": "identity",
      "reason": "gated_no_gain",
-     "nested_holdout_logloss": 0.649943,
-     "raw_logloss": 0.649649,
+     "nested_holdout_logloss": 0.649979,
+     "raw_logloss": 0.649621,
      "params": null,
      "fold_id": 99
     },
@@ -2708,8 +2924,8 @@
      "n_prior": 850,
      "decision": "identity",
      "reason": "gated_no_gain",
-     "nested_holdout_logloss": 0.6425,
-     "raw_logloss": 0.642528,
+     "nested_holdout_logloss": 0.642743,
+     "raw_logloss": 0.642468,
      "params": null,
      "fold_id": 100
     },
@@ -2717,8 +2933,8 @@
      "n_prior": 866,
      "decision": "identity",
      "reason": "gated_no_gain",
-     "nested_holdout_logloss": 0.634615,
-     "raw_logloss": 0.634439,
+     "nested_holdout_logloss": 0.632598,
+     "raw_logloss": 0.632592,
      "params": null,
      "fold_id": 101
     },
@@ -2726,8 +2942,8 @@
      "n_prior": 882,
      "decision": "identity",
      "reason": "gated_no_gain",
-     "nested_holdout_logloss": 0.641192,
-     "raw_logloss": 0.64029,
+     "nested_holdout_logloss": 0.639047,
+     "raw_logloss": 0.637688,
      "params": null,
      "fold_id": 102
     },
@@ -2735,8 +2951,8 @@
      "n_prior": 882,
      "decision": "identity",
      "reason": "gated_no_gain",
-     "nested_holdout_logloss": 0.641192,
-     "raw_logloss": 0.64029,
+     "nested_holdout_logloss": 0.639047,
+     "raw_logloss": 0.637688,
      "params": null,
      "fold_id": 103
     },
@@ -2744,8 +2960,8 @@
      "n_prior": 882,
      "decision": "identity",
      "reason": "gated_no_gain",
-     "nested_holdout_logloss": 0.641192,
-     "raw_logloss": 0.64029,
+     "nested_holdout_logloss": 0.639047,
+     "raw_logloss": 0.637688,
      "params": null,
      "fold_id": 104
     },
@@ -2753,8 +2969,8 @@
      "n_prior": 882,
      "decision": "identity",
      "reason": "gated_no_gain",
-     "nested_holdout_logloss": 0.641192,
-     "raw_logloss": 0.64029,
+     "nested_holdout_logloss": 0.639047,
+     "raw_logloss": 0.637688,
      "params": null,
      "fold_id": 105
     },
@@ -2762,8 +2978,8 @@
      "n_prior": 882,
      "decision": "identity",
      "reason": "gated_no_gain",
-     "nested_holdout_logloss": 0.641192,
-     "raw_logloss": 0.64029,
+     "nested_holdout_logloss": 0.639047,
+     "raw_logloss": 0.637688,
      "params": null,
      "fold_id": 106
     },
@@ -2771,8 +2987,8 @@
      "n_prior": 898,
      "decision": "identity",
      "reason": "gated_no_gain",
-     "nested_holdout_logloss": 0.64488,
-     "raw_logloss": 0.645114,
+     "nested_holdout_logloss": 0.640541,
+     "raw_logloss": 0.640577,
      "params": null,
      "fold_id": 107
     },
@@ -2780,8 +2996,8 @@
      "n_prior": 914,
      "decision": "identity",
      "reason": "gated_no_gain",
-     "nested_holdout_logloss": 0.648494,
-     "raw_logloss": 0.647715,
+     "nested_holdout_logloss": 0.644973,
+     "raw_logloss": 0.6438,
      "params": null,
      "fold_id": 108
     },
@@ -2789,8 +3005,8 @@
      "n_prior": 930,
      "decision": "identity",
      "reason": "gated_no_gain",
-     "nested_holdout_logloss": 0.661031,
-     "raw_logloss": 0.659168,
+     "nested_holdout_logloss": 0.655019,
+     "raw_logloss": 0.65375,
      "params": null,
      "fold_id": 109
     },
@@ -2798,8 +3014,8 @@
      "n_prior": 946,
      "decision": "identity",
      "reason": "gated_no_gain",
-     "nested_holdout_logloss": 0.656722,
-     "raw_logloss": 0.655503,
+     "nested_holdout_logloss": 0.648847,
+     "raw_logloss": 0.647862,
      "params": null,
      "fold_id": 110
     },
@@ -2807,8 +3023,8 @@
      "n_prior": 962,
      "decision": "identity",
      "reason": "gated_no_gain",
-     "nested_holdout_logloss": 0.657148,
-     "raw_logloss": 0.655684,
+     "nested_holdout_logloss": 0.652544,
+     "raw_logloss": 0.649564,
      "params": null,
      "fold_id": 111
     },
@@ -2816,8 +3032,8 @@
      "n_prior": 962,
      "decision": "identity",
      "reason": "gated_no_gain",
-     "nested_holdout_logloss": 0.657148,
-     "raw_logloss": 0.655684,
+     "nested_holdout_logloss": 0.652544,
+     "raw_logloss": 0.649564,
      "params": null,
      "fold_id": 112
     },
@@ -2825,8 +3041,8 @@
      "n_prior": 962,
      "decision": "identity",
      "reason": "gated_no_gain",
-     "nested_holdout_logloss": 0.657148,
-     "raw_logloss": 0.655684,
+     "nested_holdout_logloss": 0.652544,
+     "raw_logloss": 0.649564,
      "params": null,
      "fold_id": 113
     },
@@ -2834,8 +3050,8 @@
      "n_prior": 977,
      "decision": "identity",
      "reason": "gated_no_gain",
-     "nested_holdout_logloss": 0.652054,
-     "raw_logloss": 0.650345,
+     "nested_holdout_logloss": 0.649272,
+     "raw_logloss": 0.647319,
      "params": null,
      "fold_id": 114
     },
@@ -2843,8 +3059,8 @@
      "n_prior": 977,
      "decision": "identity",
      "reason": "gated_no_gain",
-     "nested_holdout_logloss": 0.652054,
-     "raw_logloss": 0.650345,
+     "nested_holdout_logloss": 0.649272,
+     "raw_logloss": 0.647319,
      "params": null,
      "fold_id": 115
     },
@@ -2852,8 +3068,8 @@
      "n_prior": 977,
      "decision": "identity",
      "reason": "gated_no_gain",
-     "nested_holdout_logloss": 0.652054,
-     "raw_logloss": 0.650345,
+     "nested_holdout_logloss": 0.649272,
+     "raw_logloss": 0.647319,
      "params": null,
      "fold_id": 116
     },
@@ -2861,8 +3077,8 @@
      "n_prior": 977,
      "decision": "identity",
      "reason": "gated_no_gain",
-     "nested_holdout_logloss": 0.652054,
-     "raw_logloss": 0.650345,
+     "nested_holdout_logloss": 0.649272,
+     "raw_logloss": 0.647319,
      "params": null,
      "fold_id": 117
     },
@@ -2870,8 +3086,8 @@
      "n_prior": 993,
      "decision": "identity",
      "reason": "gated_no_gain",
-     "nested_holdout_logloss": 0.649005,
-     "raw_logloss": 0.646776,
+     "nested_holdout_logloss": 0.645924,
+     "raw_logloss": 0.644617,
      "params": null,
      "fold_id": 118
     },
@@ -2879,8 +3095,8 @@
      "n_prior": 1008,
      "decision": "identity",
      "reason": "gated_no_gain",
-     "nested_holdout_logloss": 0.640172,
-     "raw_logloss": 0.638355,
+     "nested_holdout_logloss": 0.637048,
+     "raw_logloss": 0.636314,
      "params": null,
      "fold_id": 119
     },
@@ -2888,8 +3104,8 @@
      "n_prior": 1008,
      "decision": "identity",
      "reason": "gated_no_gain",
-     "nested_holdout_logloss": 0.640172,
-     "raw_logloss": 0.638355,
+     "nested_holdout_logloss": 0.637048,
+     "raw_logloss": 0.636314,
      "params": null,
      "fold_id": 120
     },
@@ -2897,8 +3113,8 @@
      "n_prior": 1024,
      "decision": "identity",
      "reason": "gated_no_gain",
-     "nested_holdout_logloss": 0.642063,
-     "raw_logloss": 0.639314,
+     "nested_holdout_logloss": 0.640249,
+     "raw_logloss": 0.638306,
      "params": null,
      "fold_id": 121
     },
@@ -2906,8 +3122,8 @@
      "n_prior": 1040,
      "decision": "identity",
      "reason": "gated_no_gain",
-     "nested_holdout_logloss": 0.638085,
-     "raw_logloss": 0.635828,
+     "nested_holdout_logloss": 0.637413,
+     "raw_logloss": 0.63547,
      "params": null,
      "fold_id": 122
     },
@@ -2915,8 +3131,8 @@
      "n_prior": 1055,
      "decision": "identity",
      "reason": "gated_no_gain",
-     "nested_holdout_logloss": 0.631241,
-     "raw_logloss": 0.630226,
+     "nested_holdout_logloss": 0.631651,
+     "raw_logloss": 0.63003,
      "params": null,
      "fold_id": 123
     },
@@ -2924,8 +3140,8 @@
      "n_prior": 1071,
      "decision": "identity",
      "reason": "gated_no_gain",
-     "nested_holdout_logloss": 0.625425,
-     "raw_logloss": 0.624329,
+     "nested_holdout_logloss": 0.626537,
+     "raw_logloss": 0.624874,
      "params": null,
      "fold_id": 124
     },
@@ -2933,8 +3149,8 @@
      "n_prior": 1071,
      "decision": "identity",
      "reason": "gated_no_gain",
-     "nested_holdout_logloss": 0.625425,
-     "raw_logloss": 0.624329,
+     "nested_holdout_logloss": 0.626537,
+     "raw_logloss": 0.624874,
      "params": null,
      "fold_id": 125
     },
@@ -2942,8 +3158,8 @@
      "n_prior": 1071,
      "decision": "identity",
      "reason": "gated_no_gain",
-     "nested_holdout_logloss": 0.625425,
-     "raw_logloss": 0.624329,
+     "nested_holdout_logloss": 0.626537,
+     "raw_logloss": 0.624874,
      "params": null,
      "fold_id": 126
     },
@@ -2951,8 +3167,8 @@
      "n_prior": 1071,
      "decision": "identity",
      "reason": "gated_no_gain",
-     "nested_holdout_logloss": 0.625425,
-     "raw_logloss": 0.624329,
+     "nested_holdout_logloss": 0.626537,
+     "raw_logloss": 0.624874,
      "params": null,
      "fold_id": 127
     },
@@ -2960,8 +3176,8 @@
      "n_prior": 1071,
      "decision": "identity",
      "reason": "gated_no_gain",
-     "nested_holdout_logloss": 0.625425,
-     "raw_logloss": 0.624329,
+     "nested_holdout_logloss": 0.626537,
+     "raw_logloss": 0.624874,
      "params": null,
      "fold_id": 128
     },
@@ -2969,8 +3185,8 @@
      "n_prior": 1087,
      "decision": "identity",
      "reason": "gated_no_gain",
-     "nested_holdout_logloss": 0.624164,
-     "raw_logloss": 0.622919,
+     "nested_holdout_logloss": 0.625259,
+     "raw_logloss": 0.623507,
      "params": null,
      "fold_id": 129
     },
@@ -2978,8 +3194,8 @@
      "n_prior": 1103,
      "decision": "identity",
      "reason": "gated_no_gain",
-     "nested_holdout_logloss": 0.623109,
-     "raw_logloss": 0.622381,
+     "nested_holdout_logloss": 0.625193,
+     "raw_logloss": 0.623558,
      "params": null,
      "fold_id": 130
     },
@@ -2987,8 +3203,8 @@
      "n_prior": 1119,
      "decision": "identity",
      "reason": "gated_no_gain",
-     "nested_holdout_logloss": 0.623757,
-     "raw_logloss": 0.623858,
+     "nested_holdout_logloss": 0.62521,
+     "raw_logloss": 0.624344,
      "params": null,
      "fold_id": 131
     },
@@ -2996,8 +3212,8 @@
      "n_prior": 1135,
      "decision": "identity",
      "reason": "gated_no_gain",
-     "nested_holdout_logloss": 0.619638,
-     "raw_logloss": 0.619841,
+     "nested_holdout_logloss": 0.621885,
+     "raw_logloss": 0.621226,
      "params": null,
      "fold_id": 132
     },
@@ -3005,8 +3221,8 @@
      "n_prior": 1135,
      "decision": "identity",
      "reason": "gated_no_gain",
-     "nested_holdout_logloss": 0.619638,
-     "raw_logloss": 0.619841,
+     "nested_holdout_logloss": 0.621885,
+     "raw_logloss": 0.621226,
      "params": null,
      "fold_id": 133
     },
@@ -3014,8 +3230,8 @@
      "n_prior": 1150,
      "decision": "identity",
      "reason": "gated_no_gain",
-     "nested_holdout_logloss": 0.624755,
-     "raw_logloss": 0.625115,
+     "nested_holdout_logloss": 0.627875,
+     "raw_logloss": 0.627532,
      "params": null,
      "fold_id": 134
     },
@@ -3023,8 +3239,8 @@
      "n_prior": 1150,
      "decision": "identity",
      "reason": "gated_no_gain",
-     "nested_holdout_logloss": 0.624755,
-     "raw_logloss": 0.625115,
+     "nested_holdout_logloss": 0.627875,
+     "raw_logloss": 0.627532,
      "params": null,
      "fold_id": 135
     },
@@ -3032,8 +3248,8 @@
      "n_prior": 1166,
      "decision": "identity",
      "reason": "gated_no_gain",
-     "nested_holdout_logloss": 0.622968,
-     "raw_logloss": 0.62271,
+     "nested_holdout_logloss": 0.626177,
+     "raw_logloss": 0.624652,
      "params": null,
      "fold_id": 136
     },
@@ -3041,8 +3257,8 @@
      "n_prior": 1166,
      "decision": "identity",
      "reason": "gated_no_gain",
-     "nested_holdout_logloss": 0.622968,
-     "raw_logloss": 0.62271,
+     "nested_holdout_logloss": 0.626177,
+     "raw_logloss": 0.624652,
      "params": null,
      "fold_id": 137
     },
@@ -3050,8 +3266,8 @@
      "n_prior": 1166,
      "decision": "identity",
      "reason": "gated_no_gain",
-     "nested_holdout_logloss": 0.622968,
-     "raw_logloss": 0.62271,
+     "nested_holdout_logloss": 0.626177,
+     "raw_logloss": 0.624652,
      "params": null,
      "fold_id": 138
     },
@@ -3059,8 +3275,8 @@
      "n_prior": 1166,
      "decision": "identity",
      "reason": "gated_no_gain",
-     "nested_holdout_logloss": 0.622968,
-     "raw_logloss": 0.62271,
+     "nested_holdout_logloss": 0.626177,
+     "raw_logloss": 0.624652,
      "params": null,
      "fold_id": 139
     },
@@ -3068,8 +3284,8 @@
      "n_prior": 1182,
      "decision": "identity",
      "reason": "gated_no_gain",
-     "nested_holdout_logloss": 0.622058,
-     "raw_logloss": 0.622099,
+     "nested_holdout_logloss": 0.625182,
+     "raw_logloss": 0.624027,
      "params": null,
      "fold_id": 140
     },
@@ -3077,8 +3293,8 @@
      "n_prior": 1182,
      "decision": "identity",
      "reason": "gated_no_gain",
-     "nested_holdout_logloss": 0.622058,
-     "raw_logloss": 0.622099,
+     "nested_holdout_logloss": 0.625182,
+     "raw_logloss": 0.624027,
      "params": null,
      "fold_id": 141
     },
@@ -3086,8 +3302,8 @@
      "n_prior": 1197,
      "decision": "identity",
      "reason": "gated_no_gain",
-     "nested_holdout_logloss": 0.6281,
-     "raw_logloss": 0.627722,
+     "nested_holdout_logloss": 0.631565,
+     "raw_logloss": 0.630019,
      "params": null,
      "fold_id": 142
     },
@@ -3095,8 +3311,8 @@
      "n_prior": 1213,
      "decision": "identity",
      "reason": "gated_no_gain",
-     "nested_holdout_logloss": 0.627611,
-     "raw_logloss": 0.626487,
+     "nested_holdout_logloss": 0.630576,
+     "raw_logloss": 0.62831,
      "params": null,
      "fold_id": 143
     },
@@ -3104,8 +3320,8 @@
      "n_prior": 1229,
      "decision": "identity",
      "reason": "gated_no_gain",
-     "nested_holdout_logloss": 0.630311,
-     "raw_logloss": 0.629144,
+     "nested_holdout_logloss": 0.631613,
+     "raw_logloss": 0.630285,
      "params": null,
      "fold_id": 144
     },
@@ -3113,8 +3329,8 @@
      "n_prior": 1245,
      "decision": "identity",
      "reason": "gated_no_gain",
-     "nested_holdout_logloss": 0.625972,
-     "raw_logloss": 0.624519,
+     "nested_holdout_logloss": 0.625511,
+     "raw_logloss": 0.624477,
      "params": null,
      "fold_id": 145
     },
@@ -3122,8 +3338,8 @@
      "n_prior": 1261,
      "decision": "identity",
      "reason": "gated_no_gain",
-     "nested_holdout_logloss": 0.625014,
-     "raw_logloss": 0.62421,
+     "nested_holdout_logloss": 0.625425,
+     "raw_logloss": 0.624645,
      "params": null,
      "fold_id": 146
     },
@@ -3131,8 +3347,8 @@
      "n_prior": 1261,
      "decision": "identity",
      "reason": "gated_no_gain",
-     "nested_holdout_logloss": 0.625014,
-     "raw_logloss": 0.62421,
+     "nested_holdout_logloss": 0.625425,
+     "raw_logloss": 0.624645,
      "params": null,
      "fold_id": 147
     },
@@ -3140,8 +3356,8 @@
      "n_prior": 1261,
      "decision": "identity",
      "reason": "gated_no_gain",
-     "nested_holdout_logloss": 0.625014,
-     "raw_logloss": 0.62421,
+     "nested_holdout_logloss": 0.625425,
+     "raw_logloss": 0.624645,
      "params": null,
      "fold_id": 148
     },
@@ -3149,8 +3365,8 @@
      "n_prior": 1261,
      "decision": "identity",
      "reason": "gated_no_gain",
-     "nested_holdout_logloss": 0.625014,
-     "raw_logloss": 0.62421,
+     "nested_holdout_logloss": 0.625425,
+     "raw_logloss": 0.624645,
      "params": null,
      "fold_id": 149
     },
@@ -3158,8 +3374,8 @@
      "n_prior": 1261,
      "decision": "identity",
      "reason": "gated_no_gain",
-     "nested_holdout_logloss": 0.625014,
-     "raw_logloss": 0.62421,
+     "nested_holdout_logloss": 0.625425,
+     "raw_logloss": 0.624645,
      "params": null,
      "fold_id": 150
     },
@@ -3167,8 +3383,8 @@
      "n_prior": 1277,
      "decision": "identity",
      "reason": "gated_no_gain",
-     "nested_holdout_logloss": 0.619354,
-     "raw_logloss": 0.618579,
+     "nested_holdout_logloss": 0.618929,
+     "raw_logloss": 0.618261,
      "params": null,
      "fold_id": 151
     },
@@ -3176,8 +3392,8 @@
      "n_prior": 1293,
      "decision": "identity",
      "reason": "gated_no_gain",
-     "nested_holdout_logloss": 0.627836,
-     "raw_logloss": 0.627312,
+     "nested_holdout_logloss": 0.627033,
+     "raw_logloss": 0.626915,
      "params": null,
      "fold_id": 152
     },
@@ -3185,8 +3401,8 @@
      "n_prior": 1309,
      "decision": "identity",
      "reason": "gated_no_gain",
-     "nested_holdout_logloss": 0.635021,
-     "raw_logloss": 0.635194,
+     "nested_holdout_logloss": 0.634265,
+     "raw_logloss": 0.634753,
      "params": null,
      "fold_id": 153
     },
@@ -3194,8 +3410,8 @@
      "n_prior": 1325,
      "decision": "identity",
      "reason": "gated_no_gain",
-     "nested_holdout_logloss": 0.638335,
-     "raw_logloss": 0.638141,
+     "nested_holdout_logloss": 0.638291,
+     "raw_logloss": 0.638646,
      "params": null,
      "fold_id": 154
     },
@@ -3203,8 +3419,8 @@
      "n_prior": 1325,
      "decision": "identity",
      "reason": "gated_no_gain",
-     "nested_holdout_logloss": 0.638335,
-     "raw_logloss": 0.638141,
+     "nested_holdout_logloss": 0.638291,
+     "raw_logloss": 0.638646,
      "params": null,
      "fold_id": 155
     },
@@ -3212,8 +3428,8 @@
      "n_prior": 1325,
      "decision": "identity",
      "reason": "gated_no_gain",
-     "nested_holdout_logloss": 0.638335,
-     "raw_logloss": 0.638141,
+     "nested_holdout_logloss": 0.638291,
+     "raw_logloss": 0.638646,
      "params": null,
      "fold_id": 156
     },
@@ -3221,8 +3437,8 @@
      "n_prior": 1340,
      "decision": "identity",
      "reason": "gated_no_gain",
-     "nested_holdout_logloss": 0.634667,
-     "raw_logloss": 0.634657,
+     "nested_holdout_logloss": 0.634758,
+     "raw_logloss": 0.63503,
      "params": null,
      "fold_id": 157
     },
@@ -3230,8 +3446,8 @@
      "n_prior": 1356,
      "decision": "identity",
      "reason": "gated_no_gain",
-     "nested_holdout_logloss": 0.634852,
-     "raw_logloss": 0.634945,
+     "nested_holdout_logloss": 0.634892,
+     "raw_logloss": 0.635229,
      "params": null,
      "fold_id": 158
     },
@@ -3239,8 +3455,8 @@
      "n_prior": 1371,
      "decision": "identity",
      "reason": "gated_no_gain",
-     "nested_holdout_logloss": 0.63332,
-     "raw_logloss": 0.633553,
+     "nested_holdout_logloss": 0.634453,
+     "raw_logloss": 0.634737,
      "params": null,
      "fold_id": 159
     },
@@ -3248,8 +3464,8 @@
      "n_prior": 1371,
      "decision": "identity",
      "reason": "gated_no_gain",
-     "nested_holdout_logloss": 0.63332,
-     "raw_logloss": 0.633553,
+     "nested_holdout_logloss": 0.634453,
+     "raw_logloss": 0.634737,
      "params": null,
      "fold_id": 160
     },
@@ -3257,8 +3473,8 @@
      "n_prior": 1371,
      "decision": "identity",
      "reason": "gated_no_gain",
-     "nested_holdout_logloss": 0.63332,
-     "raw_logloss": 0.633553,
+     "nested_holdout_logloss": 0.634453,
+     "raw_logloss": 0.634737,
      "params": null,
      "fold_id": 161
     },
@@ -3266,8 +3482,8 @@
      "n_prior": 1371,
      "decision": "identity",
      "reason": "gated_no_gain",
-     "nested_holdout_logloss": 0.63332,
-     "raw_logloss": 0.633553,
+     "nested_holdout_logloss": 0.634453,
+     "raw_logloss": 0.634737,
      "params": null,
      "fold_id": 162
     },
@@ -3275,8 +3491,8 @@
      "n_prior": 1387,
      "decision": "identity",
      "reason": "gated_no_gain",
-     "nested_holdout_logloss": 0.629211,
-     "raw_logloss": 0.629393,
+     "nested_holdout_logloss": 0.629648,
+     "raw_logloss": 0.629934,
      "params": null,
      "fold_id": 163
     },
@@ -3284,8 +3500,8 @@
      "n_prior": 1387,
      "decision": "identity",
      "reason": "gated_no_gain",
-     "nested_holdout_logloss": 0.629211,
-     "raw_logloss": 0.629393,
+     "nested_holdout_logloss": 0.629648,
+     "raw_logloss": 0.629934,
      "params": null,
      "fold_id": 164
     },
@@ -3293,8 +3509,8 @@
      "n_prior": 1403,
      "decision": "identity",
      "reason": "gated_no_gain",
-     "nested_holdout_logloss": 0.626665,
-     "raw_logloss": 0.627019,
+     "nested_holdout_logloss": 0.627228,
+     "raw_logloss": 0.627373,
      "params": null,
      "fold_id": 165
     },
@@ -3302,8 +3518,8 @@
      "n_prior": 1421,
      "decision": "identity",
      "reason": "gated_no_gain",
-     "nested_holdout_logloss": 0.621978,
-     "raw_logloss": 0.622495,
+     "nested_holdout_logloss": 0.621606,
+     "raw_logloss": 0.621779,
      "params": null,
      "fold_id": 166
     },
@@ -3311,8 +3527,8 @@
      "n_prior": 1421,
      "decision": "identity",
      "reason": "gated_no_gain",
-     "nested_holdout_logloss": 0.621978,
-     "raw_logloss": 0.622495,
+     "nested_holdout_logloss": 0.621606,
+     "raw_logloss": 0.621779,
      "params": null,
      "fold_id": 167
     },
@@ -3320,8 +3536,8 @@
      "n_prior": 1437,
      "decision": "identity",
      "reason": "gated_no_gain",
-     "nested_holdout_logloss": 0.628036,
-     "raw_logloss": 0.628622,
+     "nested_holdout_logloss": 0.62718,
+     "raw_logloss": 0.627307,
      "params": null,
      "fold_id": 168
     },
@@ -3329,8 +3545,8 @@
      "n_prior": 1437,
      "decision": "identity",
      "reason": "gated_no_gain",
-     "nested_holdout_logloss": 0.628036,
-     "raw_logloss": 0.628622,
+     "nested_holdout_logloss": 0.62718,
+     "raw_logloss": 0.627307,
      "params": null,
      "fold_id": 169
     },
@@ -3338,8 +3554,8 @@
      "n_prior": 1437,
      "decision": "identity",
      "reason": "gated_no_gain",
-     "nested_holdout_logloss": 0.628036,
-     "raw_logloss": 0.628622,
+     "nested_holdout_logloss": 0.62718,
+     "raw_logloss": 0.627307,
      "params": null,
      "fold_id": 170
     },
@@ -3347,8 +3563,8 @@
      "n_prior": 1437,
      "decision": "identity",
      "reason": "gated_no_gain",
-     "nested_holdout_logloss": 0.628036,
-     "raw_logloss": 0.628622,
+     "nested_holdout_logloss": 0.62718,
+     "raw_logloss": 0.627307,
      "params": null,
      "fold_id": 171
     },
@@ -3356,8 +3572,8 @@
      "n_prior": 1437,
      "decision": "identity",
      "reason": "gated_no_gain",
-     "nested_holdout_logloss": 0.628036,
-     "raw_logloss": 0.628622,
+     "nested_holdout_logloss": 0.62718,
+     "raw_logloss": 0.627307,
      "params": null,
      "fold_id": 172
     },
@@ -3365,8 +3581,8 @@
      "n_prior": 1453,
      "decision": "identity",
      "reason": "gated_no_gain",
-     "nested_holdout_logloss": 0.621482,
-     "raw_logloss": 0.621997,
+     "nested_holdout_logloss": 0.621344,
+     "raw_logloss": 0.621447,
      "params": null,
      "fold_id": 173
     },
@@ -3374,8 +3590,8 @@
      "n_prior": 1469,
      "decision": "identity",
      "reason": "gated_no_gain",
-     "nested_holdout_logloss": 0.616491,
-     "raw_logloss": 0.616713,
+     "nested_holdout_logloss": 0.615083,
+     "raw_logloss": 0.615092,
      "params": null,
      "fold_id": 174
     },
@@ -3383,8 +3599,8 @@
      "n_prior": 1485,
      "decision": "identity",
      "reason": "gated_no_gain",
-     "nested_holdout_logloss": 0.61368,
-     "raw_logloss": 0.613651,
+     "nested_holdout_logloss": 0.612293,
+     "raw_logloss": 0.611953,
      "params": null,
      "fold_id": 175
     },
@@ -3392,8 +3608,8 @@
      "n_prior": 1501,
      "decision": "identity",
      "reason": "gated_no_gain",
-     "nested_holdout_logloss": 0.615094,
-     "raw_logloss": 0.615104,
+     "nested_holdout_logloss": 0.61409,
+     "raw_logloss": 0.613868,
      "params": null,
      "fold_id": 176
     },
@@ -3401,8 +3617,8 @@
      "n_prior": 1501,
      "decision": "identity",
      "reason": "gated_no_gain",
-     "nested_holdout_logloss": 0.615094,
-     "raw_logloss": 0.615104,
+     "nested_holdout_logloss": 0.61409,
+     "raw_logloss": 0.613868,
      "params": null,
      "fold_id": 177
     },
@@ -3410,8 +3626,8 @@
      "n_prior": 1516,
      "decision": "identity",
      "reason": "gated_no_gain",
-     "nested_holdout_logloss": 0.620189,
-     "raw_logloss": 0.620229,
+     "nested_holdout_logloss": 0.618296,
+     "raw_logloss": 0.618073,
      "params": null,
      "fold_id": 178
     },
@@ -3419,8 +3635,8 @@
      "n_prior": 1531,
      "decision": "identity",
      "reason": "gated_no_gain",
-     "nested_holdout_logloss": 0.618267,
-     "raw_logloss": 0.617309,
+     "nested_holdout_logloss": 0.614961,
+     "raw_logloss": 0.613975,
      "params": null,
      "fold_id": 179
     },
@@ -3428,8 +3644,8 @@
      "n_prior": 1531,
      "decision": "identity",
      "reason": "gated_no_gain",
-     "nested_holdout_logloss": 0.618267,
-     "raw_logloss": 0.617309,
+     "nested_holdout_logloss": 0.614961,
+     "raw_logloss": 0.613975,
      "params": null,
      "fold_id": 180
     },
@@ -3437,8 +3653,8 @@
      "n_prior": 1531,
      "decision": "identity",
      "reason": "gated_no_gain",
-     "nested_holdout_logloss": 0.618267,
-     "raw_logloss": 0.617309,
+     "nested_holdout_logloss": 0.614961,
+     "raw_logloss": 0.613975,
      "params": null,
      "fold_id": 181
     },
@@ -3446,8 +3662,8 @@
      "n_prior": 1531,
      "decision": "identity",
      "reason": "gated_no_gain",
-     "nested_holdout_logloss": 0.618267,
-     "raw_logloss": 0.617309,
+     "nested_holdout_logloss": 0.614961,
+     "raw_logloss": 0.613975,
      "params": null,
      "fold_id": 182
     },
@@ -3455,8 +3671,8 @@
      "n_prior": 1546,
      "decision": "identity",
      "reason": "gated_no_gain",
-     "nested_holdout_logloss": 0.611882,
-     "raw_logloss": 0.611573,
+     "nested_holdout_logloss": 0.609142,
+     "raw_logloss": 0.608764,
      "params": null,
      "fold_id": 183
     },
@@ -3464,8 +3680,8 @@
      "n_prior": 1546,
      "decision": "identity",
      "reason": "gated_no_gain",
-     "nested_holdout_logloss": 0.611882,
-     "raw_logloss": 0.611573,
+     "nested_holdout_logloss": 0.609142,
+     "raw_logloss": 0.608764,
      "params": null,
      "fold_id": 184
     },
@@ -3473,8 +3689,8 @@
      "n_prior": 1562,
      "decision": "identity",
      "reason": "gated_no_gain",
-     "nested_holdout_logloss": 0.617734,
-     "raw_logloss": 0.617621,
+     "nested_holdout_logloss": 0.614689,
+     "raw_logloss": 0.614594,
      "params": null,
      "fold_id": 185
     },
@@ -3482,8 +3698,8 @@
      "n_prior": 1562,
      "decision": "identity",
      "reason": "gated_no_gain",
-     "nested_holdout_logloss": 0.617734,
-     "raw_logloss": 0.617621,
+     "nested_holdout_logloss": 0.614689,
+     "raw_logloss": 0.614594,
      "params": null,
      "fold_id": 186
     },
@@ -3491,8 +3707,8 @@
      "n_prior": 1578,
      "decision": "identity",
      "reason": "gated_no_gain",
-     "nested_holdout_logloss": 0.612563,
-     "raw_logloss": 0.612184,
+     "nested_holdout_logloss": 0.609412,
+     "raw_logloss": 0.609032,
      "params": null,
      "fold_id": 187
     },
@@ -3500,8 +3716,8 @@
      "n_prior": 1594,
      "decision": "identity",
      "reason": "gated_no_gain",
-     "nested_holdout_logloss": 0.613784,
-     "raw_logloss": 0.613427,
+     "nested_holdout_logloss": 0.610017,
+     "raw_logloss": 0.609467,
      "params": null,
      "fold_id": 188
     },
@@ -3509,8 +3725,8 @@
      "n_prior": 1610,
      "decision": "identity",
      "reason": "gated_no_gain",
-     "nested_holdout_logloss": 0.613566,
-     "raw_logloss": 0.613435,
+     "nested_holdout_logloss": 0.6095,
+     "raw_logloss": 0.609067,
      "params": null,
      "fold_id": 189
     },
@@ -3518,8 +3734,8 @@
      "n_prior": 1626,
      "decision": "identity",
      "reason": "gated_no_gain",
-     "nested_holdout_logloss": 0.61461,
-     "raw_logloss": 0.614452,
+     "nested_holdout_logloss": 0.6126,
+     "raw_logloss": 0.611993,
      "params": null,
      "fold_id": 190
     },
@@ -3527,8 +3743,8 @@
      "n_prior": 1626,
      "decision": "identity",
      "reason": "gated_no_gain",
-     "nested_holdout_logloss": 0.61461,
-     "raw_logloss": 0.614452,
+     "nested_holdout_logloss": 0.6126,
+     "raw_logloss": 0.611993,
      "params": null,
      "fold_id": 191
     },
@@ -3536,8 +3752,8 @@
      "n_prior": 1626,
      "decision": "identity",
      "reason": "gated_no_gain",
-     "nested_holdout_logloss": 0.61461,
-     "raw_logloss": 0.614452,
+     "nested_holdout_logloss": 0.6126,
+     "raw_logloss": 0.611993,
      "params": null,
      "fold_id": 192
     },
@@ -3545,8 +3761,8 @@
      "n_prior": 1626,
      "decision": "identity",
      "reason": "gated_no_gain",
-     "nested_holdout_logloss": 0.61461,
-     "raw_logloss": 0.614452,
+     "nested_holdout_logloss": 0.6126,
+     "raw_logloss": 0.611993,
      "params": null,
      "fold_id": 193
     },
@@ -3554,8 +3770,8 @@
      "n_prior": 1626,
      "decision": "identity",
      "reason": "gated_no_gain",
-     "nested_holdout_logloss": 0.61461,
-     "raw_logloss": 0.614452,
+     "nested_holdout_logloss": 0.6126,
+     "raw_logloss": 0.611993,
      "params": null,
      "fold_id": 194
     },
@@ -3563,8 +3779,8 @@
      "n_prior": 1626,
      "decision": "identity",
      "reason": "gated_no_gain",
-     "nested_holdout_logloss": 0.61461,
-     "raw_logloss": 0.614452,
+     "nested_holdout_logloss": 0.6126,
+     "raw_logloss": 0.611993,
      "params": null,
      "fold_id": 195
     },
@@ -3572,8 +3788,8 @@
      "n_prior": 1641,
      "decision": "identity",
      "reason": "gated_no_gain",
-     "nested_holdout_logloss": 0.614184,
-     "raw_logloss": 0.613761,
+     "nested_holdout_logloss": 0.612705,
+     "raw_logloss": 0.611844,
      "params": null,
      "fold_id": 196
     },
@@ -3581,8 +3797,8 @@
      "n_prior": 1657,
      "decision": "identity",
      "reason": "gated_no_gain",
-     "nested_holdout_logloss": 0.613116,
-     "raw_logloss": 0.612468,
+     "nested_holdout_logloss": 0.612505,
+     "raw_logloss": 0.611186,
      "params": null,
      "fold_id": 197
     },
@@ -3590,8 +3806,8 @@
      "n_prior": 1673,
      "decision": "identity",
      "reason": "gated_no_gain",
-     "nested_holdout_logloss": 0.615783,
-     "raw_logloss": 0.615341,
+     "nested_holdout_logloss": 0.615164,
+     "raw_logloss": 0.61414,
      "params": null,
      "fold_id": 198
     },
@@ -3599,8 +3815,8 @@
      "n_prior": 1689,
      "decision": "identity",
      "reason": "gated_no_gain",
-     "nested_holdout_logloss": 0.615765,
-     "raw_logloss": 0.61542,
+     "nested_holdout_logloss": 0.615352,
+     "raw_logloss": 0.614613,
      "params": null,
      "fold_id": 199
     },
@@ -3608,8 +3824,8 @@
      "n_prior": 1704,
      "decision": "identity",
      "reason": "gated_no_gain",
-     "nested_holdout_logloss": 0.615949,
-     "raw_logloss": 0.615559,
+     "nested_holdout_logloss": 0.615469,
+     "raw_logloss": 0.614597,
      "params": null,
      "fold_id": 200
     },
@@ -3617,8 +3833,8 @@
      "n_prior": 1704,
      "decision": "identity",
      "reason": "gated_no_gain",
-     "nested_holdout_logloss": 0.615949,
-     "raw_logloss": 0.615559,
+     "nested_holdout_logloss": 0.615469,
+     "raw_logloss": 0.614597,
      "params": null,
      "fold_id": 201
     },
@@ -3626,18 +3842,27 @@
      "n_prior": 1704,
      "decision": "identity",
      "reason": "gated_no_gain",
-     "nested_holdout_logloss": 0.615949,
-     "raw_logloss": 0.615559,
+     "nested_holdout_logloss": 0.615469,
+     "raw_logloss": 0.614597,
      "params": null,
      "fold_id": 202
+    },
+    {
+     "n_prior": 1704,
+     "decision": "identity",
+     "reason": "gated_no_gain",
+     "nested_holdout_logloss": 0.615469,
+     "raw_logloss": 0.614597,
+     "params": null,
+     "fold_id": 203
     }
    ],
    "final_serving": {
-    "n_prior": 1704,
+    "n_prior": 1719,
     "decision": "identity",
     "reason": "gated_no_gain",
-    "nested_holdout_logloss": 0.615949,
-    "raw_logloss": 0.615559,
+    "nested_holdout_logloss": 0.608297,
+    "raw_logloss": 0.607311,
     "params": null
    }
   }
