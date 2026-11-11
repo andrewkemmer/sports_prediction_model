@@ -1,0 +1,656 @@
+"""Production pricer for the frozen NBA NB challenger (w_prod v1).
+
+Replaces the split-skew/lattice distribution family for NBA pricing. The
+engine has four stages, matching the frozen research build exactly:
+
+  step 1  per-side score means (mu_h, mu_a) supplied by the caller — the
+          distribution family's own inputs, unchanged;
+  step 2  total residual  K_R = (T - (mu_h+mu_a)) + C_R, LGBM NB2 with the
+          A-frame matrix plus mu_h/mu_a, dispersion r_R;
+  step 3  margin residual K_E = (M - (mu_h-mu_a)) + C_E, same recipe, r_E;
+  step 4  50k Monte Carlo draws per game, structural OT leg rule, then the
+          frozen two-layer count-shrunk margin weights (w_prod) applied as
+          w_norm. Calibration layer is identity (platt_v1 disabled).
+
+Weights are NOT an artifact. Every run refits them in this process as
+cumulative per-slate-date tables over strictly prior settled games
+(walk-forward OOF history), applies them point-in-time pre-game, and then
+discards them. Nothing here reads a stored weight table, and no weight table
+is ever written to disk or committed to the repository. Calibration is
+identity (the Platt layer is disabled by verdict).
+
+Model id: ``nba_nb_hier_wprod_v1``.
+"""
+from __future__ import annotations
+
+import hashlib
+import json
+import logging
+import os
+import sys
+from pathlib import Path
+
+import numpy as np
+import pandas as pd
+
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+logger = logging.getLogger("nba_hier_mc")
+
+MODEL_ID = "nba_nb_hier_wprod_v1"
+C_R = 100.0
+C_E = 60.0
+N_MC = 50_000
+MC_SEED = 20261111
+GRID = np.arange(-110, 111)
+TMIN, TMAX = 0, 400
+OT_DEFAULTS = {"d_m1": 0.15, "d_p1": 0.28, "w_lo": 2, "w_hi": 8}
+BUNDLE_NAME = "nba_hier_mc_latest.joblib"
+
+
+# ------------------------------------------------- methodology (not data)
+# k_trend / k_spike were selected by the expanding-window OOF verdict on the
+# exact-margin grid. These are methodology constants: the per-game weights
+# themselves are always computed fresh from OOS history inside this process
+# (build_weight_tables) and are NEVER serialized to disk, committed, or
+# shipped. There is no stored weight artifact anywhere in this repository.
+K_TR = 150.0
+K_SP = 200.0
+IDENTITY_CALIBRATION = {"mode": "identity", "a": 0.0, "b": 1.0}
+
+
+def _two_layer(nm, pa, pb, k_sp):
+    """Count-shrunk frequency-ratio reweighting (two layers, vendored copy).
+
+    Vendored here so production never imports untracked experiment scripts:
+    w = w_trend * w_spike, each layer 1 + n/(n+k)*(pa/pb - 1) with a 5-bin
+    local trend (k_trend) and a single-integer spike (k_spike); w(0) = 0.
+    """
+    L = len(nm)
+    r = np.ones(L)
+    nz = pb > 0
+    r[nz] = pa[nz] / np.maximum(pb[nz], 1e-12)
+    r_smooth = np.ones(L)
+    n_smooth = np.zeros(L)
+    for i in range(L):
+        if i == 110:
+            continue
+        sa = sb = sn = 0.0
+        for d in (-2, -1, 0, 1, 2):
+            j = i + d
+            if j < 0 or j >= L or j == 110:
+                continue
+            sa += pa[j]
+            sb += pb[j]
+            sn += nm[j]
+        r_smooth[i] = sa / sb if sb > 0 else 1.0
+        n_smooth[i] = sn
+    w_tr = 1.0 + (n_smooth / (n_smooth + K_TR)) * (r_smooth - 1.0)
+    p_tr = pb * w_tr
+    rs2 = np.ones(L)
+    nz2 = p_tr > 0
+    rs2[nz2] = pa[nz2] / np.maximum(p_tr[nz2], 1e-12)
+    w_sp = 1.0 + (nm / (nm + k_sp)) * (rs2 - 1.0)
+    w = w_tr * w_sp
+    both0 = (nm == 0) & (n_smooth == 0)
+    w[both0] = 1.0
+    w[110] = 0.0
+    w[~np.isfinite(w)] = 1.0
+    return np.clip(w, 0, None), w_tr, w_sp
+
+
+def _ot_rule():
+    import config
+    rule = dict(OT_DEFAULTS)
+    p = Path(config.RUN_DIAGNOSTICS_DIR) / "ot_rule.json"
+    if p.exists():
+        try:
+            rule.update(json.loads(p.read_text()))
+        except Exception:  # noqa: BLE001 - defaults are the contract
+            logger.warning("ot_rule.json unreadable; using defaults")
+    return rule
+
+
+# ------------------------------------------------------------------- models
+def _features(frame: pd.DataFrame, mu_h: np.ndarray, mu_a: np.ndarray):
+    import moneyline as ml_mod
+    X = ml_mod.member_fit_input(
+        "lightgbm", ml_mod.member_matrix("lightgbm", frame), None)
+    if not hasattr(X, "columns"):
+        raise ValueError("LGBM member matrix is not a frame")
+    X = X.copy()
+    X["mu_h"] = mu_h
+    X["mu_a"] = mu_a
+    return X
+
+
+def fit_step1(frame: pd.DataFrame, progress_every: int = 0,
+              r_override: dict | None = None):
+    """Step 1: per-side NB score models (the frozen challenger's baseline arm)."""
+    import config
+    from distributions import (NegativeBinomialObjective, NB_RAW_CLIP,
+                               estimate_nb_dispersion)
+    from lightgbm import LGBMRegressor
+
+    h = pd.to_numeric(frame.home_score, errors="coerce").to_numpy(float)
+    a = pd.to_numeric(frame.away_score, errors="coerce").to_numpy(float)
+    ok = np.isfinite(h) & np.isfinite(a)
+    X = _features(frame.loc[ok], np.full(ok.sum(), np.nan),
+                  np.full(ok.sum(), np.nan))
+    X = X.drop(columns=[c for c in ("mu_h", "mu_a") if c in X.columns])
+    cat = [c for c in config.TREE_CATEGORICAL_COLS if c in X.columns]
+    out = {}
+    for side, y in (("home", h[ok]), ("away", a[ok])):
+        r = float((r_override or {}).get(f"r_{side[0]}")
+                  or estimate_nb_dispersion(y))
+        init = float(np.log(max(y.mean(), 1e-6)))
+        model = LGBMRegressor(**{**config.LIGHTGBM_REG_PARAMS,
+                                 "objective": NegativeBinomialObjective(r)})
+        fit_kw = {"init_score": np.full(len(X), init)}
+        if cat:
+            fit_kw["categorical_feature"] = cat
+        model.fit(X, y, **fit_kw)
+        out[side] = {"model": model, "r": float(r), "init": init,
+                     "NB_RAW_CLIP": NB_RAW_CLIP}
+        if progress_every:
+            logger.info("step1 %s fitted on %d rows (r=%.1f)", side, len(y), r)
+    return {"step1": out, "columns": list(X.columns), "n_fit": int(ok.sum())}
+
+
+def predict_step1(frame: pd.DataFrame, bundle: dict):
+    X = _features(frame, np.zeros(len(frame)), np.zeros(len(frame)))
+    X = X.drop(columns=[c for c in ("mu_h", "mu_a") if c in X.columns])
+    X = X.reindex(columns=bundle["step1_columns"])
+    mus = {}
+    for side in ("home", "away"):
+        s = bundle["step1"][side]
+        raw = np.asarray(s["model"].predict(X), dtype=float)
+        mus[side] = np.exp(np.clip(raw + s["init"], *s["NB_RAW_CLIP"]))
+    return mus["home"], mus["away"]
+
+
+def frozen_dispersions():
+    """Dispersions from the validated OOF run (structural, not refit).
+
+    The frozen weights and the validated spread assume the OOF-fitted
+    dispersions; refitting them in-sample under-disperses the price.
+    """
+    import config
+    p = Path(config.RUN_DIAGNOSTICS_DIR) / "ab_hier_mc_oof.parquet"
+    if not p.exists():
+        return None
+    oof = pd.read_parquet(p, columns=["r_R", "r_E", "r_h", "r_a"])
+    return {c: float(oof[c].median()) for c in ("r_R", "r_E", "r_h", "r_a")}
+
+
+def fit_models(frame: pd.DataFrame, mu_h, mu_a, progress_every: int = 0,
+               r_override: dict | None = None):
+    """Fit the step-2/step-3 residual models on settled rows."""
+    import config
+    from distributions import (NegativeBinomialObjective, NB_RAW_CLIP,
+                               estimate_nb_dispersion)
+    from lightgbm import LGBMRegressor
+
+    h = pd.to_numeric(frame.home_score, errors="coerce").to_numpy(float)
+    a = pd.to_numeric(frame.away_score, errors="coerce").to_numpy(float)
+    muh = np.asarray(mu_h, float)
+    mua = np.asarray(mu_a, float)
+    ok = np.isfinite(h) & np.isfinite(a) & np.isfinite(muh) & np.isfinite(mua)
+    X = _features(frame.loc[ok], muh[ok], mua[ok])
+    cat = [c for c in config.TREE_CATEGORICAL_COLS if c in X.columns]
+    out = {}
+    for tag, kind, c_init in (("KR", "total", C_R), ("KE", "margin", C_E)):
+        y = ((h[ok] + a[ok]) - (muh[ok] + mua[ok]) + C_R if kind == "total"
+             else (h[ok] - a[ok]) - (muh[ok] - mua[ok]) + C_E)
+        if not np.all(y > 0):
+            raise ValueError(f"{tag}: shifted residual must be strictly positive")
+        r = float((r_override or {}).get(tag) or estimate_nb_dispersion(y))
+        model = LGBMRegressor(**{**config.LIGHTGBM_REG_PARAMS,
+                                 "objective": NegativeBinomialObjective(r)})
+        fit_kw = {"init_score": np.full(len(X), np.log(c_init))}
+        if cat:
+            fit_kw["categorical_feature"] = cat
+        model.fit(X, y, **fit_kw)
+        out[tag] = {"model": model, "r": float(r), "c_init": float(c_init),
+                    "kind": kind, "columns": list(X.columns),
+                    "n_fit": int(len(y)), "NB_RAW_CLIP": NB_RAW_CLIP}
+        if progress_every:
+            logger.info("fitted %s on %d rows (r=%.1f)", tag, len(y), r)
+    return {"models": out, "model_id": MODEL_ID,
+            "feature_columns": list(X.columns), "fit_n": int(len(X))}
+
+
+def predict_residuals(frame: pd.DataFrame, mu_h, mu_a, bundle: dict):
+    rows = {"mu_KR": np.full(len(frame), np.nan), "mu_KE": np.full(len(frame), np.nan)}
+    X = _features(frame, np.asarray(mu_h, float), np.asarray(mu_a, float))
+    for tag, key in (("KR", "mu_KR"), ("KE", "mu_KE")):
+        spec = bundle["models"][tag]
+        Xi = X.reindex(columns=spec["columns"])
+        raw = np.asarray(spec["model"].predict(Xi), dtype=float)
+        rows[key] = np.exp(np.clip(raw + np.log(spec["c_init"]),
+                                  *spec["NB_RAW_CLIP"]))
+    return (rows["mu_KR"], rows["mu_KE"],
+            float(bundle["models"]["KR"]["r"]),
+            float(bundle["models"]["KE"]["r"]))
+
+
+def _fit_core(frame: pd.DataFrame, progress_every: int = 0):
+    """Fit the three model stages only (no weight tables).
+
+    Split out so the walk-forward history can refit models per block without
+    recursively rebuilding the tables inside every block fit.
+    """
+    disp = frozen_dispersions() or {}
+    st1 = fit_step1(frame, progress_every=progress_every, r_override=disp)
+    mu_h, mu_a = predict_step1(frame, {**st1, "step1_columns": st1["columns"]})
+    res = fit_models(frame, mu_h, mu_a, progress_every=progress_every,
+                     r_override={"KR": disp.get("r_R"), "KE": disp.get("r_E")})
+    return {"step1": st1["step1"], "step1_columns": st1["columns"],
+            "models": res["models"], "feature_columns": res["feature_columns"],
+            "fit_n": res["fit_n"]}
+
+
+def fit_bundle(frame: pd.DataFrame, progress_every: int = 0):
+    """Fit all three model stages plus the cumulative weight tables."""
+    core = _fit_core(frame, progress_every=progress_every)
+    res = {"models": core["models"], "feature_columns": core["feature_columns"],
+           "fit_n": core["fit_n"]}
+    partial = {"step1": core["step1"], "step1_columns": core["step1_columns"],
+               "models": core["models"]}
+    tables = build_weight_tables(frame, partial, progress_every=progress_every)
+    if tables.get("final") is not None:
+        _TABLES_CACHE[int(res["fit_n"])] = tables
+    return {"model_id": MODEL_ID,
+            "step1": core["step1"], "step1_columns": core["step1_columns"],
+            "models": res["models"], "feature_columns": res["feature_columns"],
+            "fit_n": res["fit_n"], "trained_utc": pd.Timestamp.utcnow().isoformat(),
+            # Runtime-only: rebuilt point-in-time every run, never serialized.
+            "weight_tables": tables,
+            "calibration": dict(IDENTITY_CALIBRATION),
+            "weight_artifact_policy": "runtime_only_never_serialized_never_committed",
+            "k_trend": K_TR, "k_spike": K_SP}
+
+
+def _draw_game(mu_h, mu_a, mu_kr, mu_ke, r_r, r_e, rng, rule, n_draws):
+    """One game's 50k (home, away) draws after the structural OT rule."""
+    def draw(k):
+        rs = _nb_draw(rng, mu_kr, r_r, k).astype(float) - C_R
+        es = _nb_draw(rng, mu_ke, r_e, k).astype(float) - C_E
+        hh = np.clip(np.rint(mu_h + 0.5 * rs + 0.5 * es), 0, None).astype(np.int32)
+        aa = np.clip(np.rint(mu_a + 0.5 * rs - 0.5 * es), 0, None).astype(np.int32)
+        return hh, aa
+
+    hh, aa = draw(n_draws)
+    return _apply_ot(hh, aa, rng, rule, lambda k: draw(k))
+
+
+_HIST_CACHE: dict = {}
+
+
+MIN_HISTORY_ROWS = 1200
+HISTORY_BLOCKS = 6
+
+
+def _walkforward_history(frame: pd.DataFrame, ym, dates, rule,
+                        progress_every: int = 0):
+    """Out-of-sample mus for the settled history, built inside this process.
+
+    The weight tables are frequency ratios between actual margins and the
+    simulated margins of the same games, so those simulations must come from
+    models that never saw the games they score. The settled frame is cut into
+    contiguous date blocks; each block is predicted by a bundle fitted ONLY on
+    the blocks before it. Nothing is read from disk: a fresh clone with
+    re-pulled data builds byte-identical tables, and no OOF file has to exist
+    in the repository for the weights to be leakage-free.
+
+    Returns ``(hist, ym, dates, source)`` restricted to the scored rows, or
+    ``None`` when there is too little settled history to score anything.
+    """
+    if "gameday" not in frame.columns:
+        logger.warning("weight tables: no gameday column; pricing unweighted")
+        return None
+    settled = np.flatnonzero(np.isfinite(ym) & dates.notna().to_numpy())
+    if len(settled) < MIN_HISTORY_ROWS:
+        logger.warning("weight tables: %d settled rows (< %d); pricing "
+                       "unweighted", len(settled), MIN_HISTORY_ROWS)
+        return None
+    order = settled[np.argsort(dates.to_numpy()[settled], kind="stable")]
+    key = (len(frame), len(order),
+           str(pd.Timestamp(dates.iloc[order[-1]]).date()))
+    cached = _HIST_CACHE.get(key)
+    if cached is not None:
+        logger.info("weight tables: reusing the in-process walk-forward "
+                    "history (%d games)", len(cached[0]))
+        return cached
+
+    # Work on a chronologically ordered copy: block slices must be contiguous
+    # and every order-dependent feature (rolling / EWM) must see history in
+    # time order, or the replay silently degrades to NaNs.
+    ordered = frame.iloc[order].reset_index(drop=True)
+    seed = max(600, len(ordered) // 10)
+    edges = np.linspace(seed, len(ordered), HISTORY_BLOCKS + 1).astype(int)
+    mus = np.full((len(ordered) - seed, 6), np.nan)
+    for i in range(len(edges) - 1):
+        tr = ordered.iloc[:edges[i]]
+        va = ordered.iloc[edges[i]:edges[i + 1]]
+        if len(va) == 0 or len(tr) < 500:
+            continue
+        fb = _fit_core(tr)
+        mu_h, mu_a = predict_step1(va, fb)
+        mu_kr, mu_ke, r_r, r_e = predict_residuals(va, mu_h, mu_a, fb)
+        # predict_residuals returns per-fold dispersion constants as scalars;
+        # broadcast them to the block so the column stack stays rectangular.
+        rr = np.broadcast_to(np.asarray(r_r, float), (len(va),))
+        re_b = np.broadcast_to(np.asarray(r_e, float), (len(va),))
+        mus[edges[i] - seed:edges[i + 1] - seed] = np.column_stack(
+            [mu_h, mu_a, mu_kr, mu_ke, rr, re_b])
+        if progress_every:
+            logger.info("weight tables: walk-forward block %d/%d (%d games)",
+                        i + 1, len(edges) - 1, len(va))
+
+    ok = np.isfinite(mus).all(axis=1)
+    if not ok.any():
+        logger.warning("weight tables: walk-forward replay produced no out-of-"
+                       "sample mus; pricing unweighted")
+        return None
+    hist = np.zeros((int(ok.sum()), len(GRID)))
+    for j, i in enumerate(np.flatnonzero(ok)):
+        rng = np.random.default_rng(MC_SEED + j)
+        hs, aa = _draw_game(*[float(v) for v in mus[i]], rng, rule, N_MC)
+        hist[j] = np.bincount(np.clip(hs - aa, -110, 110) + 110,
+                              minlength=len(GRID)) / N_MC
+    out = (hist, ym[order[seed:][ok]], dates.iloc[order[seed:][ok]],
+           "walkforward_inprocess_blocks")
+    logger.info("weight tables: walk-forward history replayed in process "
+                "(%d games, %d blocks)", int(ok.sum()), len(edges) - 1)
+    _HIST_CACHE[key] = out
+    return out
+
+
+def _history_for_tables(frame: pd.DataFrame, bundle: dict, ym, dates, rule,
+                        progress_every: int = 0):
+    """Leakage-free margin history for the cumulative tables (see above)."""
+    return _walkforward_history(frame, ym, dates, rule, progress_every)
+
+
+def build_weight_tables(frame: pd.DataFrame, bundle: dict,
+                        progress_every: int = 0):
+    """Cumulative date-ordered weight tables (one per settled slate date).
+
+    Production must not price a game with weights that have seen that game.
+    For every date d the table is fit ONLY on games before d (cumulative OOS
+    history), from their simulated (unweighted) margin histograms and actual
+    margins. Rows dated before the first usable table, and rows with no date,
+    price unweighted (w = 1) - there is no stored table to fall back to.
+    Serving dates use ``final`` (all scored rows).
+    """
+    k_sp = K_SP
+    rule = _ot_rule()
+    n = len(frame)
+    dates = (pd.to_datetime(frame["gameday"]).dt.normalize()
+             if "gameday" in frame.columns else pd.Series(pd.NaT, index=frame.index))
+    if "margin_actual" in frame.columns:
+        ym = pd.to_numeric(frame["margin_actual"], errors="coerce").to_numpy(float)
+    elif {"home_score", "away_score"}.issubset(frame.columns):
+        ym = (pd.to_numeric(frame["home_score"], errors="coerce").to_numpy(float)
+              - pd.to_numeric(frame["away_score"], errors="coerce").to_numpy(float))
+    else:
+        # No realised margins on this frame (e.g. a live slate): nothing to
+        # fit against, so pricing runs unweighted.
+        ym = np.full(len(frame), np.nan)
+    # Simulated histograms must come from models that never saw the games
+    # being priced, so the walk-forward OOF store is preferred: its mus are
+    # fold-trained. Only when that store is unavailable does the fit fall
+    # back to this run's in-sample models (logged, and NOT leakage-free).
+    hist_src = _history_for_tables(frame, bundle, ym, dates, rule, progress_every)
+    if hist_src is None:
+        return {"cutoffs": [], "tables": [], "final": None,
+                "k_trend": K_TR, "k_spike": K_SP, "n_dates": 0,
+                "n_table_dates": 0,
+                "history_source": "identity_insufficient_history",
+                "serialized": False}
+    hist, ym, dates, hist_source = hist_src
+    n = len(hist)
+
+    def _fit(mask):
+        nm = np.bincount(np.clip(np.rint(ym[mask]), -110, 110).astype(int) + 110,
+                         minlength=len(GRID)).astype(float)
+        if nm.sum() <= 0:
+            return None
+        pa = nm / nm.sum()
+        pb = hist[mask].mean(axis=0)
+        pb = pb / pb.sum()
+        w, _, _ = _two_layer(nm, pa, pb, k_sp)
+        return w
+
+    usable_dates = pd.unique(dates.dropna())
+    usable_dates = np.sort(np.asarray(usable_dates))
+    cutoffs, tables = [], []
+    for d in usable_dates:
+        prior = np.flatnonzero((dates < d).to_numpy()
+                               & np.isfinite(ym))
+        if len(prior) < 500:
+            continue
+        cutoffs.append(str(pd.Timestamp(d).date()))
+        tables.append(_fit(prior))
+    final = _fit(np.asarray(np.isfinite(ym)) & dates.notna().to_numpy())
+    return {"cutoffs": cutoffs, "tables": tables, "final": final,
+            "k_trend": K_TR, "k_spike": k_sp, "n_dates": int(len(usable_dates)),
+            "n_table_dates": int(len(cutoffs)),
+            "history_source": hist_source,
+            "serialized": False}
+
+
+def _row_weights(frame: pd.DataFrame, bundle: dict):
+    """Per-row weights: the table fit strictly before that row's date.
+
+    Rows with no applicable table price UNWEIGHTED (w = 1): there is no
+    stored table anywhere to fall back to, by design.
+    """
+    tables = bundle.get("weight_tables") or {}
+    cutoffs = tables.get("cutoffs") or []
+    per = tables.get("tables") or []
+    final = tables.get("final")
+    if final is None or not cutoffs:
+        return np.ones((len(frame), len(GRID)))
+    cut = pd.to_datetime(pd.Series(cutoffs))
+    if "gameday" in frame.columns:
+        dates = pd.to_datetime(frame["gameday"]).dt.normalize()
+    else:
+        dates = pd.Series(pd.NaT, index=frame.index)
+    out = np.empty((len(frame), len(GRID)))
+    cache = {}
+    for i, d in enumerate(dates):
+        if pd.isna(d):
+            out[i] = np.asarray(final)
+            continue
+        # last cutoff strictly before this game's date
+        idx = int(np.searchsorted(cut.values, np.datetime64(d), side="left")) - 1
+        if idx < 0:
+            out[i] = np.ones(len(GRID))
+            continue
+        if idx not in cache:
+            tbl = per[idx]
+            cache[idx] = np.ones(len(GRID)) if tbl is None else np.asarray(tbl)
+        out[i] = cache[idx]
+    return out
+
+
+# ---------------------------------------------------------------- simulation
+def _nb_draw(rng, mu: float, r: float, n: int) -> np.ndarray:
+    mu = max(float(mu), 1e-6)
+    r = max(float(r), 1e-6)
+    lam = rng.gamma(shape=r, scale=mu / r, size=n)
+    return rng.poisson(lam).astype(np.int32)
+
+
+def _apply_ot(hs, aws, rng, rule, resample):
+    dm, dp = float(rule["d_m1"]), float(rule["d_p1"])
+    lo, hi = int(rule["w_lo"]), int(rule["w_hi"])
+    hs, aws = hs.copy(), aws.copy()
+    m = hs - aws
+    u = rng.random(m.shape)
+    drop = (m == 0) | ((m == 1) & (u < dp)) | ((m == -1) & (u < dm))
+    it = 0
+    while bool(drop.any()) and it < 40:
+        idx = np.flatnonzero(drop)
+        nh, na = resample(len(idx))
+        keep = (np.abs(nh - na) >= lo) & (np.abs(nh - na) <= hi)
+        hs[idx[keep]] = nh[keep]
+        aws[idx[keep]] = na[keep]
+        m = hs - aws
+        u = rng.random(m.shape)
+        drop = np.zeros(m.shape, bool)
+        drop[idx[~keep]] = True
+        it += 1
+    return hs, aws
+
+
+def price_frame_cdfs(frame: pd.DataFrame, bundle: dict, n_draws: int = N_MC,
+                     seed: int = MC_SEED, meta_out=None):
+    """Price a frame from step-1 mus (no external mus required)."""
+    mu_h, mu_a = predict_step1(frame, bundle)
+    return price_cdfs(frame, mu_h, mu_a, bundle, n_draws=n_draws, seed=seed,
+                      meta_out=meta_out)
+
+
+def price_cdfs(frame: pd.DataFrame, mu_h, mu_a, bundle: dict,
+               n_draws: int = N_MC, seed: int = MC_SEED, meta_out=None):
+    """Weighted empirical CDFs for margin and total over integer supports."""
+    rule = _ot_rule()
+    from gaussian_family import MC_SE_TARGET
+    # Same precision guard as the champion's inverse-CDF sampler: never price
+    # below its standard-error target, and report the count actually used.
+    used = max(int(n_draws), int(np.ceil(0.25 / MC_SE_TARGET ** 2)))
+    mu_kr, mu_ke, r_r, r_e = predict_residuals(frame, mu_h, mu_a, bundle)
+    n = len(frame)
+    cM = np.zeros((n, len(GRID)))
+    cT = np.zeros((n, TMAX - TMIN + 1))
+    ids = (frame["game_id"].astype(str).to_numpy() if "game_id" in frame
+           else np.arange(n).astype(str))
+    # Cumulative walk-forward tables: a fold's games are priced with weights
+    # fit strictly on prior folds; serving rows use the final (all-settled)
+    # table. Bundles without tables fall back to the frozen artifact.
+    W_tab = _row_weights(frame, bundle)
+    for i in range(n):
+        digest = hashlib.blake2b(f"nba|hier|{seed}|{ids[i]}".encode(),
+                                 digest_size=16).digest()
+        rng = np.random.default_rng(int.from_bytes(digest, "little"))
+
+        hh, aa = _draw_game(float(mu_h[i]), float(mu_a[i]), float(mu_kr[i]),
+                            float(mu_ke[i]), r_r, r_e, rng, rule, used)
+        m = np.clip(hh - aa, -110, 110) + 110
+        t = np.clip(hh + aa, TMIN, TMAX)
+        wd = W_tab[i][m]
+        hm = np.bincount(m, weights=wd, minlength=len(GRID)).astype(float)
+        ht = np.bincount(t, weights=wd, minlength=TMAX - TMIN + 1).astype(float)
+        if hm.sum() <= 0 or ht.sum() <= 0:
+            raise ValueError(f"game {ids[i]}: degenerate weighted histogram")
+        # Clip: cumulative sums can land a hair above 1.0 in float, and the
+        # family CRPS check rejects any probability outside [0, 1].
+        cM[i] = np.minimum(np.cumsum(hm) / hm.sum(), 1.0)
+        cT[i] = np.minimum(np.cumsum(ht) / ht.sum(), 1.0)
+    if meta_out is not None:
+        meta_out.update({"method": "hier_nb_weighted_mc", "model_id": MODEL_ID,
+                         "n_draws": int(used),
+                         "requested_draws": int(n_draws), "seed": int(seed),
+                         "mc_se_totals_max": float(0.5 / np.sqrt(used)),
+                         "reason": ("precision_guard" if used != int(n_draws)
+                                    else "requested"),
+                         "calibration": "identity",
+                         "k_trend": K_TR,
+                         "k_spike": K_SP,
+                         "weight_scope": ("cumulative_walkforward"
+                                          if (bundle.get("weight_tables") or {}).get("final")
+                                          is not None else "identity_fallback_unweighted"),
+                         "weight_history": (bundle.get("weight_tables") or {}).get("history_source"),
+                         "weight_policy": "per-date tables fit on strictly prior "
+                                           "settled games; never serialized, never committed"})
+    return {"margin": (GRID.astype(float), cM),
+            "total": (np.arange(TMIN, TMAX + 1).astype(float), cT)}
+
+
+# ------------------------------------------------------------------ bundles
+def save_bundle(bundle: dict, path: str | Path | None = None) -> Path:
+    """Persist models only. Weight tables can never be written to disk.
+
+    The saved bundle is refit inputs (step-1/2/3 models). The cumulative
+    weight tables are runtime-only: ensure_tables() rebuilds them in memory
+    at serving time, so no serialized table can ever be committed.
+    """
+    import joblib
+    import config
+    slim = {k: v for k, v in bundle.items() if k != "weight_tables"}
+    slim["weight_tables"] = None
+    p = Path(path) if path else Path(config.MODELS_DIR) / BUNDLE_NAME
+    p.parent.mkdir(parents=True, exist_ok=True)
+    joblib.dump(slim, p)
+    return p
+
+
+def ensure_tables(frame: pd.DataFrame, bundle: dict,
+                  progress_every: int = 0) -> dict:
+    """Attach cumulative weight tables to a bundle in memory (never saved).
+
+    Serving path: load the model-only bundle, rebuild this run's per-date
+    tables from OOS history here, and price. Point-in-time pricing without
+    any persisted table.
+    """
+    if (bundle.get("weight_tables") or {}).get("final") is not None:
+        return bundle
+    key = int(bundle.get("fit_n") or 0)
+    hit = _TABLES_CACHE.get(key)
+    if hit is not None:
+        # The pipeline run already replayed this run's history at fit time;
+        # serving must reuse those tables instead of replaying again.
+        bundle["weight_tables"] = hit
+        return bundle
+    if len(frame) < MIN_HISTORY_ROWS:
+        # Per-slate pricing calls carry a handful of rows: there is no history
+        # to fit against here, so answer with the identity tables immediately
+        # instead of paying (and logging) a doomed history attempt. The run's
+        # fit step already registered the real tables under this bundle.
+        # Return a COPY: load_bundle() hands out a cached dict, and writing
+        # identity tables into it would make the unweighted state sticky for
+        # every later call in the process, including after the run's fit step
+        # registered real tables.
+        return {**bundle, "weight_tables": {
+            "cutoffs": [], "tables": [], "final": None,
+            "k_trend": K_TR, "k_spike": K_SP, "n_dates": 0,
+            "n_table_dates": 0,
+            "history_source": "identity_insufficient_history",
+            "serialized": False}}
+    partial = {"step1": bundle["step1"],
+               "step1_columns": bundle["step1_columns"],
+               "models": bundle["models"]}
+    bundle["weight_tables"] = build_weight_tables(
+        frame, partial, progress_every=progress_every)
+    if bundle["weight_tables"].get("final") is not None:
+        _TABLES_CACHE[key] = bundle["weight_tables"]
+    return bundle
+
+
+_TABLES_CACHE: dict = {}
+_BUNDLE_CACHE: dict = {}
+
+
+def load_bundle(path: str | Path | None = None,
+                refresh: bool = False) -> dict | None:
+    """Load the model-only bundle, cached per process by file mtime.
+
+    The cache matters because ensure_tables() attaches the rebuilt tables to
+    the returned dict in memory: repeat loads in one process reuse them
+    instead of refitting per pricing call.
+    """
+    import joblib
+    import config
+    p = Path(path) if path else Path(config.MODELS_DIR) / BUNDLE_NAME
+    if not p.exists():
+        return None
+    key = str(p.resolve())
+    stamp = p.stat().st_mtime_ns
+    hit = None if refresh else _BUNDLE_CACHE.get(key)
+    if hit is not None and hit[0] == stamp:
+        return hit[1]
+    bundle = joblib.load(p)
+    _BUNDLE_CACHE[key] = (stamp, bundle)
+    return bundle

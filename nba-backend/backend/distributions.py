@@ -1485,8 +1485,51 @@ def _fit_distribution_map(h, a, outcome, kind, parameters=None):
                           parameters or family.defaults(DISTRIBUTION_SPORT))
 
 
+def _nba_hier_cdfs(frame, n_draws, seed, meta_out):
+    """Serve the frozen NBA NB challenger when configured (NBA only).
+
+    Returns None (champion family serves) when the selector is off or the
+    frozen bundle is absent. On success the challenger's own step-1 score
+    means are written back onto the frame so every downstream column --
+    mu_margin/mu_total, pred_home/pred_away, modeled line, settlement
+    legs -- describes the same distribution that priced the game.
+    """
+    if DISTRIBUTION_SPORT != "nba":
+        return None
+    engine = str(getattr(config, "NBA_DISTRIBUTION_ENGINE", "champion")).lower()
+    if engine != "hier_mc":
+        return None
+    import nba_hier_mc as hier
+    bundle = hier.load_bundle(getattr(config, "NBA_HIER_MC_BUNDLE", None))
+    if bundle is None:
+        logger.warning("NBA_DISTRIBUTION_ENGINE=hier_mc but the model bundle "
+                       "%s is missing; falling back to the champion family",
+                       getattr(config, "NBA_HIER_MC_BUNDLE", hier.BUNDLE_NAME))
+        return None
+    # Per-date weights are rebuilt in memory every run, point-in-time from
+    # strictly prior settle history. They are never read from disk.
+    bundle = hier.ensure_tables(frame, bundle)
+    mu_h, mu_a = hier.predict_step1(frame, bundle)
+    # isetitem: in-place column write on a possibly-sliced frame without the
+    # chained-assignment warning path. Pricing downstream reads these back.
+    for _col, _vals in (("mu_h", mu_h), ("mu_a", mu_a)):
+        if _col in frame.columns:
+            frame.isetitem(frame.columns.get_loc(_col), _vals)
+        else:
+            frame[_col] = _vals
+    # The caller owns draw count and seed: the pricing contract's precision
+    # guard and seed-reproducibility checks read both straight back from the
+    # Monte Carlo meta, so never override them here.
+    return hier.price_cdfs(frame, mu_h, mu_a, bundle, n_draws=int(n_draws),
+                           seed=int(seed), meta_out=meta_out)
+
+
 def _distribution_cdfs(frame, maps, sampled=False, n_draws=MC_DRAWS,
                        seed=MC_SEED, meta_out=None):
+    if sampled:
+        served = _nba_hier_cdfs(frame, n_draws, seed, meta_out)
+        if served is not None:
+            return served
     h, a = _distribution_inputs(frame)
     # Trailing own-error location correction (trial, default off): the SAME
     # per-game shift the fit path applied to its history base, read from the

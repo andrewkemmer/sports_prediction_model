@@ -2347,6 +2347,31 @@ def run(run_date: str | None = None, out_dir: str | Path | None = None,
         model_path = model_dir / "nba_ensemble_latest.joblib"
         joblib.dump(bundle, model_path)
         artifacts.append(str(model_path.relative_to(out)))
+        # NBA distribution engine artifact: the NB challenger's step-1/2/3
+        # models, fitted on the same settled frame. Only the models are
+        # written: the margin weight tables are runtime-only, refit in this
+        # process from strictly prior settled games, and never serialized.
+        # A failed fit must never replace a good served bundle, so the write
+        # is guarded like the ensemble above.
+        if str(getattr(config, "NBA_DISTRIBUTION_ENGINE", "")).lower() == "hier_mc":
+            try:
+                import nba_hier_mc as hier
+                hb = hier.fit_bundle(game_df)
+                hpath = hier.save_bundle(hb, getattr(config, "NBA_HIER_MC_BUNDLE", None))
+                try:
+                    artifacts.append(str(hpath.relative_to(out)))
+                except ValueError:
+                    artifacts.append(str(hpath))
+                _wt = hb.get("weight_tables") or {}
+                _step("nba distribution engine",
+                      f"{hier.MODEL_ID} fitted on {hb['fit_n']} settled rows "
+                      f"({_wt.get('n_table_dates', 0)} point-in-time weight "
+                      f"tables, {_wt.get('history_source')})")
+            except Exception as exc:  # noqa: BLE001 - keep yesterday's bundle
+                logger.warning(
+                    "NBA hier-MC bundle NOT rebuilt (%s: %s); the previously "
+                    "served bundle stays in place for the distribution engine",
+                    type(exc).__name__, exc)
     else:
         logger.warning("model bundle NOT rewritten: the previously served "
                        "ensemble stays in place for serving")

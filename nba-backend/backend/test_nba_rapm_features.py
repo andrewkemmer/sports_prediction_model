@@ -1631,7 +1631,8 @@ class TestSealedChallengerHoldout:
                                                markets=priced, calibration=bundle)
         assert record["fit"]["holdout"] == bundle["holdout"]
         assert record["fit"]["monte_carlo"]["n_draws"] == dist.MC_DRAWS
-        assert record["fit"]["family"] == dist.family.FAMILY
+        served = (bundle.get("monte_carlo") or {}).get("model_id")
+        assert record["fit"]["family"] == (served or dist.family.FAMILY)
 
 
 class TestWinnerCardAucPopulation:
