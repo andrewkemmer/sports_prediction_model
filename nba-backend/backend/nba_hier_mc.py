@@ -55,6 +55,11 @@ BUNDLE_NAME = "nba_hier_mc_latest.joblib"
 # shipped. There is no stored weight artifact anywhere in this repository.
 K_TR = 150.0
 K_SP = 200.0
+#: Outer-tail taper: exact empirical weights to |m| = 25, blended to 1.0 by
+#: |m| = 30, locked at 1.0 beyond. Counts below SPARSE_N are locked too.
+TAIL_TAPER_START = 25
+TAIL_TAPER_STOP = 30
+SPARSE_N = 10
 IDENTITY_CALIBRATION = {"mode": "identity", "a": 0.0, "b": 1.0}
 
 
@@ -96,6 +101,29 @@ def _two_layer(nm, pa, pb, k_sp):
     w[110] = 0.0
     w[~np.isfinite(w)] = 1.0
     return np.clip(w, 0, None), w_tr, w_sp
+
+
+def clamp_outer_tails(w: np.ndarray, nm: np.ndarray) -> np.ndarray:
+    """Strict outer-tail taper: blowout margins are governed by the 4-NB tails.
+
+    The empirical layer is a count-shrunk frequency ratio, so a handful of
+    historical games at an extreme margin can multiply a bin several times
+    over (a 4.74x spike at +/-55 came from two games). Inside |m| <= 25 the
+    two-layer weights are kept exactly as fit; from 25 to 30 they are blended
+    back to 1 by alpha = (30 - |m|) / 5, and beyond 30 every bin is locked at
+    1.000. Bins with fewer than SPARSE_N observations are locked the same way,
+    so thin cells cannot invent a spike anywhere in the support.
+    """
+    w = np.array(w, dtype=float, copy=True)
+    nm = np.asarray(nm, dtype=float)
+    grid = np.arange(len(w)) - 110
+    am = np.abs(grid)
+    alpha = np.clip((TAIL_TAPER_STOP - am) / (TAIL_TAPER_STOP - TAIL_TAPER_START),
+                    0.0, 1.0)
+    w = 1.0 + alpha * (w - 1.0)
+    w[(am > TAIL_TAPER_STOP) | (nm < SPARSE_N)] = 1.0
+    w[110] = 0.0
+    return np.clip(w, 0, None)
 
 
 def _ot_rule():
@@ -420,7 +448,7 @@ def build_weight_tables(frame: pd.DataFrame, bundle: dict,
         pb = hist[mask].mean(axis=0)
         pb = pb / pb.sum()
         w, _, _ = _two_layer(nm, pa, pb, k_sp)
-        return w
+        return clamp_outer_tails(w, nm)
 
     usable_dates = pd.unique(dates.dropna())
     usable_dates = np.sort(np.asarray(usable_dates))
@@ -434,7 +462,10 @@ def build_weight_tables(frame: pd.DataFrame, bundle: dict,
         tables.append(_fit(prior))
     final = _fit(np.asarray(np.isfinite(ym)) & dates.notna().to_numpy())
     return {"cutoffs": cutoffs, "tables": tables, "final": final,
-            "k_trend": K_TR, "k_spike": k_sp, "n_dates": int(len(usable_dates)),
+            "k_trend": K_TR, "k_spike": k_sp,
+            "tail_taper": {"start": TAIL_TAPER_START, "stop": TAIL_TAPER_STOP,
+                           "sparse_n": SPARSE_N},
+            "n_dates": int(len(usable_dates)),
             "n_table_dates": int(len(cutoffs)),
             "history_source": hist_source,
             "serialized": False}
