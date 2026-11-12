@@ -10,8 +10,8 @@
    "win_rate": 0.4783,
    "predicted_mean": 0.5148,
    "auc": 0.5214,
-   "ece_raw": 0.0375,
-   "ece_calibrated": 0.0375,
+   "ece_raw": 0.0382,
+   "ece_calibrated": 0.0382,
    "brier": 0.2506,
    "logloss": 0.6944,
    "holdout": {},
@@ -59,7 +59,7 @@
   {
    "card": "over_under",
    "date": "2026-11-12",
-   "ece_calibrated": 0.0375,
+   "ece_calibrated": 0.0382,
    "brier": 0.2506,
    "logloss": 0.6944,
    "predicted_mean": 0.5148,
@@ -106,16 +106,16 @@
   "distribution": "causal_split_skew_crps_mc",
   "family": "two_sided_asymmetric_gaussian_split_skew",
   "variance": {
-   "home_variance": 3.792826570957471,
-   "away_variance": 4.0425352859774435,
-   "correlation": 0.032460043976362055,
-   "total_skew": 0.06709407951736299,
-   "margin_skew": 0.02171878044632355,
+   "home_variance": 3.7928254228631704,
+   "away_variance": 4.042535093062192,
+   "correlation": 0.032460448124712944,
+   "total_skew": 0.06709411044244655,
+   "margin_skew": 0.021718755312799477,
    "total_parity_alpha": 0.0,
    "total_tilt": {
-    "slope": 8.119791282613367,
-    "intercept": 0.09781516632428637,
-    "pace_mean": 0.03623181915457247,
+    "slope": 8.11982505070085,
+    "intercept": 0.09781135713730489,
+    "pace_mean": 0.03623190572700387,
     "cap": 6.0
    }
   },
@@ -127,8 +127,8 @@
     "n_test": 789,
     "significant": true,
     "basis": "localized_per_bin_shrinkage",
-    "residual_mae_before": 0.000918622738429883,
-    "residual_mae_after": 0.0006865015640865287,
+    "residual_mae_before": 0.0009186225072230958,
+    "residual_mae_after": 0.0006865013534062052,
     "delta_l1": 0.06468800000000001,
     "delta_max": 0.00556,
     "collateral_max_excess": 0.0,
@@ -153,7 +153,7 @@
      "k_ties": 9,
      "n": 2630,
      "model_p0": 0.02886,
-     "p_value": 1.187745596871081e-22,
+     "p_value": 1.1877552640005798e-22,
      "t": 0.003344,
      "significant": true
     },
@@ -266,7 +266,7 @@
        "bin": -14,
        "secondary": true,
        "amplitude": 0.000205,
-       "z": 2.465,
+       "z": 2.466,
        "admitted": true
       },
       {
@@ -287,8 +287,8 @@
     "n_test": 789,
     "significant": true,
     "basis": "localized_per_bin_shrinkage+relief",
-    "residual_mae_before": 0.0006815521078806809,
-    "residual_mae_after": 0.00025382834979425356,
+    "residual_mae_before": 0.0006815521118627383,
+    "residual_mae_after": 0.000253828587500927,
     "delta_l1": 0.320529,
     "delta_max": 0.046223,
     "collateral_max_excess": 0.0,
@@ -320,9 +320,9 @@
  },
  "market_metrics": {
   "over_38": {
-   "engine_ece_raw": 0.0295,
+   "engine_ece_raw": 0.0303,
    "engine_auc": 0.6137,
-   "engine_ece_calibrated": 0.0295,
+   "engine_ece_calibrated": 0.0303,
    "engine_brier": 0.2038,
    "engine_logloss": 0.5955,
    "n": 2582
