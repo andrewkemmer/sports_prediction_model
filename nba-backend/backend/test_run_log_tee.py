@@ -407,6 +407,28 @@ def test_final_pooled_calibrator_line_states_the_shipped_map():
     assert "ml_mod.gated_calibrator(" in src
 
 
+def test_delivered_log_records_the_delivery_outcome_before_staging():
+    """The pushed log must state the run's outcome, not just promise it.
+
+    The log is copied into a throwaway clone, so it can never contain the
+    result of its own push. The 2026-11-12 review of main found every
+    delivered copy ending on the "Final run-log delivery" announcement with
+    "status ok" as the last fact and no record of whether the artifacts
+    landed. The delivery record is written from the sync result BEFORE the
+    final staging copy, so the remote file closes with the outcome.
+    """
+    src = (BACKEND / "master_pipeline.py").read_text(encoding="utf-8")
+    assert 'progress.banner("run delivery")' in src
+    assert "artifacts — {_n_files} file(s) committed to {BRANCH} " in src
+    assert "run log — this file, re-delivered after the sync" in src
+    sync_at = src.index('summary["sync"] = sync')
+    record_at = src.index('progress.banner("run delivery")')
+    final_at = src.index("Final run-log delivery")
+    assert sync_at < record_at < final_at, (
+        "the delivery record must be written after the sync result exists and "
+        "before the log is staged for its final push")
+
+
 def test_final_run_log_delivery_pushes_the_complete_log_after_sync():
     """Final delivery (MLB/NHL/NFL parity): _sync_data_delivery copies
     the log into a throwaway clone — a SNAPSHOT taken before its own push

@@ -2578,6 +2578,31 @@ def run(run_date: str | None = None, out_dir: str | Path | None = None,
     summary["sync"] = sync
     prog.close()
 
+    # ── Delivery record (2026-11-12 remote log review) ──
+    # The run log is copied into a throwaway clone, so it can never contain the
+    # result of its own push: every delivered copy on main ended on the
+    # announcement below, with "status ok" as the last fact and nothing saying
+    # whether the artifacts actually landed. Everything needed is already
+    # known here, so write it into the log BEFORE it is staged and let the
+    # remote file close with the run's outcome instead of a promise. A log
+    # line must never fail a delivered run, hence the guard.
+    try:
+        _pushed = bool(sync.get("pushed"))
+        _n_files = len(sync.get("staged_files") or [])
+        _sha = str(sync.get("commit") or "")[:10]
+        progress.banner("run delivery")
+        print(f"  status {summary['status']}, {summary['elapsed_seconds']}s")
+        if _pushed:
+            print(f"  artifacts — {_n_files} file(s) committed to {BRANCH} "
+                  f"at {_sha}, remotely verified")
+        else:
+            print("  artifacts — not pushed: "
+                  f"{sync.get('skipped') or 'sync did not run'}")
+        print("  run log — this file, re-delivered after the sync so the "
+              "run's final state ships with it")
+    except Exception:  # noqa: BLE001 - a log record must never fail a run
+        pass
+
     # ── Final run-log delivery (2026-10-06 NBA log review, MLB/NHL/NFL
     # parity) ──
     # _sync_data_delivery copies the run log into a throwaway clone — a
