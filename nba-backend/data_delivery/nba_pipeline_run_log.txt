@@ -190,3 +190,33 @@ Traceback (most recent call last):
   File "/kaggle/working/sports_prediction_model/nba-backend/backend/ingestion.py", line 2566, in _validate
     raise RuntimeError(f"NBA team facts missing or disagree with final scores: "
 RuntimeError: NBA team facts missing or disagree with final scores: 5 team-game(s): 401909973 UTA (final 108-123, team facts 106-123), 401909974 HOU (final 115-108, team facts 88-108), 401909975 POR (final 118-108, team facts 77-108), 401909974 GSW (final 108-115, team facts 76-115), 401909975 OKC (final 108-118, team facts 71-118)
+
+  ── review 2026-11-12 (second crash delivery, 06:02-06:22 UTC) ──
+  verdict: same gate, same rows, now self-identifying. The 06:22 crash
+  names byte-for-byte the 5 team-games identified off-band in 09ce5914
+  (401909973 UTA, 401909974 HOU/GSW, 401909975 POR/OKC — all 2026-11-11,
+  ESPN final vs a still-filling stats.nba.com box score). The
+  unactionable message is therefore confirmed fixed in the field: this
+  crash needed no reproduction to follow up, unlike the 05:05 one.
+  run shape: window 2023-10-24..2026-11-12, NBA_FULL_REPULL, 4,129 games
+  over 1,116 days; season log 88,605 rows; play-by-play 4,111 fetched,
+  0 unavailable; 18 games with no season-log match (14 historic +
+  4 unplayed 11-12 slate games 401909976-9); the same 3 no-player-line
+  finals excluded. Died in load_ingested at 06:22:28, ~20 min in — 17 of
+  them on the play-by-play sweep, which the failing gate never reads.
+  nothing downstream ran, so no artifact in this delivery came from the
+  crash; the serving path is untouched.
+  record notes: (1) this file is a rolling master overwritten every run,
+  so the 05:05 + identification blocks live on only in history
+  (550c52d6, 09ce5914) — re-anchored here. (2) nba_pipeline_summary.json
+  still reads status ok / errors [] from the 02:04 success beside two
+  consecutive crash logs; that defect is still open and still belongs to
+  a crash-path summary write in pipeline code, which is out of scope
+  here, so the summary file itself is left exactly as the run left it.
+  open, not taken: treat same-night finals as not-yet-trainable instead
+  of fatal, and run the schedule-vs-season-log comparison before the
+  play-by-play sweep so a stale box score fails in seconds, not minutes.
+  both are pipeline-code changes and were deliberately not made.
+  scope of this review: this log file only. No program was added or
+  committed, and the Kaggle run (notebook, config, artifacts) is
+  untouched.
