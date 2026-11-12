@@ -313,3 +313,24 @@ def test_crash_hook_never_masks_the_original_error(tmp_path, monkeypatch):
     run_log_tee.install_crash_log_pusher(log, "u", "r")
     err = ValueError("original")
     sys.excepthook(type(err), err, None)  # must NOT raise despite push failure
+
+def test_delivery_record_precedes_the_final_log_staging():
+    """The pushed log must state the run's outcome, not just promise it.
+
+    The log is copied into the clone that is pushed, so the delivered file can
+    never contain the result of its own push. Reviewing main on 2026-11-12
+    found every copy ending on the "Final run-log delivery" announcement with
+    no record of whether the artifacts landed. The delivery record is written
+    from data that already exists, BEFORE the staging copy, so the remote file
+    closes with the outcome instead of the announcement.
+    """
+    src = (BACKEND / "master_pipeline.py").read_text(encoding="utf-8")
+    assert "file(s) committed to " in src
+    anchor = "  run log — this file, re-delivered after the sync"
+    assert anchor in src
+    record_at = src.index(anchor)
+    final_at = src.index("Final run-log delivery — pushing")
+    assert record_at < final_at, (
+        "the delivery record must be written before the log is staged")
+    assert src.index("sync_result = _sync_data_delivery(") < record_at, (
+        "the record must be written after the sync result exists")

@@ -3116,6 +3116,11 @@ if _rfe.get("ran"):
 
 # ── Phase 5: GitHub Sync — push this run's NEW files first ─────────────────
 _banner("PHASE 5", "GitHub Sync — push new artifacts")
+# Counted for the run delivery record written after the DONE banner: the
+# artifact push is the last thing this run does to the remote, so the record
+# states how many files it landed instead of leaving the log silent.
+_pushed_files = 0
+_pushed_sha = ""
 token = token or CONFIG.get("github_token", "")
 sync_dir = _host_base() / "mlb_sync_tmp"
 # Race-resilient push machinery (lives in github_sync so it is importable
@@ -3283,6 +3288,8 @@ else:
             push_with_retry(repo, CONFIG["github_branch"],
                             restage=_restage_artifacts, log=print)
             verify_pushed_paths(repo, CONFIG["github_branch"], staged)
+            _pushed_files = len(staged)
+            _pushed_sha = repo.head.commit.hexsha[:10]
             print(f"  ✅ Pushed and remotely verified {len(staged)} files — confirmed on {CONFIG['github_repo']}@{CONFIG['github_branch']}")
         else:
             print("  ⏭️  Nothing new to push")
@@ -3434,6 +3441,29 @@ _banner("DONE ✅" if _phase4_error is None else "DONE — WITH ERRORS ❌")
 print(f"  Games: {game_df.shape[0]}  |  Pitches: {pbp_df.shape[0]:,}  |  "
       f"Columns: {game_df.shape[1]} game + {pbp_df.shape[1]} pbp")
 print(f"  Output: {out_dir}")
+
+# ── Delivery record (2026-11-12 remote log review, NBA parity) ────────────
+# Phase 5 stages the run log into the clone it pushes, so the delivered file
+# can never contain the result of its own push: every copy on main ended on
+# the "Final run-log delivery" announcement with no record of whether the
+# artifacts landed. Print the outcome that is already known here, BEFORE the
+# log is staged, so the remote copy closes with the result. A log line must
+# never fail a delivered run.
+try:
+    _rec_sha = _pushed_sha
+    print("\n" + "━" * 70 + "\n  run delivery\n" + "━" * 70 + "\n")
+    print(f"  status {summary.get('status', 'ok')}")
+    if _pushed_files:
+        print(f"  artifacts — {_pushed_files} file(s) committed to "
+              f"{CONFIG['github_branch']}"
+              + (f" at {_rec_sha}" if _rec_sha else "")
+              + ", remotely verified")
+    else:
+        print("  artifacts — nothing new to push")
+    print("  run log — this file, re-delivered after the sync so the run's "
+          "final state ships with it")
+except Exception:  # noqa: BLE001 - a log record must never fail a run
+    pass
 
 # ── Final run-log delivery (2026-10-05 log review) ─────────────────────────
 # Phase 5 stages the run log like any other artifact — a SNAPSHOT copied

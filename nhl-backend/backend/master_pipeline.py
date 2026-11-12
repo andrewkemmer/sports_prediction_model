@@ -1236,6 +1236,43 @@ def main(argv: list[str] | None = None) -> int:
         )
     else:
         print("NHL artifact sync: nothing new to push")
+    # ── Delivery record (2026-11-12 remote log review, NBA parity) ──
+    # _sync_data_delivery copies the run log into the clone it pushes, so
+    # the delivered file can never contain the result of its own push:
+    # every copy on main ended on the "Final run-log delivery"
+    # announcement with no record of whether the artifacts landed. Print
+    # the outcome that is already known here, BEFORE the log is staged,
+    # so the remote copy closes with the result. A log line must never
+    # fail a delivered run.
+    try:
+        _n_files = len(sync_result.get("staged_files") or [])
+        _git_head, _git_branch = "", "main"
+        try:
+            _git_head = subprocess.run(
+                ["git", "rev-parse", "--short=10", "HEAD"],
+                cwd=str(BACKEND_DIR.parent.parent), check=True,
+                capture_output=True, text=True).stdout.strip()
+            _git_branch = subprocess.run(
+                ["git", "rev-parse", "--abbrev-ref", "HEAD"],
+                cwd=str(BACKEND_DIR.parent.parent), check=True,
+                capture_output=True, text=True).stdout.strip() or "main"
+        except Exception:  # noqa: BLE001 - the sha is informative only
+            pass
+        print("\n" + "-" * 70 + "\n  run delivery\n" + "-" * 70 + "\n")
+        print(f"  status {summary['status']}, "
+              f"{time.time() - t0:.0f}s")
+        if _n_files:
+            print(f"  artifacts — {_n_files} file(s) committed to "
+                  f"{_git_branch}"
+                  + (f" at {_git_head}" if _git_head else "")
+                  + ", remotely verified")
+        else:
+            print("  artifacts — not pushed: "
+                  f"{sync_result.get('skipped') or 'sync did not run'}")
+        print("  run log — this file, re-delivered after the sync so the "
+              "run's final state ships with it")
+    except Exception:  # noqa: BLE001 - a log record must never fail a run
+        pass
 
     # ── Final run-log delivery (2026-10-06 NHL log review, MLB parity) ──
     # _sync_data_delivery stages the run log like any other artifact — a
