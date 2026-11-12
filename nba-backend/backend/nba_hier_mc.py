@@ -922,6 +922,28 @@ def _champion_reporter(priced, cdfs_by_gid):
     return result
 
 
+def _merge_champion_prices(base_oof, prices):
+    """Merge the champion's priced columns over a base OOF frame.
+
+    The champion owns EVERY price column it produces. Dropping the base's
+    copies first is the difference between "price the artifact with the
+    champion" and "keep whatever marketize priced": the base arrives with
+    p_home_win_derived, p_tie, p_away_win_derived, derived_ml and the
+    distribution moments already stamped by the split-skew walk, so a
+    ``c not in base.columns`` filter would keep all of them and the champion
+    would write only game_id -- leaving derived_ml (and its moneyline) on the
+    old engine under a champion label.
+    """
+    base = base_oof.copy()
+    base["game_id"] = base.game_id.astype(str)
+    owned = [c for c in prices.columns if c in base.columns and c != "game_id"]
+    if owned:
+        base = base.drop(columns=owned)
+    keep = [c for c in prices.columns if c not in base.columns or c == "game_id"]
+    return base.merge(prices[keep], on="game_id", how="left",
+                      suffixes=("", "_champion"))
+
+
 def champion_oof_markets(game_df, fold_list, base_oof, n_draws=None,
                          seed=None, progress_every=0):
     import distributions as dist_mod
@@ -964,11 +986,7 @@ def champion_oof_markets(game_df, fold_list, base_oof, n_draws=None,
             logger.info("champion OOF: priced fold %s (%d games)",
                         fold.fold_id, len(val_settled))
     prices = pd.concat(price_parts, ignore_index=True) if price_parts else pd.DataFrame()
-    base = base_oof.copy()
-    base["game_id"] = base.game_id.astype(str)
-    keep = [c for c in prices.columns if c not in base.columns or c == "game_id"]
-    out = base.merge(prices[keep], on="game_id", how="left",
-                     suffixes=("", "_champion"))
+    out = _merge_champion_prices(base_oof, prices)
     for c in ("mu_h", "mu_a"):
         cc = f"{c}_champion"
         if cc in out.columns:

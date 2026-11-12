@@ -297,3 +297,34 @@ def test_walk_drops_uncovered_settled_rows_and_records_them(monkeypatch):
     assert not set(priced.index) & set(frame.index[:6])
     # And every row that WAS priced came with PIT pricing inputs.
     assert _calls["pit"] is not None and len(_calls["pit"]) > 0
+
+
+# ------------------------------------- champion merge owns the price columns
+def test_champion_merge_overwrites_the_old_engines_derived_moneyline():
+    """The base OOF frame arrives pre-priced by the split-skew walk.
+
+    A merge that skips columns already present on the base would let the
+    champion write only game_id: the grid would come from the champion while
+    p_home_win_derived/derived_ml/p_tie stayed on the old engine under a
+    champion label. Every column the champion prices must win.
+    """
+    base = pd.DataFrame({
+        "game_id": ["g1", "g2"],
+        "p_home_win_derived": [0.50, 0.55],   # old engine's numbers
+        "derived_ml": [0.50, 0.55],
+        "p_tie": [0.03, 0.03],
+        "y_home_win": [1, 0],})
+    prices = pd.DataFrame({
+        "game_id": ["g1", "g2"],
+        "p_home_win_derived": [0.61, 0.42],   # champion's CDF at -1/0
+        "derived_ml": [0.61, 0.42],
+        "p_tie": [0.02, 0.02],
+        "p_home_cover_0": [0.61, 0.42],
+        "mu_h": [112.0, 108.0], "mu_a": [108.0, 112.0],})
+    out = _REAL_HIER._merge_champion_prices(base, prices).set_index("game_id")
+    assert out.p_home_win_derived.tolist() == [0.61, 0.42]
+    assert out.derived_ml.tolist() == [0.61, 0.42]
+    assert out.p_tie.tolist() == [0.02, 0.02]
+    assert out.p_home_cover_0.tolist() == [0.61, 0.42]
+    # Base columns the champion does not price survive the merge untouched.
+    assert out.y_home_win.tolist() == [1, 0]
