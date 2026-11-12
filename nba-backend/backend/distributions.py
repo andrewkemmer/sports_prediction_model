@@ -11,6 +11,7 @@ refit on all settled past forecasts. No sportsbook is a model input.
 from __future__ import annotations
 
 import logging
+import os
 from typing import Any
 
 import numpy as np
@@ -1496,6 +1497,14 @@ def _nba_hier_cdfs(frame, n_draws, seed, meta_out):
     back onto the frame so every downstream column -- mu_margin/mu_total,
     pred_home/pred_away, modeled line, settlement legs -- describes the same
     distribution that priced the game.
+
+    Point-in-time contract, enforced structurally, not by convention:
+    rows WITH a known outcome (OOF) are priced with block-refit mus that
+    never saw those games; rows WITHOUT one (slate/live) price from the
+    full-frame bundle, which is correct because all history predates
+    them. A settled row with no PIT mus, and a walk that cannot be built
+    at all, both raise: with the champion fallback removed there is
+    nothing safe left to fall back to.
     """
     if DISTRIBUTION_SPORT != "nba":
         return None
@@ -1515,8 +1524,80 @@ def _nba_hier_cdfs(frame, n_draws, seed, meta_out):
                getattr(config, "NBA_HIER_MC_BUNDLE", hier.BUNDLE_NAME)))
     # Per-date weights are rebuilt in memory every run, point-in-time from
     # strictly prior settle history. They are never read from disk.
+    # (The production walk pre-builds full-frame tables before its origin
+    # loop; per-origin frames are too small to carry history, so without
+    # that step every origin would silently price unweighted.)
     bundle = hier.ensure_tables(frame, bundle)
-    mu_h, mu_a = hier.predict_step1(frame, bundle)
+    # A frame without score columns is a slate frame by definition (the
+    # serving path drops outcomes before pricing): nothing is settled, so
+    # everything prices from the bundle, which is PIT-correct there.
+    if {"home_score", "away_score"}.issubset(frame.columns):
+        _h = pd.to_numeric(frame["home_score"], errors="coerce").to_numpy(float)
+        _a = pd.to_numeric(frame["away_score"], errors="coerce").to_numpy(float)
+        _settled = np.isfinite(_h) & np.isfinite(_a)
+    else:
+        _settled = np.zeros(len(frame), dtype=bool)
+    _ids = (frame["game_id"].astype(str).to_numpy() if "game_id" in frame
+            else np.arange(len(frame)).astype(str))
+    mu_h = np.full(len(frame), np.nan)
+    mu_a = np.full(len(frame), np.nan)
+    pit = None
+    if bool(_settled.any()):
+        # Settled rows: block-refit mus only. Bundle trees trained on the
+        # full frame have seen these finals; using them here is lookahead.
+        _pit = hier.lookup_pit_mus(_ids[_settled])
+        if _pit is None:
+            # No PIT walk exists. Above the walk's floor that is an internal
+            # inconsistency -- a settled frame that large always yields blocks
+            # -- so it fails. BELOW the floor no walk can exist by
+            # construction (a short backtest, a fixture), and with the
+            # champion fallback gone refusing would mean hier can never price
+            # a short window at all: price from the bundle, but say so once
+            # per process and record the shortfall in the meta instead of
+            # letting it read like point-in-time pricing.
+            _floor = int(getattr(hier, "MIN_HISTORY_ROWS", 1200))
+            if int(_settled.sum()) >= _floor:
+                raise RuntimeError(
+                    "hier: %d settled rows clear the %d-row walk floor but no "
+                    "point-in-time walk was prepared; refusing to price OOF "
+                    "rows from full-frame trees"
+                    % (int(_settled.sum()), _floor))
+            global _HIER_SHORT_WALK_WARNED
+            try:
+                _HIER_SHORT_WALK_WARNED
+            except NameError:
+                _HIER_SHORT_WALK_WARNED = False
+            if not _HIER_SHORT_WALK_WARNED:
+                _HIER_SHORT_WALK_WARNED = True
+                logger.warning(
+                    "hier: %d settled rows (< %d-row walk floor) cannot have a "
+                    "point-in-time walk; pricing this short frame from the "
+                    "bundle and stamping pit_floor_shortfall in the meta",
+                    int(_settled.sum()), _floor)
+            if meta_out is not None:
+                meta_out["pit_floor_shortfall"] = int(_settled.sum())
+        else:
+            _need = ("mu_h", "mu_a", "mu_KR", "mu_KE", "r_R", "r_E")
+            if _pit[list(_need)].isna().any().any():
+                _bad = _pit.loc[_pit[list(_need)].isna().any(axis=1), "game_id"]
+                raise RuntimeError(
+                    "hier OOF pricing hit %d settled game(s) without PIT mus "
+                    "(pre-coverage history, e.g. %s); they must be excluded "
+                    "up front, never priced with full-frame mus"
+                    % (len(_bad), ", ".join(_bad.head(3).tolist())))
+            mu_h[_settled] = _pit["mu_h"].to_numpy(float)
+            mu_a[_settled] = _pit["mu_a"].to_numpy(float)
+            pit = _pit.reset_index(drop=True)
+    _unpriced = ~np.isfinite(mu_h)
+    if bool(_unpriced.any()):
+        # Unsettled rows (slate/live) have no outcome, so every fitted row
+        # predates them -- bundle mus are PIT-correct. The only settled rows
+        # that reach this branch are a below-floor short frame, already
+        # disclosed via pit_floor_shortfall above.
+        _bh, _ba = hier.predict_step1(frame.iloc[np.flatnonzero(_unpriced)],
+                                      bundle)
+        mu_h[_unpriced] = np.asarray(_bh, dtype=float)
+        mu_a[_unpriced] = np.asarray(_ba, dtype=float)
     # isetitem: in-place column write on a possibly-sliced frame without the
     # chained-assignment warning path. Pricing downstream reads these back.
     for _col, _vals in (("mu_h", mu_h), ("mu_a", mu_a)):
@@ -1528,7 +1609,7 @@ def _nba_hier_cdfs(frame, n_draws, seed, meta_out):
     # guard and seed-reproducibility checks read both straight back from the
     # Monte Carlo meta, so never override them here.
     return hier.price_cdfs(frame, mu_h, mu_a, bundle, n_draws=int(n_draws),
-                           seed=int(seed), meta_out=meta_out)
+                           seed=int(seed), meta_out=meta_out, pit=pit)
 
 
 def _distribution_cdfs(frame, maps, sampled=False, n_draws=MC_DRAWS,
@@ -2116,6 +2197,47 @@ def causal_distribution_frame(frame, n_draws=MC_DRAWS, seed=MC_SEED,
     """
     if frame is None or not len(frame):
         return frame, {"method": family.METHOD, "maps": {}}
+    # NBA hier engine, point-in-time prologue. The hier bundle's trees are
+    # fitted on the full settled frame, so pricing OOF origins from them
+    # would be lookahead. Instead: (a) build the full-frame weight tables
+    # once here -- per-origin frames are too small to carry history, so
+    # without this every origin would silently price unweighted; (b)
+    # prepare per-game block-refit mus and EXCLUDE settled rows that
+    # predate mus coverage. Excluded rows are never priced with full-frame
+    # mus, never infilled: the OOF population shrinks by the pre-seed
+    # history, loudly, instead of leaking quietly. Unsettled (slate) rows
+    # always price from the bundle downstream, which is correct because all
+    # history predates them.
+    pit_excluded = {"n": 0, "first": None, "last": None}
+    excluded_index: list = []
+    if DISTRIBUTION_SPORT == "nba" and str(getattr(
+            config, "NBA_DISTRIBUTION_ENGINE", "champion")).lower() == "hier_mc":
+        import nba_hier_mc as _hier
+        _hb = _hier.load_bundle(getattr(config, "NBA_HIER_MC_BUNDLE", None))
+        if _hb is not None:
+            _hier.ensure_tables(frame, _hb)
+            _pit = _hier.prepare_pit_mus(frame)
+            if _pit is not None:
+                _have = set(_pit["game_id"].astype(str))
+                _hs = pd.to_numeric(frame["home_score"], errors="coerce").to_numpy(float)
+                _as = pd.to_numeric(frame["away_score"], errors="coerce").to_numpy(float)
+                _settled = np.isfinite(_hs) & np.isfinite(_as)
+                _covered = frame["game_id"].astype(str).isin(_have).to_numpy()
+                # Only settled rows can leak (their finals trained the bundle
+                # trees); unsettled rows have no outcome and always keep.
+                _drop = _settled & ~_covered
+                if bool(_drop.any()):
+                    _dd = pd.to_datetime(frame.loc[_drop, "gameday"])
+                    pit_excluded = {"n": int(_drop.sum()),
+                                    "first": str(_dd.min().date()),
+                                    "last": str(_dd.max().date())}
+                    logger.warning(
+                        "hier OOF: %d settled game(s) predate PIT mus "
+                        "coverage (%s..%s); excluded from hier pricing",
+                        pit_excluded["n"], pit_excluded["first"],
+                        pit_excluded["last"])
+                    excluded_index.extend(frame.index[_drop])
+                    frame = frame.loc[~_drop].copy()
     original_index = frame.index
     date_key = "game_date" if DISTRIBUTION_SPORT == "mlb" else "gameday"
     identity_key = "game_pk" if DISTRIBUTION_SPORT == "mlb" else "game_id"
@@ -2232,6 +2354,7 @@ def causal_distribution_frame(frame, n_draws=MC_DRAWS, seed=MC_SEED,
     bundle = {"method": family.METHOD, "family": family.FAMILY, "scope": "whole_cdf",
               "sport": DISTRIBUTION_SPORT, "objective": "discrete_crps",
               "maps": maps, "origins": origins, "fit_n": len(frame),
+              "pit_excluded": pit_excluded,
               "lattice_summary": {target: family.lattice_summary(
                   (maps.get("lattice") or {}).get(target) or {})
                   for target in family.LATTICE_TARGETS},
@@ -2244,6 +2367,14 @@ def causal_distribution_frame(frame, n_draws=MC_DRAWS, seed=MC_SEED,
               "serving_fit_scope": "all_settled_prior_oof_only",
               "admission": "negative_mean_paired_crps_on_prior_issued_origins"}
     priced = pd.concat(parts).reindex(original_index)
+    if excluded_index:
+        # Excluded OOF rows leave the priced frame entirely (never NaN rows):
+        # downstream metrics must score the PIT-eligible population only.
+        # They were dropped before ``original_index`` was captured, so this is
+        # a safety net, not the mechanism: filter to what is actually present.
+        _gone = [i for i in excluded_index if i in priced.index]
+        if _gone:
+            priced = priced.drop(index=_gone)
     priced.attrs["mc_meta"] = bundle["monte_carlo"]
     # Runtime-only, parallel to ``origins``: the issued sampled CDFs per
     # block for distribution_score_report. They ride the BUNDLE, never

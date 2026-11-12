@@ -25,6 +25,20 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 import gaussian_family as fam
 import distributions as dist
 
+
+def _family_walk(monkeypatch):
+    """Price the walk with the split-skew family, not the NBA hier engine.
+
+    These tests cover lattice maps and the walk's own PIT contract, not hier.
+    hier needs >= 1200 settled rows to build a point-in-time walk (fixtures
+    carry ~330) and serving may no longer fall back to full-frame trees, so
+    the engine is stubbed out here instead of being exercised at a size it
+    refuses by design. test_nba_hier_pit.py covers the hier contract itself.
+    """
+    import nba_hier_mc as hier
+    monkeypatch.setattr(hier, "prepare_pit_mus", lambda frame, **k: None)
+    monkeypatch.setattr(dist, "_nba_hier_cdfs", lambda *a, **k: None)
+
 SPORT = dist.DISTRIBUTION_SPORT
 
 
@@ -230,7 +244,8 @@ def _walk_frame(n=330, seed=3):
     return frame
 
 
-def test_walk_stores_per_target_lattice_maps_and_prices_validly():
+def test_walk_stores_per_target_lattice_maps_and_prices_validly(monkeypatch):
+    _family_walk(monkeypatch)
     frame = _walk_frame()
     priced, bundle = dist.causal_distribution_frame(frame, n_draws=500)
     assert "lattice" in bundle["maps"]
@@ -257,6 +272,7 @@ def test_pre_lattice_bundles_price_identically(monkeypatch):
                         lambda *a, **k: (None, {}))
     monkeypatch.setattr(fam, "fit_margin_spikes",
                         lambda *a, **k: (None, {"spikes": []}))
+    _family_walk(monkeypatch)
     frame = _walk_frame()
     _, bundle = dist.causal_distribution_frame(frame, n_draws=500)
     maps = dict(bundle["maps"])
@@ -883,8 +899,10 @@ def test_shared_distribution_pit_core_copies_are_byte_identical():
             f"{p.parent.parent.name}={d[:12]}" for p, d in zip(copies, digests))
 
 
-def test_distribution_walk_never_prices_from_the_future_or_its_own_origin():
+def test_distribution_walk_never_prices_from_the_future_or_its_own_origin(
+        monkeypatch):
     """Adversarial PIT contract of this backend's own distribution walk."""
+    _family_walk(monkeypatch)
     inputs = (("home_expected_runs", "away_expected_runs") if SPORT == "mlb"
               else ("mu_h", "mu_a"))
     date_col = "game_date" if SPORT == "mlb" else "gameday"
@@ -931,9 +949,12 @@ def test_distribution_walk_never_prices_from_the_future_or_its_own_origin():
     # serving fit, which may learn from every settled row, is not what the
     # issued OOF columns came from).
     tail = frame.index >= 220
+    # Keep the outcome columns: the walk priced these rows as SETTLED, and a
+    # settled row may only be priced by a point-in-time path (the hier engine
+    # abstains without one). Dropping the scores would make the recompute a
+    # slate call and compare two different regimes, not two copies of a map.
     direct = dist._distribution_price(
-        frame.loc[tail].drop(columns=["home_score", "away_score"]),
-        bundle["origins"][-1]["maps"], n_draws=200)
+        frame.loc[tail], bundle["origins"][-1]["maps"], n_draws=200)
     stable = [c for c in ("p_home_win_derived", "p_away_win_derived", "p_tie",
                           "p_over_fair", "p_cover_fair", "fair_total",
                           "fair_spread", "distribution_mean_total",

@@ -60,7 +60,14 @@ def test_sampler_precision_stable_identity_streams_and_mass():
         family.sample_cdf(cdf, support, ['a', 'b'], 'margin', 'nba', n_draws=3)
 
 
-def test_public_pricing_is_outcome_free_and_arbitrary_lines_match_grid():
+def test_public_pricing_is_outcome_free_and_arbitrary_lines_match_grid(monkeypatch):
+    # This is a FAMILY contract: the split-skew family never reads an outcome.
+    # NBA serving is champion-only now, so the family cannot be reached by
+    # switching the engine selector; stub the hier entry point out instead and
+    # exercise the family directly. (Settled rows under a hier run go through
+    # their point-in-time OOF path, a different regime, covered by
+    # test_nba_hier_pit.py.)
+    monkeypatch.setattr(dist, "_nba_hier_cdfs", lambda *a, **k: None)
     reference = family.SPORT_PRIORS[dist.DISTRIBUTION_SPORT][0] / 2
     frame = pd.DataFrame({'game_id': ['a', 'b'], 'game_pk': ['a', 'b'],
                           'mu_h': [reference + 1., reference], 'mu_a': [reference, reference + 1.],

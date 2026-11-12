@@ -312,10 +312,30 @@ def _draw_game(mu_h, mu_a, mu_kr, mu_ke, r_r, r_e, rng, rule, n_draws):
 
 
 _HIST_CACHE: dict = {}
+# Parallel to _HIST_CACHE (same key): per-game strictly-prior
+# mus from the same block refits, for point-in-time OOF pricing.
+_MUS_CACHE: dict = {}
 
 
 MIN_HISTORY_ROWS = 1200
 HISTORY_BLOCKS = 6
+
+
+def _walk_key(frame: pd.DataFrame, order, dates):
+    """Identity of a walk: size, span, and BOTH end game ids.
+
+    Size + dates alone collide across fixtures (two frames of the same
+    length ending the same day but holding different games); a stale cache
+    hit would then hand one frame's strictly-prior mus to another.
+    """
+    def _gid(pos):
+        if "game_id" not in frame.columns:
+            return ""
+        return str(frame["game_id"].iloc[int(pos)])
+
+    return (len(frame), len(order),
+            str(pd.Timestamp(dates.iloc[order[-1]]).date()),
+            _gid(order[0]), _gid(order[-1]))
 
 
 def _walkforward_history(frame: pd.DataFrame, ym, dates, rule,
@@ -342,8 +362,7 @@ def _walkforward_history(frame: pd.DataFrame, ym, dates, rule,
                        "unweighted", len(settled), MIN_HISTORY_ROWS)
         return None
     order = settled[np.argsort(dates.to_numpy()[settled], kind="stable")]
-    key = (len(frame), len(order),
-           str(pd.Timestamp(dates.iloc[order[-1]]).date()))
+    key = _walk_key(frame, order, dates)
     cached = _HIST_CACHE.get(key)
     if cached is not None:
         logger.info("weight tables: reusing the in-process walk-forward "
@@ -356,11 +375,12 @@ def _walkforward_history(frame: pd.DataFrame, ym, dates, rule,
     ordered = frame.iloc[order].reset_index(drop=True)
     seed = max(600, len(ordered) // 10)
     edges = np.linspace(seed, len(ordered), HISTORY_BLOCKS + 1).astype(int)
+    min_train = 500
     mus = np.full((len(ordered) - seed, 6), np.nan)
     for i in range(len(edges) - 1):
         tr = ordered.iloc[:edges[i]]
         va = ordered.iloc[edges[i]:edges[i + 1]]
-        if len(va) == 0 or len(tr) < 500:
+        if len(va) == 0 or len(tr) < min_train:
             continue
         fb = _fit_core(tr)
         mu_h, mu_a = predict_step1(va, fb)
@@ -388,10 +408,87 @@ def _walkforward_history(frame: pd.DataFrame, ym, dates, rule,
                               minlength=len(GRID)) / N_MC
     out = (hist, ym[order[seed:][ok]], dates.iloc[order[seed:][ok]],
            "walkforward_inprocess_blocks")
+    # Per-game strictly-prior mus for point-in-time OOF pricing: row j was
+    # scored by a bundle fitted only on blocks before its own. Keyed by
+    # game_id so the production walk can join them onto its origins.
+    # _MUS_CACHE shares _HIST_CACHE's key: same walk, same coverage.
+    try:
+        _gids = ordered["game_id"].astype(str).to_numpy()[seed:][ok]
+        _MUS_CACHE[key] = pd.DataFrame(
+            {"game_id": _gids, "mu_h": mus[ok, 0], "mu_a": mus[ok, 1],
+             "mu_KR": mus[ok, 2], "mu_KE": mus[ok, 3],
+             "r_R": mus[ok, 4], "r_E": mus[ok, 5]})
+    except (KeyError, IndexError, ValueError) as exc:
+        # Never a silent bundle fallback: without keys the store is empty,
+        # so settled pricing refuses instead of leaking.
+        logger.warning("weight tables: PIT mus could not be keyed (%s); "
+                       "settled pricing will refuse this walk", exc)
+        _MUS_CACHE[key] = None
     logger.info("weight tables: walk-forward history replayed in process "
                 "(%d games, %d blocks)", int(ok.sum()), len(edges) - 1)
     _HIST_CACHE[key] = out
     return out
+
+
+# Prepared PIT mus for the run's settled frame (see prepare_pit_mus):
+# the production walk prices origins out of this frame, so per-origin
+# refits would both explode runtime and re-split history. One walk, one
+# frame, one store per process -- the same convention as _TABLES_CACHE.
+_PREPARED_PIT_MUS: pd.DataFrame | None = None
+
+
+def prepare_pit_mus(frame: pd.DataFrame, progress_every: int = 0):
+    """Run the block-refit walk over a settled frame; cache per-game PIT mus.
+
+    Returns one row per scored game (game_id, mu_h, mu_a, mu_KR, mu_KE,
+    r_R, r_E). Games without sufficient prior history (pre-seed rows) are
+    absent,
+    never infilled: callers must exclude or refuse them, never price them
+    with full-frame mus. Idempotent in-process under the walk's own key.
+    """
+    global _PREPARED_PIT_MUS
+    rule = _ot_rule()
+    if "gameday" in frame.columns:
+        dates = pd.to_datetime(frame["gameday"]).dt.normalize()
+    else:
+        dates = pd.Series(pd.NaT, index=frame.index)
+    if {"home_score", "away_score"}.issubset(frame.columns):
+        ym = (pd.to_numeric(frame["home_score"], errors="coerce").to_numpy(float)
+              - pd.to_numeric(frame["away_score"], errors="coerce").to_numpy(float))
+    else:
+        _PREPARED_PIT_MUS = None
+        return None
+    out = _walkforward_history(frame, ym, dates, rule, progress_every)
+    if out is None:
+        _PREPARED_PIT_MUS = None
+        return None
+    settled = np.flatnonzero(np.isfinite(ym) & dates.notna().to_numpy())
+    order = settled[np.argsort(dates.to_numpy()[settled], kind="stable")]
+    key = _walk_key(frame, order, dates)
+    _PREPARED_PIT_MUS = _MUS_CACHE.get(key)
+    return _PREPARED_PIT_MUS
+
+
+def lookup_pit_mus(game_ids) -> pd.DataFrame | None:
+    """Join prepared PIT mus onto game ids (NaN rows where uncovered).
+
+    Pure lookup: never fits. Returns None when no walk was prepared -- and
+    also when NONE of the requested ids belong to the prepared walk, which
+    means the store came from a different frame (another run, a fixture, a
+    recompute against a bundle). A prepared walk never misses an origin
+    wholesale: the production prologue drops pre-coverage rows before the
+    block split, so every origin it hands over overlaps the store. Stale
+    stores therefore abstain instead of raising a false inconsistency.
+    """
+    if _PREPARED_PIT_MUS is None:
+        return None
+    ids = [str(g) for g in game_ids]
+    if not ids:
+        return None
+    if not _PREPARED_PIT_MUS["game_id"].isin(ids).any():
+        return None
+    want = pd.DataFrame({"game_id": ids})
+    return want.merge(_PREPARED_PIT_MUS, on="game_id", how="left")
 
 
 def _history_for_tables(frame: pd.DataFrame, bundle: dict, ym, dates, rule,
@@ -538,21 +635,75 @@ def _apply_ot(hs, aws, rng, rule, resample):
 
 def price_frame_cdfs(frame: pd.DataFrame, bundle: dict, n_draws: int = N_MC,
                      seed: int = MC_SEED, meta_out=None):
-    """Price a frame from step-1 mus (no external mus required)."""
-    mu_h, mu_a = predict_step1(frame, bundle)
+    """Price a frame with the same PIT split the production path uses.
+
+    Settled rows take the prepared block-refit mus (and RAISE when the walk
+    never covered them); unsettled rows take the bundle. There is no
+    full-frame shortcut on this entry point either.
+    """
+    if {"home_score", "away_score"}.issubset(frame.columns):
+        hs = pd.to_numeric(frame["home_score"], errors="coerce").to_numpy(float)
+        as_ = pd.to_numeric(frame["away_score"], errors="coerce").to_numpy(float)
+        settled = np.isfinite(hs) & np.isfinite(as_)
+    else:
+        settled = np.zeros(len(frame), dtype=bool)
+    mu_h = np.full(len(frame), np.nan)
+    mu_a = np.full(len(frame), np.nan)
+    pit = None
+    if settled.any():
+        ids = (frame["game_id"].astype(str).to_numpy() if "game_id" in frame
+               else np.arange(len(frame)).astype(str))
+        pit = lookup_pit_mus(ids[settled])
+        if pit is None or pit[["mu_h", "mu_a", "mu_KR", "mu_KE", "r_R",
+                               "r_E"]].isna().any().any():
+            raise RuntimeError(
+                "price_frame_cdfs: settled rows without PIT mus; call "
+                "prepare_pit_mus() on the settled frame first (full-frame "
+                "trees have already seen these finals)")
+        mu_h[settled] = pit["mu_h"].to_numpy(float)
+        mu_a[settled] = pit["mu_a"].to_numpy(float)
+        pit = pit.reset_index(drop=True)
+    if (~settled).any():
+        bh, ba = predict_step1(frame.iloc[np.flatnonzero(~settled)], bundle)
+        mu_h[~settled] = np.asarray(bh, dtype=float)
+        mu_a[~settled] = np.asarray(ba, dtype=float)
     return price_cdfs(frame, mu_h, mu_a, bundle, n_draws=n_draws, seed=seed,
-                      meta_out=meta_out)
+                      meta_out=meta_out, pit=pit)
 
 
 def price_cdfs(frame: pd.DataFrame, mu_h, mu_a, bundle: dict,
-               n_draws: int = N_MC, seed: int = MC_SEED, meta_out=None):
-    """Weighted empirical CDFs for margin and total over integer supports."""
+               n_draws: int = N_MC, seed: int = MC_SEED, meta_out=None,
+               pit=None):
+    """Weighted empirical CDFs for margin and total over integer supports.
+
+    ``pit`` is the block-refit pricing inputs for settled rows (game_id,
+    mu_h, mu_a, mu_KR, mu_KE, r_R, r_E): when given, BOTH the residual
+    means and the NB dispersions come from that refit -- the bundle's
+    full-frame step-2/3 trees never touch a settled game. Slate pricing
+    passes pit=None and uses the bundle throughout (all history is prior).
+    """
     rule = _ot_rule()
     from gaussian_family import MC_SE_TARGET
     # Same precision guard as the champion's inverse-CDF sampler: never price
     # below its standard-error target, and report the count actually used.
     used = max(int(n_draws), int(np.ceil(0.25 / MC_SE_TARGET ** 2)))
-    mu_kr, mu_ke, r_r, r_e = predict_residuals(frame, mu_h, mu_a, bundle)
+    if pit is not None:
+        _need = ("mu_h", "mu_a", "mu_KR", "mu_KE", "r_R", "r_E")
+        if len(pit) != len(frame) or pit[list(_need)].isna().any().any():
+            raise ValueError("PIT mus must cover every priced row exactly; "
+                             "mixed settled/unsettled frames are not priced "
+                             "through one call")
+        mu_kr = pd.to_numeric(pit["mu_KR"], errors="coerce").to_numpy(float)
+        mu_ke = pd.to_numeric(pit["mu_KE"], errors="coerce").to_numpy(float)
+        # Dispersions ride the same block refit: the block that predicted
+        # these games fitted its own NB dispersion. Never the bundle's
+        # full-frame values, never a frozen constant from a leaky run.
+        r_r = pd.to_numeric(pit["r_R"], errors="coerce").to_numpy(float)
+        r_e = pd.to_numeric(pit["r_E"], errors="coerce").to_numpy(float)
+        mus_source = "walkforward_pit_blocks"
+    else:
+        mu_kr, mu_ke, r_r, r_e = predict_residuals(frame, mu_h, mu_a, bundle)
+        mus_source = "full_frame_bundle"
     n = len(frame)
     cM = np.zeros((n, len(GRID)))
     cT = np.zeros((n, TMAX - TMIN + 1))
@@ -567,8 +718,12 @@ def price_cdfs(frame: pd.DataFrame, mu_h, mu_a, bundle: dict,
                                  digest_size=16).digest()
         rng = np.random.default_rng(int.from_bytes(digest, "little"))
 
+        # Dispersions are per-game under PIT pricing (each row carries the
+        # block that predicted it), scalars under bundle pricing.
+        _rr = float(np.ravel(r_r)[i]) if np.ndim(r_r) else float(r_r)
+        _re = float(np.ravel(r_e)[i]) if np.ndim(r_e) else float(r_e)
         hh, aa = _draw_game(float(mu_h[i]), float(mu_a[i]), float(mu_kr[i]),
-                            float(mu_ke[i]), r_r, r_e, rng, rule, used)
+                            float(mu_ke[i]), _rr, _re, rng, rule, used)
         m = np.clip(hh - aa, -110, 110) + 110
         t = np.clip(hh + aa, TMIN, TMAX)
         wd = W_tab[i][m]
@@ -595,7 +750,8 @@ def price_cdfs(frame: pd.DataFrame, mu_h, mu_a, bundle: dict,
                                           is not None else "identity_fallback_unweighted"),
                          "weight_history": (bundle.get("weight_tables") or {}).get("history_source"),
                          "weight_policy": "per-date tables fit on strictly prior "
-                                           "settled games; never serialized, never committed"})
+                                           "settled games; never serialized, never committed",
+                         "mus_source": mus_source})
     return {"margin": (GRID.astype(float), cM),
             "total": (np.arange(TMIN, TMAX + 1).astype(float), cT)}
 

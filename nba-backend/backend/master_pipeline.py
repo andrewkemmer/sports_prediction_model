@@ -103,7 +103,8 @@ _log_path = None
 # calls in ``run`` already happen in, and adding a name changes no result.
 PHASES = ("ingest schedule", "ingest features", "ingest play-by-play",
           "features", "walk-forward", "final fit", "serve",
-          "feature report", "monitor", "publish")
+          "feature report", "nba distribution engine", "monitor",
+          "publish")
 
 
 def _ingest_phase_seconds(timing: dict[str, float]) -> dict[str, float | None]:

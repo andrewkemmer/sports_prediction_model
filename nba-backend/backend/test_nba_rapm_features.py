@@ -2000,7 +2000,10 @@ def test_crps_cdf_pushes_moneyline_fair_half_and_slate_agree():
     assert np.all(np.mod(priced.fair_total, 1.) == .5)
     assert np.all(np.mod(priced.fair_spread, 1.) == .5)
     last = bundle["origins"][-1]
-    forecast = dist._distribution_price(frame.iloc[300:].drop(columns=["home_score", "away_score"]), last["maps"])
+    # Keep the outcomes: the walk priced these rows as SETTLED, and a settled
+    # row may only be priced by a point-in-time path. Dropping the scores would
+    # turn the recompute into a slate call and compare two different regimes.
+    forecast = dist._distribution_price(frame.iloc[300:], last["maps"])
     cols = [c for c in forecast if c.startswith("p_")]
     np.testing.assert_allclose(priced.iloc[300:][cols], forecast[cols], atol=1e-12)
     for kind, (support, cdf) in dist._distribution_cdfs(frame, bundle["maps"]).items():

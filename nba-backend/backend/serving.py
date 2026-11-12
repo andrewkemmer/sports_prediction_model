@@ -383,6 +383,11 @@ def write_markets_csv(path, meta_path, oof_rows, slate_rows, config_meta=None,
     # lineterminator: delivery artifacts are LF-pinned; never let a
     # platform/csv default rewrite every line ending.
     _atomic_to_csv(out, path, index=False, lineterminator="\n")
+    # The walk's mc_meta carries the ACTUAL pricing method of the last
+    # origin (hier bundle id when the hier engine priced it, champion label
+    # otherwise): report that, never a hardcoded family name. Falls back to
+    # the champion label for frames priced before mc_meta existed.
+    _mc_meta = oof_rows.attrs.get("mc_meta", {}) or {}
     meta = {
         "distribution_method": oof_rows.attrs.get(
             "distribution_method", "causal_split_skew_crps_mc"),
@@ -392,6 +397,10 @@ def write_markets_csv(path, meta_path, oof_rows, slate_rows, config_meta=None,
         # Integer-lattice fit disclosure: totals and margin corrections are
         # fit independently (magnitude + gate verdict; no delta vectors).
         "lattice": (oof_rows.attrs.get("challenger_bundle") or {}).get("lattice_summary", {}),
+        # Point-in-time disclosure: how many settled games carried no PIT mus
+        # (the pre-coverage head of history) and were therefore dropped from
+        # hier OOF pricing rather than priced from full-frame trees.
+        "pit_excluded": (oof_rows.attrs.get("challenger_bundle") or {}).get("pit_excluded", {}),
         "settlement": 'final_score_no_tie',
 
         "record": "nba_run_engine_markets", "written_utc": _now(),
