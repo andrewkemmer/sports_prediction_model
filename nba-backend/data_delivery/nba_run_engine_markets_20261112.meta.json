@@ -7,69 +7,70 @@
   "totals": {
    "n": 3881,
    "n_pushes": 0,
-   "crps": 10.578298529397836,
-   "auc": 0.5130602459205917,
-   "logloss": 0.6929395841492687,
-   "logscore": 0.6929395841492687,
-   "brier": 0.24989620700713575,
-   "predicted_mean": 0.49983247852396906,
-   "actual_win_rate": 0.5137851069312033,
-   "ece_cover": 0.013952628407234297,
+   "crps": 10.57825449687843,
+   "auc": 0.5133790201909865,
+   "logloss": 0.6929387186744052,
+   "logscore": 0.6929387186744052,
+   "brier": 0.24989577079793795,
+   "predicted_mean": 0.49970520243422506,
+   "actual_win_rate": 0.5140427724813192,
+   "ece_cover": 0.014337570047094208,
    "reliability": [
     {
-     "n": 1996,
-     "predicted": 0.49401369276020085,
-     "actual": 0.5060120240480962,
-     "gap": -0.011998331287895347
+     "n": 2010,
+     "predicted": 0.4939127104962069,
+     "actual": 0.5044776119402985,
+     "gap": -0.010564901444091612
     },
     {
-     "n": 1885,
-     "predicted": 0.5059939089666646,
-     "actual": 0.5220159151193634,
-     "gap": -0.016022006152698776
+     "n": 1871,
+     "predicted": 0.5059280291554524,
+     "actual": 0.5243185462319615,
+     "gap": -0.018390517076509072
     }
    ],
-   "calibration_in_the_large": -0.013952628407234213,
+   "calibration_in_the_large": -0.014337570047094184,
    "threshold_policy": "closest_half_point_to_model_50_percent"
   },
   "run_line": {
    "n": 3881,
    "n_pushes": 0,
-   "crps": 8.072221341487548,
-   "auc": 0.5020675918336103,
-   "logloss": 0.6932754144038921,
-   "logscore": 0.6932754144038921,
-   "brier": 0.25006409694941334,
-   "predicted_mean": 0.4998655390347596,
-   "actual_win_rate": 0.5145581035815512,
-   "ece_cover": 0.014692564546791596,
+   "crps": 8.06843836115912,
+   "auc": 0.502984662835964,
+   "logloss": 0.6932425806603153,
+   "logscore": 0.6932425806603153,
+   "brier": 0.2500476925175274,
+   "predicted_mean": 0.4999100908754612,
+   "actual_win_rate": 0.514815769131667,
+   "ece_cover": 0.014905678256206,
    "reliability": [
     {
-     "n": 1956,
-     "predicted": 0.49163672451772517,
-     "actual": 0.5158486707566462,
-     "gap": -0.024211946238921034
+     "n": 1952,
+     "predicted": 0.4917038988541357,
+     "actual": 0.5163934426229508,
+     "gap": -0.02468954376881516
     },
     {
-     "n": 1925,
-     "predicted": 0.5082268695258345,
-     "actual": 0.5132467532467533,
-     "gap": -0.005019883720918772
+     "n": 1929,
+     "predicted": 0.5082141275917013,
+     "actual": 0.5132192846034215,
+     "gap": -0.005005157011720218
     }
    ],
-   "calibration_in_the_large": -0.014692564546791576,
+   "calibration_in_the_large": -0.014905678256205868,
    "threshold_policy": "closest_half_point_to_model_50_percent"
   },
   "derived_moneyline": {
    "n": 3881,
-   "logloss": 0.6030516817190714,
-   "brier": 0.20781386770436983
+   "logloss": 0.6030576935727513,
+   "brier": 0.20784383331200462
   }
  },
  "lattice": {},
+ "pit_excluded": {},
  "settlement": "final_score_no_tie",
  "record": "nba_run_engine_markets",
- "written_utc": "2026-11-12T14:21:07.482106+00:00",
+ "written_utc": "2026-11-12T20:38:28.303931+00:00",
  "config": {
   "sport": "nba",
   "feature_set_version": "nba-prod-v3.5-opts",
@@ -98,8 +99,8 @@
    "play_by_play": "stats.nba.com playbyplayv3",
    "team_events": "stats.nba.com playbyplayv3"
   },
-  "play_by_play_rows": 2037703,
-  "event_rows": 8216
+  "play_by_play_rows": 2039216,
+  "event_rows": 8222
  },
  "columns": 925,
  "n_rows": 3885,
@@ -129,17 +130,17 @@
  "run_line_fit_check": {
   "home": {
    "pearson": 1.1837,
-   "deviance_model": 1.18953,
+   "deviance_model": 1.18956,
    "deviance_baseline": 1.44511,
-   "rmse_model": 11.6766,
+   "rmse_model": 11.6768,
    "rmse_baseline": 12.873,
    "n": 3881
   },
   "away": {
-   "pearson": 1.2138,
-   "deviance_model": 1.21771,
+   "pearson": 1.214,
+   "deviance_model": 1.21787,
    "deviance_baseline": 1.49282,
-   "rmse_model": 11.7032,
+   "rmse_model": 11.704,
    "rmse_baseline": 12.9632,
    "n": 3881
   }
