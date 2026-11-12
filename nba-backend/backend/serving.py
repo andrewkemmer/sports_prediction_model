@@ -14,9 +14,11 @@ import pandas as pd
 try:
     from backend import config
     from backend import nba_sources as sources
+    from backend import nba_hier_mc as hier_mod
 except ImportError:
     import config
     import nba_sources as sources
+    import nba_hier_mc as hier_mod
 
 
 def _clean(value: Any) -> Any:
@@ -383,16 +385,16 @@ def write_markets_csv(path, meta_path, oof_rows, slate_rows, config_meta=None,
     # lineterminator: delivery artifacts are LF-pinned; never let a
     # platform/csv default rewrite every line ending.
     _atomic_to_csv(out, path, index=False, lineterminator="\n")
-    # The walk's mc_meta carries the ACTUAL pricing method of the last
-    # origin (hier bundle id when the hier engine priced it, champion label
-    # otherwise): report that, never a hardcoded family name. Falls back to
-    # the champion label for frames priced before mc_meta existed.
+    # The priced frame's attrs carry the ACTUAL pricing engine
+    # (champion bundle id + method when the champion priced it): report that,
+    # never a hardcoded family name. The fallback below names the champion
+    # because nothing but the champion may price an NBA artifact anymore.
     _mc_meta = oof_rows.attrs.get("mc_meta", {}) or {}
     meta = {
         "distribution_method": oof_rows.attrs.get(
-            "distribution_method", "causal_split_skew_crps_mc"),
+            "distribution_method", hier_mod.CHAMPION_METHOD),
         "distribution_objective": oof_rows.attrs.get(
-            "distribution_objective", "discrete_crps"),
+            "distribution_objective", hier_mod.CHAMPION_OBJECTIVE),
         "distribution_metrics": oof_rows.attrs.get("distribution_metrics", {}),
         # Integer-lattice fit disclosure: totals and margin corrections are
         # fit independently (magnitude + gate verdict; no delta vectors).

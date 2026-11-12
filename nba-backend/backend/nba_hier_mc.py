@@ -1002,6 +1002,14 @@ def champion_oof_markets(game_df, fold_list, base_oof, n_draws=None,
     # derived moneyline is the margin CDF at -1/0, so re-stamp it: the
     # monitor's Derived ML card and per-line metric both read this column.
     out["derived_ml"] = out["p_home_win_derived"]
+    # The champion owns the served moneyline too. The binary ensemble stays
+    # in p_ensemble/p_ensemble_calibrated as the graded benchmark, but the
+    # headline p_home_win/p_away_win ride the champion's margin CDF -- ties
+    # excluded by construction, priced explicitly in p_away_win_derived.
+    out["p_home_win"] = pd.to_numeric(out["p_home_win_derived"],
+                                      errors="coerce")
+    out["p_away_win"] = pd.to_numeric(out["p_away_win_derived"],
+                                      errors="coerce")
     priced_ids = set(prices.game_id) if len(prices) else set()
     missing = out.game_id[~out.game_id.isin(priced_ids)]
     if len(missing):
@@ -1052,6 +1060,12 @@ def champion_slate_markets(slate_base, serving_bundle, n_draws=None, seed=None):
                                      if c in frame.columns])
     out = pd.concat([out.reset_index(drop=True),
                      add.reset_index(drop=True)], axis=1)
+    # Served moneyline rides the champion (see champion_oof_markets): the
+    # ensemble columns the base frame carries stay as the benchmark.
+    out["p_home_win"] = pd.to_numeric(out["p_home_win_derived"],
+                                      errors="coerce")
+    out["p_away_win"] = pd.to_numeric(out["p_away_win_derived"],
+                                      errors="coerce")
     out.attrs["distribution_method"] = CHAMPION_METHOD
     out.attrs["distribution_objective"] = CHAMPION_OBJECTIVE
     return out

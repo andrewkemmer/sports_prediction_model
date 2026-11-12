@@ -2005,6 +2005,7 @@ def run(run_date: str | None = None, out_dir: str | Path | None = None,
     phase_error: Exception | None = None
     ml: dict | None = None
     ml_oof = platt = dist_oof = None
+    slate_markets = None
     oof_markets = market_calibration = None
     hb = None  # champion serving bundle: fit once, reused for slate + saved
     hb_path: str | None = None  # saved bundle, appended to artifacts in phase 9
@@ -2492,9 +2493,17 @@ def run(run_date: str | None = None, out_dir: str | Path | None = None,
     artifacts.append(config.MARKETS_MONITOR_JSON.format(date=date_c))
 
     if len(slate):
-        cards = slate.copy()
-        cards["p_home_win"] = pd.to_numeric(cards.get("p_ensemble_calibrated"), errors="coerce")
-        cards["p_away_win"] = 1 - cards.p_home_win
+        # Served cards ride the champion: slate_markets already carries the
+        # champion's p_home_win/p_away_win (frozen rows restored by the
+        # markets freeze). Fall back to the pre-champion slate only when the
+        # champion left no priced frame, which the guardrail above forbids.
+        basis = (slate_markets if slate_markets is not None
+                 and len(slate_markets) else slate)
+        cards = basis.copy()
+        cards["p_home_win"] = pd.to_numeric(cards.get("p_home_win"),
+                                            errors="coerce")
+        cards["p_away_win"] = pd.to_numeric(
+            cards.get("p_away_win", 1 - cards.p_home_win), errors="coerce")
         serving.write_production_cards_history(
             out / "nba_production_cards_history.csv", cards)
         artifacts.append("nba_production_cards_history.csv")

@@ -328,3 +328,77 @@ def test_champion_merge_overwrites_the_old_engines_derived_moneyline():
     assert out.p_home_cover_0.tolist() == [0.61, 0.42]
     # Base columns the champion does not price survive the merge untouched.
     assert out.y_home_win.tolist() == [1, 0]
+
+
+# ---------------- served moneyline rides the champion, not the ensemble
+def _champion_cdfs(n, sup=(-1.0, 0.0, 1.0), rows=(0.25, 0.50, 1.0)):
+    import numpy as _np
+    _sup = _np.asarray(sup, float)
+    _cdf = _np.tile(_np.asarray(rows, float), (n, 1))
+    return {"margin": (_sup, _cdf), "total": (_sup, _cdf)}
+
+
+def test_champion_slate_serves_champion_moneyline(monkeypatch):
+    """The slate board's headline probability is the champion's margin CDF,
+    not the ensemble the base frame carries."""
+    import nba_hier_mc as hier
+    n = 3
+    frame = pd.DataFrame({
+        "game_id": ["g1", "g2", "g3"],
+        "gameday": pd.to_datetime(["2024-01-01"] * n),
+        "home_score": [np.nan] * n, "away_score": [np.nan] * n,
+        "p_home_win": [0.99] * n,            # stale base values
+        "p_away_win": [0.01] * n,
+        "p_home_win_derived": [0.99] * n,
+        "p_ensemble_calibrated": [0.55] * n,  # benchmark stays untouched
+        "home_win_prob_model": [0.55] * n,})
+    monkeypatch.setattr(hier, "predict_step1",
+                        lambda f, b: (np.full(len(f), 112.0),
+                                      np.full(len(f), 108.0)))
+    monkeypatch.setattr(hier, "ensure_tables", lambda f, b: b)
+    monkeypatch.setattr(hier, "price_cdfs",
+                        lambda *a, **k: _champion_cdfs(len(a[0])))
+    out = hier.champion_slate_markets(
+        frame, {"models": {}, "weight_tables": {}})
+    assert out.p_home_win.tolist() == out.p_home_win_derived.tolist()
+    assert out.p_away_win.tolist() == out.p_away_win_derived.tolist()
+    assert all(v != 0.99 for v in out.p_home_win), \
+        "slate served the base frame's stale moneyline"
+    assert out.p_ensemble_calibrated.tolist() == [0.55] * n
+    assert out.home_win_prob_model.tolist() == [0.55] * n
+
+
+def test_champion_oof_serves_champion_moneyline(monkeypatch):
+    """Same contract on the OOF branch: per-fold champion prices own the
+    served moneyline; the base's stale (Gaussian-walk) values do not."""
+    import types
+    import nba_hier_mc as hier
+    dates = pd.to_datetime([f"2024-01-0{d}" for d in range(1, 7)])
+    game_df = pd.DataFrame({
+        "game_id": [f"g{i}" for i in range(6)], "gameday": dates,
+        "home_score": [110., 105., 112., 108., 111., 107.],
+        "away_score": [100., 108., 109., 108., 109., 110.],})
+    # The base OOF frame covers exactly the validation rows here (the
+    # production frame is covered fold by fold; uncovered rows correctly
+    # raise instead of shipping mixed engines).
+    base_oof = game_df.iloc[[4, 5]].assign(
+        p_home_win=0.99, p_away_win=0.01,          # stale ensemble/walk
+        p_home_win_derived=0.99, p_away_win_derived=0.01, p_tie=0.0,
+        mu_h=0.0, mu_a=0.0)
+    folds = [types.SimpleNamespace(
+        fold_id=0, val_start=dates[4], val_end=dates[5],
+        train_idx=pd.Index([0, 1, 2, 3]), val_idx=pd.Index([4, 5]))]
+    monkeypatch.setattr(hier, "build_weight_tables", lambda *a, **k: {})
+    monkeypatch.setattr(hier, "_fit_core", lambda *a, **k: {"models": {}})
+    monkeypatch.setattr(hier, "predict_step1",
+                        lambda f, b: (np.full(len(f), 112.0),
+                                      np.full(len(f), 108.0)))
+    monkeypatch.setattr(hier, "price_cdfs",
+                        lambda *a, **k: _champion_cdfs(len(a[0])))
+    out, bundle = hier.champion_oof_markets(game_df, folds, base_oof)
+    val = out.set_index("game_id").loc[["g4", "g5"]]
+    assert val.p_home_win.tolist() == val.p_home_win_derived.tolist()
+    assert val.p_away_win.tolist() == val.p_away_win_derived.tolist()
+    assert all(v != 0.99 for v in val.p_home_win), \
+        "OOF served the base frame's stale moneyline"
+    assert bundle["monte_carlo"]["model_id"] == "nba_nb_hier_wprod_v1"
