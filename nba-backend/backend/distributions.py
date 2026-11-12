@@ -1486,26 +1486,33 @@ def _fit_distribution_map(h, a, outcome, kind, parameters=None):
 
 
 def _nba_hier_cdfs(frame, n_draws, seed, meta_out):
-    """Serve the frozen NBA NB challenger when configured (NBA only).
+    """Serve the frozen NBA NB challenger (NBA only, champion-only).
 
-    Returns None (champion family serves) when the selector is off or the
-    frozen bundle is absent. On success the challenger's own step-1 score
-    means are written back onto the frame so every downstream column --
-    mu_margin/mu_total, pred_home/pred_away, modeled line, settlement
-    legs -- describes the same distribution that priced the game.
+    Returns None for the other sports. The NBA path has no fallback
+    (2026-11-12 guardrail): a missing selector or bundle raises instead of
+    letting the split-skew family price an artifact, because a run that ships
+    the old engine's probabilities under a fresh date is worse than a run
+    that fails. On success the challenger's own step-1 score means are written
+    back onto the frame so every downstream column -- mu_margin/mu_total,
+    pred_home/pred_away, modeled line, settlement legs -- describes the same
+    distribution that priced the game.
     """
     if DISTRIBUTION_SPORT != "nba":
         return None
-    engine = str(getattr(config, "NBA_DISTRIBUTION_ENGINE", "champion")).lower()
+    engine = str(getattr(config, "NBA_DISTRIBUTION_ENGINE", "hier_mc")).lower()
     if engine != "hier_mc":
-        return None
+        raise RuntimeError(
+            "NBA serving is champion-only: NBA_DISTRIBUTION_ENGINE must be "
+            f"'hier_mc' (got {engine!r}); the split-skew family may no longer "
+            "price an NBA artifact")
     import nba_hier_mc as hier
     bundle = hier.load_bundle(getattr(config, "NBA_HIER_MC_BUNDLE", None))
     if bundle is None:
-        logger.warning("NBA_DISTRIBUTION_ENGINE=hier_mc but the model bundle "
-                       "%s is missing; falling back to the champion family",
-                       getattr(config, "NBA_HIER_MC_BUNDLE", hier.BUNDLE_NAME))
-        return None
+        raise RuntimeError(
+            "NBA serving is champion-only and the %s bundle is missing at %s; "
+            "refusing to price the artifact with the split-skew family"
+            % (hier.MODEL_ID,
+               getattr(config, "NBA_HIER_MC_BUNDLE", hier.BUNDLE_NAME)))
     # Per-date weights are rebuilt in memory every run, point-in-time from
     # strictly prior settle history. They are never read from disk.
     bundle = hier.ensure_tables(frame, bundle)

@@ -822,10 +822,16 @@ def champion_oof_markets(game_df, fold_list, base_oof, n_draws=None,
             out[c] = champ.fillna(base_mu)
             out["pred_home" if c == "mu_h" else "pred_away"] = out[c]
             out = out.drop(columns=[cc])
-    missing = out.game_id[~out.game_id.isin(set(prices.game_id))] if len(prices) else out.game_id
+    priced_ids = set(prices.game_id) if len(prices) else set()
+    missing = out.game_id[~out.game_id.isin(priced_ids)]
     if len(missing):
-        logger.warning("champion OOF: %d base rows lack champion prices "
-                       "(left as ensemble mus)", len(missing))
+        # Champion-only (2026-11-12 guardrail): a row with no champion price
+        # would ship the ensemble's mu under a champion label, so it is an
+        # error rather than a warning.
+        raise ValueError(
+            "champion OOF: %d of %d base rows have no champion price "
+            "(first: %s); refusing to ship a mixed-engine artifact"
+            % (len(missing), len(out), ", ".join(missing.astype(str)[:5])))
     metrics = _champion_reporter(out, cdf_store)
     bundle = {"method": CHAMPION_METHOD, "model_id": MODEL_ID,
               "monte_carlo": {"requested_draws": int(n_draws), "seed": int(seed),

@@ -2089,9 +2089,8 @@ def run(run_date: str | None = None, out_dir: str | Path | None = None,
                     _fit_check["home"]["deviance_baseline"],
                     _fit_check["away"]["pearson"], _fit_check["away"]["deviance_model"],
                     _fit_check["away"]["deviance_baseline"])
-        # Learn variance/skew and coherent calibration only from prior origins.
-        # expand=False: calibrate_market_frame reprices every row below,
-        # overwriting all price columns, so pricing here is discarded work.
+        # expand=False: champion_oof_markets writes every price column below
+        # from the per-fold origins, so pricing here is discarded work.
         # Section timers (2026-10-22: the remote run spent ~35 min between
         # the run-line fit check and the phase-5 banner with zero log
         # output — marketize+calibrate must account for itself per run).
@@ -2101,22 +2100,19 @@ def run(run_date: str | None = None, out_dir: str | Path | None = None,
         logger.info("marketize (expand=False merge): %.1fs over %d rows",
                     time.time() - _mk0, len(oof_markets))
         _cal0 = time.time()
-        # Pre-pricing base, kept so a later champion slate failure can put the
-        # whole run (OOF and slate alike) back on the split-skew engine.
-        _oof_base = oof_markets
-        if str(getattr(config, "NBA_DISTRIBUTION_ENGINE", "")).lower() == "hier_mc":
-            try:
-                import nba_hier_mc as hier
-                oof_markets, market_calibration = hier.champion_oof_markets(
-                    game_df, fold_list, oof_markets, progress_every=500)
-            except Exception as exc:  # noqa: BLE001 - old engine stays green
-                logger.warning("champion OOF pricing failed (%s: %s); "
-                               "falling back to split-skew",
-                               type(exc).__name__, exc)
-                oof_markets, market_calibration = dist_mod.calibrate_market_frame(oof_markets)
-        else:
-            oof_markets, market_calibration = dist_mod.calibrate_market_frame(oof_markets)
-        logger.info("calibrate_market_frame: %.1fs over %d rows (%d origins)",
+        # Champion-only pricing (2026-11-12 guardrail): no fallback. A run
+        # that cannot price with NBA_CHAMPION may not ship the split-skew
+        # family's probabilities under a fresh date, so the failure
+        # propagates and the run ends failed with nothing new published.
+        import nba_hier_mc as hier
+        oof_markets, market_calibration = hier.champion_oof_markets(
+            game_df, fold_list, oof_markets, progress_every=500)
+        if (market_calibration or {}).get("method") != hier.CHAMPION_METHOD:
+            raise RuntimeError(
+                "NBA markets must be champion-priced: market_calibration.method "
+                f"is {(market_calibration or {}).get('method')!r}, expected "
+                f"{hier.CHAMPION_METHOD!r}")
+        logger.info("champion OOF pricing: %.1fs over %d rows (%d origins)",
                     time.time() - _cal0, len(oof_markets),
                     len((market_calibration or {}).get("origins", [])))
         # Delivery disclosure parity (NFL/NHL pipelines): the markets-meta
@@ -2125,7 +2121,14 @@ def run(run_date: str | None = None, out_dir: str | Path | None = None,
         # carry the transfer (the 2026-10-17 disclosure-strip recurrence).
         oof_markets.attrs["challenger_bundle"] = market_calibration
         _mc_meta = market_calibration["monte_carlo"]
+        # Never rely on attrs surviving the sealed-tail copy: the served
+        # meta's engine labels are re-stamped from the champion constants.
+        oof_markets.attrs["distribution_method"] = hier.CHAMPION_METHOD
+        oof_markets.attrs["distribution_objective"] = hier.CHAMPION_OBJECTIVE
         oof_markets = _stamp_sealed_tail(oof_markets)
+        oof_markets.attrs.setdefault("distribution_method", hier.CHAMPION_METHOD)
+        oof_markets.attrs.setdefault("distribution_objective",
+                                     hier.CHAMPION_OBJECTIVE)
         _step("walk-forward", f"{len(ml_oof)} out-of-fold rows over "
                               f"{len(fold_list)} folds")
 
@@ -2152,42 +2155,20 @@ def run(run_date: str | None = None, out_dir: str | Path | None = None,
             # can never re-price a live game mid-game.
             slate = _apply_moneyline_freeze(slate, out)
             slate["mu_h"], slate["mu_a"] = final_reg.predict(slate)
-            # expand=False: apply_market_calibration reprices every row
+            # expand=False: champion_slate_markets reprices every row
             # below, so pricing here is discarded work.
             slate_markets = _marketize(slate, slate, "slate", expand=False)
-            if str(getattr(config, "NBA_DISTRIBUTION_ENGINE", "")).lower() == "hier_mc":
-                try:
-                    import nba_hier_mc as hier
-                    if hb is None:
-                        hb = hier.fit_bundle(game_df)
-                        # The artifacts ledger is built after this phase, so
-                        # the published path is recorded here and appended by
-                        # phase 9 rather than reaching an undefined name.
-                        hb_path = str(hier.save_bundle(
-                            hb, getattr(config, "NBA_HIER_MC_BUNDLE", None)))
-                    slate_markets = hier.champion_slate_markets(slate_markets, hb)
-                except Exception as exc:  # noqa: BLE001 - old engine stays green
-                    logger.warning("champion slate pricing failed (%s: %s); "
-                                   "falling back to split-skew",
-                                   type(exc).__name__, exc)
-                    if (market_calibration or {}).get("method") == "hier_nb_mc":
-                        # Champion OOF pricing succeeded but the slate could
-                        # not be priced from it: rebuild the split-skew
-                        # calibration AND reprice the OOF rows, so the shipped
-                        # artifact and its monitor never disagree about which
-                        # engine issued the prices.
-                        oof_markets, market_calibration = \
-                            dist_mod.calibrate_market_frame(_oof_base)
-                        # The sealed-tail stamp was applied to the champion
-                        # frame, so it has to be re-applied to the replacement.
-                        oof_markets = _stamp_sealed_tail(oof_markets)
-                        oof_markets.attrs["challenger_bundle"] = market_calibration
-                        _mc_meta = market_calibration["monte_carlo"]
-                    slate_markets = dist_mod.apply_market_calibration(
-                        slate_markets, market_calibration)
-            else:
-                slate_markets = dist_mod.apply_market_calibration(slate_markets,
-                                                                   market_calibration)
+            # Champion-only, like the OOF branch: a slate that cannot be
+            # priced by the champion fails the run instead of shipping
+            # split-skew probabilities beside champion OOF prices.
+            if hb is None:
+                hb = hier.fit_bundle(game_df)
+                # The artifacts ledger is built after this phase, so the
+                # published path is recorded here and appended by phase 9
+                # rather than reaching an undefined name.
+                hb_path = str(hier.save_bundle(
+                    hb, getattr(config, "NBA_HIER_MC_BUNDLE", None)))
+            slate_markets = hier.champion_slate_markets(slate_markets, hb)
             # First-published wins for the strip too (NFL parity): games this
             # slate date already published keep their locked legs, so an
             # evening re-run cannot wiggle a live game's fair total/spread.
@@ -2259,6 +2240,15 @@ def run(run_date: str | None = None, out_dir: str | Path | None = None,
         config.RUN_DIAGNOSTICS_DIR / "nba_fold_table.csv", index=False)
 
     if phase_error is None:
+        # Champion-only guardrail: the shipped CSV's engine labels come from
+        # these attrs, so anything else here would mislabel (or re-ship) the
+        # split-skew family under the champion's column contract.
+        if oof_markets.attrs.get("distribution_method") != hier.CHAMPION_METHOD:
+            raise RuntimeError(
+                "refusing to publish NBA markets priced by "
+                f"{oof_markets.attrs.get('distribution_method')!r}; the "
+                f"champion engine ({hier.CHAMPION_METHOD}) is the only "
+                "permitted source")
         p_markets = out / config.MARKETS_CSV.format(date=date_c)
         serving.write_markets_csv(p_markets,
                                   out / config.MARKETS_META_JSON.format(date=date_c),
@@ -2400,7 +2390,7 @@ def run(run_date: str | None = None, out_dir: str | Path | None = None,
         # process from strictly prior settled games, and never serialized.
         # A failed fit must never replace a good served bundle, so the write
         # is guarded like the ensemble above.
-        if str(getattr(config, "NBA_DISTRIBUTION_ENGINE", "")).lower() == "hier_mc" and hb is None:
+        if hb is None:
             try:
                 import nba_hier_mc as hier
                 hb = hier.fit_bundle(game_df)
@@ -2419,8 +2409,7 @@ def run(run_date: str | None = None, out_dir: str | Path | None = None,
                     "NBA hier-MC bundle NOT rebuilt (%s: %s); the previously "
                     "served bundle stays in place for the distribution engine",
                     type(exc).__name__, exc)
-        elif hb is not None:
-            import nba_hier_mc as hier
+        else:
             if hb_path:
                 try:
                     artifacts.append(str(Path(hb_path).relative_to(out)))
