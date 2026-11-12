@@ -2544,8 +2544,27 @@ def _validate(facts: NBAFacts) -> None:
     bad = ((observed.points_for_expected != observed.points_for_observed)
            | (observed.points_against_expected != observed.points_against_observed))
     if bad.any():
+        # Name the rows (2026-11-12 log review): the crash record said only
+        # "1 team-game(s)", which left the failure unactionable — the same
+        # review could not tell a stale schedule row from a lagging season log
+        # without re-running the whole repull.
+        def _num(value) -> str:
+            return "missing" if pd.isna(value) else f"{int(value)}"
+
+        offenders = observed.loc[bad, ["game_id", "team", "points_for_expected",
+                                       "points_for_observed",
+                                       "points_against_expected",
+                                       "points_against_observed"]]
+        detail = ", ".join(
+            f"{row.game_id} {row.team} (final "
+            f"{_num(row.points_for_expected)}-{_num(row.points_against_expected)},"
+            f" team facts {_num(row.points_for_observed)}-"
+            f"{_num(row.points_against_observed)})"
+            for row in offenders.head(6).itertuples())
+        more = ("" if len(offenders) <= 6
+                else f" (+{len(offenders) - 6} more)")
         raise RuntimeError(f"NBA team facts missing or disagree with final scores: "
-                           f"{int(bad.sum())} team-game(s)")
+                           f"{int(bad.sum())} team-game(s): {detail}{more}")
     if not facts.team_events.empty:
         duplicated = facts.team_events.duplicated(["game_id", "team"]).sum()
         if duplicated:

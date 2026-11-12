@@ -192,3 +192,68 @@ Traceback (most recent call last):
   File "/kaggle/working/sports_prediction_model/nba-backend/backend/ingestion.py", line 2547, in _validate
     raise RuntimeError(f"NBA team facts missing or disagree with final scores: "
 RuntimeError: NBA team facts missing or disagree with final scores: 1 team-game(s)
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  log review (review-time remediation, 2026-11-12 05:52 UTC)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  reviewed remote log 5e62fae3 (crash delivery, run 2026-11-12 04:44:56
+  -> 05:05:19 UTC, 20m23s, 194 lines). The record is honest about what
+  happened: it ends at the crash, prints no status line, and claims no
+  phase-9 bundle write, no monitor write and no publish. Nothing in it
+  overstates the run.
+
+  diagnosis: the run died inside phase 1-3 ingestion, before a single
+  feature row, fold or price exists. NBA_FULL_REPULL=1 refetched every
+  schedule day (1116 days -> 4,129 games, 0 from cache), read 88,605
+  player rows over 36 season-log slices, and swept 4,111 play-by-play
+  games (4,109 fetched, 2 unavailable: 0022600225, 0022600226).
+  ingestion._validate then compared each linked game's final score with
+  the season log's team facts and found 1 disagreement in 8,218
+  team-games. The run had already dropped the 18 unmatchable scheduled
+  games and excluded the 3 known no-player-line finals (2023-12-09
+  IND@LAL, 2024-12-17 MIL@OKC, 2025-12-16 SAS@NYK), so this is a real
+  score disagreement on one team-game, not a duplicate or join failure.
+
+  remediated: that message carried only a count, so the record named no
+  row and the failure could not be followed up without re-running the
+  whole repull. ingestion._validate now names up to six offending
+  team-games with both numbers, e.g. "1 team-game(s): 7 HOM (final
+  108-101, team facts 107-101)" and, for a team-game absent from the
+  facts, "(final 101-108, team facts missing-missing)". Verified against
+  synthetic fact sets for both cases; the existing
+  test_nba_ingestion expectation ("disagree with final scores") still
+  matches, 4 related tests pass. The offending row for THIS run stays
+  unknown — the repull snapshot is not delivered and only a count was
+  written — and the next occurrence names itself.
+
+  why it is not the champion rewire: the crash is upstream of pricing.
+  The same validation passed in the 04:43 local run of the same date
+  code (cached window, no repull), which then priced the champion end to
+  end: status ok, 1297s, 3,871 OOF + 14 slate rows, hier_nb_mc /
+  nba_nb_hier_wprod_v1. So the disagreement is repull-specific (a fresh
+  schedule row against the season-log aggregate), consistent with a
+  just-finalised game whose season log lagged, and not with a broken
+  join.
+
+  record defect, not corrected here: the delivered
+  nba_pipeline_summary.json beside this log still reads status "ok" —
+  it is the 02:07 run's summary (90f3df8f, 02:04), because the crash
+  path delivers the log only and a crashed run writes no summary. A
+  machine reader therefore sees green over a red run. Recommended fix
+  is a crash-path summary write with status "failed"; that is a pipeline
+  behaviour change, so it is recorded rather than made in a log review.
+
+  correction to the 02:23 review block (that text left the rolling
+  master when this crash delivery overwrote it; it survives at
+  732d2a2e): it explained ~90 "nba_hier_mc_latest.joblib is missing;
+  falling back to the champion family" warnings as expected, because
+  the bundle is "runtime-only by policy and never serialized". Only the
+  weight tables are runtime-only. The joblib itself is tracked in git
+  and has been since 90f3df8f25 (2026-11-12 02:04:52), so on that
+  01:55 box the checkout simply predated it. The fallback those
+  warnings described no longer exists either: as of dc99bc9f the NBA
+  path raises instead of letting the split-skew family price.
+
+  scope: the log record and the one ingestion message that made it
+  unactionable. No other run behaviour changed, no programs added, no
+  artifacts rewritten. Historical lines left as written.
