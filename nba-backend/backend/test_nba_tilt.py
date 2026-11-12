@@ -155,3 +155,27 @@ def test_issued_cdf_cache_matches_rebuild():
     ref_bundle.pop("_issued_cdfs", None)
     rebuilt = dist.distribution_score_report(priced, ref_bundle)
     assert cached == rebuilt
+
+
+@pytest.fixture(autouse=True)
+def _champion_bundle_carries_a_rule(monkeypatch):
+    """Mechanics-test adapter for the on-disk champion bundle's format.
+
+    The committed slim bundle predates the fitted OT rule: production
+    refits + saves every run so it always carries one, but these mechanics
+    tests (tilt cache, shift caps) load the stale file. Attach the
+    documented no-labels rule at load so they exercise the mechanics they
+    pin, not the bundle format. The format itself is pinned by the PIT
+    suite: fresh bundles carry a fitted rule, stale ones raise.
+    """
+    import nba_hier_mc as hier
+    real = hier.load_bundle
+
+    def _with_rule(*a, **k):
+        bundle = real(*a, **k)
+        if isinstance(bundle, dict) and "ot_rule" not in bundle:
+            bundle = {**bundle, "ot_rule": {"d_m1": 0.0, "d_p1": 0.0,
+                                            "w_lo": 1, "w_hi": 110}}
+        return bundle
+
+    monkeypatch.setattr(hier, "load_bundle", _with_rule)

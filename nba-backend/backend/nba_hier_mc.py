@@ -24,7 +24,6 @@ Model id: ``nba_nb_hier_wprod_v1``.
 from __future__ import annotations
 
 import hashlib
-import json
 import logging
 import os
 import sys
@@ -43,7 +42,6 @@ N_MC = 50_000
 MC_SEED = 20261111
 GRID = np.arange(-110, 111)
 TMIN, TMAX = 0, 400
-OT_DEFAULTS = {"d_m1": 0.15, "d_p1": 0.28, "w_lo": 2, "w_hi": 8}
 BUNDLE_NAME = "nba_hier_mc_latest.joblib"
 
 
@@ -126,16 +124,55 @@ def clamp_outer_tails(w: np.ndarray, nm: np.ndarray) -> np.ndarray:
     return np.clip(w, 0, None)
 
 
-def _ot_rule():
-    import config
-    rule = dict(OT_DEFAULTS)
-    p = Path(config.RUN_DIAGNOSTICS_DIR) / "ot_rule.json"
-    if p.exists():
-        try:
-            rule.update(json.loads(p.read_text()))
-        except Exception:  # noqa: BLE001 - defaults are the contract
-            logger.warning("ot_rule.json unreadable; using defaults")
-    return rule
+def _fit_ot_rule(frame: pd.DataFrame) -> dict:
+    """Estimate the OT resampling rule from settled training games.
+
+    The simulator lands some regulation draws on margin 0 (impossible: a
+    tied NBA game always plays on) and on +/-1. ``d_m1``/``d_p1`` are the
+    Laplace-shrunk share of the fit frame's OWN settled games at final
+    margin -1/+1 whose PBP shows overtime, shrunk toward the frame's own
+    pooled OT rate; the window ``[w_lo, w_hi]`` spans the 1st/99th
+    percentiles of |final margin| among the frame's own overtime games.
+    Unsettled rows and rows without a PBP-derived ``went_ot`` flag never
+    enter the estimate. With no OT labels at all the rule resamples only
+    ties over the structural support -- regulation ties cannot stand, so
+    d = 0/0 with w = [1, 110] keeps the mechanism valid without inventing
+    a number. There is no static OT rule and no rule file: every bundle
+    carries the rule its own training history estimated.
+    """
+    sup_lo, sup_hi = 1, int(GRID[-1])
+    empty = {"d_m1": 0.0, "d_p1": 0.0, "w_lo": sup_lo, "w_hi": sup_hi}
+    if frame is None or not len(frame):
+        return dict(empty)
+    h = pd.to_numeric(frame["home_score"], errors="coerce").to_numpy(float) \
+        if "home_score" in frame.columns else np.full(len(frame), np.nan)
+    a = pd.to_numeric(frame["away_score"], errors="coerce").to_numpy(float) \
+        if "away_score" in frame.columns else np.full(len(frame), np.nan)
+    flag = pd.to_numeric(frame["went_ot"], errors="coerce").to_numpy(float) \
+        if "went_ot" in frame.columns else np.full(len(frame), np.nan)
+    settled = np.isfinite(h) & np.isfinite(a) & np.isfinite(flag)
+    if not bool(settled.any()):
+        return dict(empty)
+    m = h[settled] - a[settled]
+    f = flag[settled]
+    pool = float(f.mean())
+    shrink = 20.0
+
+    def _cond(target: float) -> float:
+        sub = f[m == target]
+        if not len(sub):
+            return pool
+        return float((sub.sum() + shrink * pool) / (len(sub) + shrink))
+
+    ot_m = np.abs(m[f == 1.0])
+    if len(ot_m):
+        lo = max(sup_lo, int(np.floor(np.percentile(ot_m, 1))))
+        hi = min(sup_hi, int(np.ceil(np.percentile(ot_m, 99))))
+        hi = max(hi, lo)
+    else:
+        lo, hi = sup_lo, sup_hi
+    return {"d_m1": _cond(-1.0), "d_p1": _cond(1.0),
+            "w_lo": lo, "w_hi": hi}
 
 
 # ------------------------------------------------------------------- models
@@ -196,20 +233,6 @@ def predict_step1(frame: pd.DataFrame, bundle: dict):
     return mus["home"], mus["away"]
 
 
-def frozen_dispersions():
-    """Dispersions from the validated OOF run (structural, not refit).
-
-    The frozen weights and the validated spread assume the OOF-fitted
-    dispersions; refitting them in-sample under-disperses the price.
-    """
-    import config
-    p = Path(config.RUN_DIAGNOSTICS_DIR) / "ab_hier_mc_oof.parquet"
-    if not p.exists():
-        return None
-    oof = pd.read_parquet(p, columns=["r_R", "r_E", "r_h", "r_a"])
-    return {c: float(oof[c].median()) for c in ("r_R", "r_E", "r_h", "r_a")}
-
-
 def fit_models(frame: pd.DataFrame, mu_h, mu_a, progress_every: int = 0,
                r_override: dict | None = None):
     """Fit the step-2/step-3 residual models on settled rows."""
@@ -266,15 +289,18 @@ def _fit_core(frame: pd.DataFrame, progress_every: int = 0):
 
     Split out so the walk-forward history can refit models per block without
     recursively rebuilding the tables inside every block fit.
+
+    Every statistical quantity is estimated on this fit's own training
+    frame: NB dispersions by ``estimate_nb_dispersion`` on the fit's
+    labels, the OT rule by ``_fit_ot_rule`` on the fit's settled games.
+    There are no frozen constants carried across refits.
     """
-    disp = frozen_dispersions() or {}
-    st1 = fit_step1(frame, progress_every=progress_every, r_override=disp)
+    st1 = fit_step1(frame, progress_every=progress_every)
     mu_h, mu_a = predict_step1(frame, {**st1, "step1_columns": st1["columns"]})
-    res = fit_models(frame, mu_h, mu_a, progress_every=progress_every,
-                     r_override={"KR": disp.get("r_R"), "KE": disp.get("r_E")})
+    res = fit_models(frame, mu_h, mu_a, progress_every=progress_every)
     return {"step1": st1["step1"], "step1_columns": st1["columns"],
             "models": res["models"], "feature_columns": res["feature_columns"],
-            "fit_n": res["fit_n"]}
+            "fit_n": res["fit_n"], "ot_rule": _fit_ot_rule(frame)}
 
 
 def fit_bundle(frame: pd.DataFrame, progress_every: int = 0):
@@ -286,11 +312,14 @@ def fit_bundle(frame: pd.DataFrame, progress_every: int = 0):
                "models": core["models"]}
     tables = build_weight_tables(frame, partial, progress_every=progress_every)
     if tables.get("final") is not None:
-        _TABLES_CACHE[int(res["fit_n"])] = tables
+        _RUN_TABLES[int(res["fit_n"])] = tables
+        _TABLES_CACHE[(int(res["fit_n"]),
+                       _tables_fingerprint(frame))] = tables
     return {"model_id": MODEL_ID,
             "step1": core["step1"], "step1_columns": core["step1_columns"],
             "models": res["models"], "feature_columns": res["feature_columns"],
-            "fit_n": res["fit_n"], "trained_utc": pd.Timestamp.utcnow().isoformat(),
+            "fit_n": res["fit_n"], "ot_rule": core["ot_rule"],
+            "trained_utc": pd.Timestamp.utcnow().isoformat(),
             # Runtime-only: rebuilt point-in-time every run, never serialized.
             "weight_tables": tables,
             "calibration": dict(IDENTITY_CALIBRATION),
@@ -298,8 +327,17 @@ def fit_bundle(frame: pd.DataFrame, progress_every: int = 0):
             "k_trend": K_TR, "k_spike": K_SP}
 
 
-def _draw_game(mu_h, mu_a, mu_kr, mu_ke, r_r, r_e, rng, rule, n_draws):
-    """One game's 50k (home, away) draws after the structural OT rule."""
+def _draw_game(mu_h, mu_a, mu_kr, mu_ke, r_r, r_e, rng,
+               dm, dp, lo, hi, n_draws):
+    """One game's draws after its own fitted OT rule.
+
+    ``dm``/``dp``/``lo``/``hi`` are that game's estimated rule (per-row
+    under PIT pricing, the serving bundle's rule for slate games): which
+    simulated margins go back for an overtime redraw and over what final
+    window. Structural centering (C_R/C_E) is a reparameterization, not a
+    fitted quantity: the NB legs are estimated around it and it is
+    subtracted back here, exactly inverted.
+    """
     def draw(k):
         rs = _nb_draw(rng, mu_kr, r_r, k).astype(float) - C_R
         es = _nb_draw(rng, mu_ke, r_e, k).astype(float) - C_E
@@ -308,7 +346,7 @@ def _draw_game(mu_h, mu_a, mu_kr, mu_ke, r_r, r_e, rng, rule, n_draws):
         return hh, aa
 
     hh, aa = draw(n_draws)
-    return _apply_ot(hh, aa, rng, rule, lambda k: draw(k))
+    return _apply_ot(hh, aa, rng, dm, dp, lo, hi, lambda k: draw(k))
 
 
 _HIST_CACHE: dict = {}
@@ -338,7 +376,7 @@ def _walk_key(frame: pd.DataFrame, order, dates):
             _gid(order[0]), _gid(order[-1]))
 
 
-def _walkforward_history(frame: pd.DataFrame, ym, dates, rule,
+def _walkforward_history(frame: pd.DataFrame, ym, dates,
                         progress_every: int = 0):
     """Out-of-sample mus for the settled history, built inside this process.
 
@@ -377,6 +415,9 @@ def _walkforward_history(frame: pd.DataFrame, ym, dates, rule,
     edges = np.linspace(seed, len(ordered), HISTORY_BLOCKS + 1).astype(int)
     min_train = 500
     mus = np.full((len(ordered) - seed, 6), np.nan)
+    # Parallel to mus (same rows): the block that scored each game also
+    # estimated that game's OT rule, on the block's own training history.
+    rules = np.full((len(ordered) - seed, 4), np.nan)
     for i in range(len(edges) - 1):
         tr = ordered.iloc[:edges[i]]
         va = ordered.iloc[edges[i]:edges[i + 1]]
@@ -391,11 +432,17 @@ def _walkforward_history(frame: pd.DataFrame, ym, dates, rule,
         re_b = np.broadcast_to(np.asarray(r_e, float), (len(va),))
         mus[edges[i] - seed:edges[i + 1] - seed] = np.column_stack(
             [mu_h, mu_a, mu_kr, mu_ke, rr, re_b])
+        orule = fb["ot_rule"]
+        rules[edges[i] - seed:edges[i + 1] - seed] = np.column_stack(
+            [np.full(len(va), float(orule["d_m1"])),
+             np.full(len(va), float(orule["d_p1"])),
+             np.full(len(va), int(orule["w_lo"])),
+             np.full(len(va), int(orule["w_hi"]))])
         if progress_every:
             logger.info("weight tables: walk-forward block %d/%d (%d games)",
                         i + 1, len(edges) - 1, len(va))
 
-    ok = np.isfinite(mus).all(axis=1)
+    ok = np.isfinite(mus).all(axis=1) & np.isfinite(rules).all(axis=1)
     if not ok.any():
         logger.warning("weight tables: walk-forward replay produced no out-of-"
                        "sample mus; pricing unweighted")
@@ -403,7 +450,9 @@ def _walkforward_history(frame: pd.DataFrame, ym, dates, rule,
     hist = np.zeros((int(ok.sum()), len(GRID)))
     for j, i in enumerate(np.flatnonzero(ok)):
         rng = np.random.default_rng(MC_SEED + j)
-        hs, aa = _draw_game(*[float(v) for v in mus[i]], rng, rule, N_MC)
+        hs, aa = _draw_game(*[float(v) for v in mus[i]], rng,
+                            float(rules[i, 0]), float(rules[i, 1]),
+                            int(rules[i, 2]), int(rules[i, 3]), N_MC)
         hist[j] = np.bincount(np.clip(hs - aa, -110, 110) + 110,
                               minlength=len(GRID)) / N_MC
     out = (hist, ym[order[seed:][ok]], dates.iloc[order[seed:][ok]],
@@ -417,7 +466,9 @@ def _walkforward_history(frame: pd.DataFrame, ym, dates, rule,
         _MUS_CACHE[key] = pd.DataFrame(
             {"game_id": _gids, "mu_h": mus[ok, 0], "mu_a": mus[ok, 1],
              "mu_KR": mus[ok, 2], "mu_KE": mus[ok, 3],
-             "r_R": mus[ok, 4], "r_E": mus[ok, 5]})
+             "r_R": mus[ok, 4], "r_E": mus[ok, 5],
+             "ot_d_m1": rules[ok, 0], "ot_d_p1": rules[ok, 1],
+             "ot_w_lo": rules[ok, 2], "ot_w_hi": rules[ok, 3]})
     except (KeyError, IndexError, ValueError) as exc:
         # Never a silent bundle fallback: without keys the store is empty,
         # so settled pricing refuses instead of leaking.
@@ -441,13 +492,14 @@ def prepare_pit_mus(frame: pd.DataFrame, progress_every: int = 0):
     """Run the block-refit walk over a settled frame; cache per-game PIT mus.
 
     Returns one row per scored game (game_id, mu_h, mu_a, mu_KR, mu_KE,
-    r_R, r_E). Games without sufficient prior history (pre-seed rows) are
-    absent,
-    never infilled: callers must exclude or refuse them, never price them
-    with full-frame mus. Idempotent in-process under the walk's own key.
+    r_R, r_E, ot_d_m1, ot_d_p1, ot_w_lo, ot_w_hi): every value rides the
+    block refit that scored the game, including the OT rule. Games without
+    sufficient prior history (pre-seed rows) are
+    absent, never infilled: callers must exclude or refuse them, never
+    price them with full-frame mus. Idempotent in-process under the
+    walk's own key.
     """
     global _PREPARED_PIT_MUS
-    rule = _ot_rule()
     if "gameday" in frame.columns:
         dates = pd.to_datetime(frame["gameday"]).dt.normalize()
     else:
@@ -458,7 +510,7 @@ def prepare_pit_mus(frame: pd.DataFrame, progress_every: int = 0):
     else:
         _PREPARED_PIT_MUS = None
         return None
-    out = _walkforward_history(frame, ym, dates, rule, progress_every)
+    out = _walkforward_history(frame, ym, dates, progress_every)
     if out is None:
         _PREPARED_PIT_MUS = None
         return None
@@ -491,10 +543,10 @@ def lookup_pit_mus(game_ids) -> pd.DataFrame | None:
     return want.merge(_PREPARED_PIT_MUS, on="game_id", how="left")
 
 
-def _history_for_tables(frame: pd.DataFrame, bundle: dict, ym, dates, rule,
+def _history_for_tables(frame: pd.DataFrame, bundle: dict, ym, dates,
                         progress_every: int = 0):
     """Leakage-free margin history for the cumulative tables (see above)."""
-    return _walkforward_history(frame, ym, dates, rule, progress_every)
+    return _walkforward_history(frame, ym, dates, progress_every)
 
 
 def build_weight_tables(frame: pd.DataFrame, bundle: dict,
@@ -509,7 +561,6 @@ def build_weight_tables(frame: pd.DataFrame, bundle: dict,
     Serving dates use ``final`` (all scored rows).
     """
     k_sp = K_SP
-    rule = _ot_rule()
     n = len(frame)
     dates = (pd.to_datetime(frame["gameday"]).dt.normalize()
              if "gameday" in frame.columns else pd.Series(pd.NaT, index=frame.index))
@@ -526,7 +577,7 @@ def build_weight_tables(frame: pd.DataFrame, bundle: dict,
     # being priced, so the walk-forward OOF store is preferred: its mus are
     # fold-trained. Only when that store is unavailable does the fit fall
     # back to this run's in-sample models (logged, and NOT leakage-free).
-    hist_src = _history_for_tables(frame, bundle, ym, dates, rule, progress_every)
+    hist_src = _history_for_tables(frame, bundle, ym, dates, progress_every)
     if hist_src is None:
         return {"cutoffs": [], "tables": [], "final": None,
                 "k_trend": K_TR, "k_spike": K_SP, "n_dates": 0,
@@ -589,7 +640,10 @@ def _row_weights(frame: pd.DataFrame, bundle: dict):
     cache = {}
     for i, d in enumerate(dates):
         if pd.isna(d):
-            out[i] = np.asarray(final)
+            # No date, no applicable table: unweighted, as documented.
+            # (Never the final table: it is fit on all settled history,
+            # which a dateless row cannot be shown to precede.)
+            out[i] = np.ones(len(GRID))
             continue
         # last cutoff strictly before this game's date
         idx = int(np.searchsorted(cut.values, np.datetime64(d), side="left")) - 1
@@ -611,9 +665,7 @@ def _nb_draw(rng, mu: float, r: float, n: int) -> np.ndarray:
     return rng.poisson(lam).astype(np.int32)
 
 
-def _apply_ot(hs, aws, rng, rule, resample):
-    dm, dp = float(rule["d_m1"]), float(rule["d_p1"])
-    lo, hi = int(rule["w_lo"]), int(rule["w_hi"])
+def _apply_ot(hs, aws, rng, dm, dp, lo, hi, resample):
     hs, aws = hs.copy(), aws.copy()
     m = hs - aws
     u = rng.random(m.shape)
@@ -682,17 +734,21 @@ def price_cdfs(frame: pd.DataFrame, mu_h, mu_a, bundle: dict,
     full-frame step-2/3 trees never touch a settled game. Slate pricing
     passes pit=None and uses the bundle throughout (all history is prior).
     """
-    rule = _ot_rule()
     from gaussian_family import MC_SE_TARGET
     # Same precision guard as the champion's inverse-CDF sampler: never price
     # below its standard-error target, and report the count actually used.
     used = max(int(n_draws), int(np.ceil(0.25 / MC_SE_TARGET ** 2)))
+    n = len(frame)
     if pit is not None:
-        _need = ("mu_h", "mu_a", "mu_KR", "mu_KE", "r_R", "r_E")
-        if len(pit) != len(frame) or pit[list(_need)].isna().any().any():
+        _need = ("mu_h", "mu_a", "mu_KR", "mu_KE", "r_R", "r_E",
+                 "ot_d_m1", "ot_d_p1", "ot_w_lo", "ot_w_hi")
+        missing = [c for c in _need if c not in pit.columns]
+        if (missing or len(pit) != len(frame)
+                or pit[list(_need)].isna().any().any()):
             raise ValueError("PIT mus must cover every priced row exactly; "
                              "mixed settled/unsettled frames are not priced "
-                             "through one call")
+                             "through one call (missing: %s)"
+                             % ",".join(missing))
         mu_kr = pd.to_numeric(pit["mu_KR"], errors="coerce").to_numpy(float)
         mu_ke = pd.to_numeric(pit["mu_KE"], errors="coerce").to_numpy(float)
         # Dispersions ride the same block refit: the block that predicted
@@ -700,11 +756,24 @@ def price_cdfs(frame: pd.DataFrame, mu_h, mu_a, bundle: dict,
         # full-frame values, never a frozen constant from a leaky run.
         r_r = pd.to_numeric(pit["r_R"], errors="coerce").to_numpy(float)
         r_e = pd.to_numeric(pit["r_E"], errors="coerce").to_numpy(float)
+        # Same for the OT rule: each game's own block estimated it.
+        dm = pd.to_numeric(pit["ot_d_m1"], errors="coerce").to_numpy(float)
+        dp = pd.to_numeric(pit["ot_d_p1"], errors="coerce").to_numpy(float)
+        lo = pd.to_numeric(pit["ot_w_lo"], errors="coerce").to_numpy(float)
+        hi = pd.to_numeric(pit["ot_w_hi"], errors="coerce").to_numpy(float)
         mus_source = "walkforward_pit_blocks"
     else:
+        orule = bundle.get("ot_rule")
+        if not isinstance(orule, dict):
+            raise ValueError("champion bundle lacks a fitted ot_rule; refit "
+                             "the bundle -- no static OT rule exists to fall "
+                             "back to")
         mu_kr, mu_ke, r_r, r_e = predict_residuals(frame, mu_h, mu_a, bundle)
+        dm = np.full(n, float(orule["d_m1"]))
+        dp = np.full(n, float(orule["d_p1"]))
+        lo = np.full(n, int(orule["w_lo"]))
+        hi = np.full(n, int(orule["w_hi"]))
         mus_source = "full_frame_bundle"
-    n = len(frame)
     cM = np.zeros((n, len(GRID)))
     cT = np.zeros((n, TMAX - TMIN + 1))
     ids = (frame["game_id"].astype(str).to_numpy() if "game_id" in frame
@@ -723,7 +792,9 @@ def price_cdfs(frame: pd.DataFrame, mu_h, mu_a, bundle: dict,
         _rr = float(np.ravel(r_r)[i]) if np.ndim(r_r) else float(r_r)
         _re = float(np.ravel(r_e)[i]) if np.ndim(r_e) else float(r_e)
         hh, aa = _draw_game(float(mu_h[i]), float(mu_a[i]), float(mu_kr[i]),
-                            float(mu_ke[i]), _rr, _re, rng, rule, used)
+                            float(mu_ke[i]), _rr, _re, rng,
+                            float(dm[i]), float(dp[i]),
+                            int(lo[i]), int(hi[i]), used)
         m = np.clip(hh - aa, -110, 110) + 110
         t = np.clip(hh + aa, TMIN, TMAX)
         wd = W_tab[i][m]
@@ -968,7 +1039,8 @@ def champion_oof_markets(game_df, fold_list, base_oof, n_draws=None,
         mu_h, mu_a = predict_step1(val_settled, core)
         if not (np.isfinite(mu_h).all() and np.isfinite(mu_a).all()):
             raise ValueError(f"champion OOF: non-finite mus in fold {fold.fold_id}")
-        bundle_o = {"models": core["models"], "weight_tables": tables}
+        bundle_o = {"models": core["models"], "weight_tables": tables,
+                    "ot_rule": core["ot_rule"]}
         cdfs = price_cdfs(val_settled, mu_h, mu_a, bundle_o,
                            n_draws=n_draws, seed=seed)
         cols = champion_price_columns(val_settled, mu_h, mu_a, cdfs)
@@ -1099,8 +1171,15 @@ def ensure_tables(frame: pd.DataFrame, bundle: dict,
     """
     if (bundle.get("weight_tables") or {}).get("final") is not None:
         return bundle
-    key = int(bundle.get("fit_n") or 0)
+    key = (int(bundle.get("fit_n") or 0), _tables_fingerprint(frame))
     hit = _TABLES_CACHE.get(key)
+    if hit is None and len(frame) < MIN_HISTORY_ROWS:
+        # Per-slate serving calls carry a handful of rows: they cannot
+        # rebuild history, so they reuse the run's authoritative tables
+        # registered at fit time instead of replaying (or silently going
+        # unweighted). A different full frame with the same fit_n never
+        # collides: it misses the exact entry and rebuilds its own.
+        hit = _RUN_TABLES.get(key[0])
     if hit is not None:
         # The pipeline run already replayed this run's history at fit time;
         # serving must reuse those tables instead of replaying again.
@@ -1128,10 +1207,37 @@ def ensure_tables(frame: pd.DataFrame, bundle: dict,
         frame, partial, progress_every=progress_every)
     if bundle["weight_tables"].get("final") is not None:
         _TABLES_CACHE[key] = bundle["weight_tables"]
+        _RUN_TABLES[key[0]] = bundle["weight_tables"]
     return bundle
 
 
+def _tables_fingerprint(frame: pd.DataFrame) -> tuple:
+    """Identity of a table-building frame: size, span, end game ids.
+
+    Two different full frames can share a fit_n (reruns, fixtures); the
+    exact-frame cache entry must not hand one frame's cumulative history
+    to the other. Serving's per-slate calls miss the exact entry and fall
+    back to the run's registered tables by fit_n (see ensure_tables).
+    """
+    try:
+        dates = pd.to_datetime(frame["gameday"], errors="coerce")
+        span = (str(dates.min().date()) if dates.notna().any() else "",
+                str(dates.max().date()) if dates.notna().any() else "")
+    except (KeyError, TypeError, ValueError):
+        span = ("", "")
+    try:
+        gids = frame["game_id"].astype(str)
+        ends = (gids.iloc[0], gids.iloc[-1]) if len(gids) else ("", "")
+    except (KeyError, IndexError):
+        ends = ("", "")
+    return (len(frame), *span, *ends)
+
+
 _TABLES_CACHE: dict = {}
+#: The run's authoritative tables by fit_n, registered at fit time.
+#: Serving's per-slate calls reuse these; exact-frame entries above
+#: protect full-frame rebuilds from cross-frame collisions in-process.
+_RUN_TABLES: dict = {}
 _BUNDLE_CACHE: dict = {}
 
 

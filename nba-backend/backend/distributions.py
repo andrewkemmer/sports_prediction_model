@@ -1577,7 +1577,14 @@ def _nba_hier_cdfs(frame, n_draws, seed, meta_out):
             if meta_out is not None:
                 meta_out["pit_floor_shortfall"] = int(_settled.sum())
         else:
-            _need = ("mu_h", "mu_a", "mu_KR", "mu_KE", "r_R", "r_E")
+            _need = ("mu_h", "mu_a", "mu_KR", "mu_KE", "r_R", "r_E",
+                     "ot_d_m1", "ot_d_p1", "ot_w_lo", "ot_w_hi")
+            _missing = [c for c in _need if c not in _pit.columns]
+            if _missing:
+                raise RuntimeError(
+                    "hier OOF pricing hit a PIT store missing columns %s; "
+                    "the store must carry every block-refit value, never a "
+                    "partial row" % ",".join(_missing))
             if _pit[list(_need)].isna().any().any():
                 _bad = _pit.loc[_pit[list(_need)].isna().any(axis=1), "game_id"]
                 raise RuntimeError(

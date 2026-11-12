@@ -61,13 +61,19 @@ def _install_stub(*, pit_rows=None, prepared=True):
              "mu_h": [r[1] for r in pit_rows], "mu_a": [r[2] for r in pit_rows],
              "mu_KR": [r[3] for r in pit_rows],
              "mu_KE": [r[4] for r in pit_rows],
-             "r_R": [5.0] * len(pit_rows), "r_E": [6.0] * len(pit_rows)})
+             "r_R": [5.0] * len(pit_rows), "r_E": [6.0] * len(pit_rows),
+             "ot_d_m1": [0.1] * len(pit_rows),
+             "ot_d_p1": [0.2] * len(pit_rows),
+             "ot_w_lo": [2] * len(pit_rows),
+             "ot_w_hi": [8] * len(pit_rows)})
     stub.lookup_pit_mus = (
         (lambda ids: None) if not prepared
         else (lambda ids: pd.DataFrame({"game_id": list(ids)}).merge(
             pit_df if pit_df is not None
             else pd.DataFrame(columns=["game_id", "mu_h", "mu_a",
-                                       "mu_KR", "mu_KE", "r_R", "r_E"]),
+                                       "mu_KR", "mu_KE", "r_R", "r_E",
+                                       "ot_d_m1", "ot_d_p1", "ot_w_lo",
+                                       "ot_w_hi"]),
             on="game_id", how="left")))
 
     def fake_price_cdfs(frame, mu_h, mu_a, bundle, n_draws=0, seed=0,
@@ -195,7 +201,9 @@ def test_walk_mus_never_see_the_game_they_score(monkeypatch):
         return float((pd.Timestamp(ts) - epoch).days)
 
     def fake_fit_core(tr, *a, **k):
-        return {"train_end": pd.to_datetime(tr["gameday"]).max()}
+        return {"train_end": pd.to_datetime(tr["gameday"]).max(),
+                "ot_rule": {"d_m1": 0.1, "d_p1": 0.2,
+                            "w_lo": 2, "w_hi": 8}}
 
     def fake_predict_step1(va, fb, *a, **k):
         # mu carries the last TRAINING day: a game priced from a fit that
@@ -221,6 +229,10 @@ def test_walk_mus_never_see_the_game_they_score(monkeypatch):
     assert (got["mu_h"] < game_day).all()
     assert (got["mu_KR"] < game_day).all()
     assert pit["r_R"].notna().all() and pit["r_E"].notna().all()
+    for col in ("ot_d_m1", "ot_d_p1", "ot_w_lo", "ot_w_hi"):
+        assert pit[col].notna().all()
+    assert (pit["ot_d_m1"] == 0.1).all() and (pit["ot_d_p1"] == 0.2).all()
+    assert (pit["ot_w_lo"] == 2).all() and (pit["ot_w_hi"] == 8).all()
     # The first 10% (seed) has no prior history: absent, never infilled.
     assert not set(frame["game_id"].iloc[:600]) & set(pit["game_id"])
     # Lookup is a pure join onto the prepared store.
@@ -275,7 +287,11 @@ def test_walk_drops_uncovered_settled_rows_and_records_them(monkeypatch):
             "mu_KR": np.where([g in covered for g in ids], 0., np.nan),
             "mu_KE": np.where([g in covered for g in ids], 0., np.nan),
             "r_R": np.where([g in covered for g in ids], 5., np.nan),
-            "r_E": np.where([g in covered for g in ids], 6., np.nan)})
+            "r_E": np.where([g in covered for g in ids], 6., np.nan),
+            "ot_d_m1": np.where([g in covered for g in ids], .1, np.nan),
+            "ot_d_p1": np.where([g in covered for g in ids], .2, np.nan),
+            "ot_w_lo": np.where([g in covered for g in ids], 2., np.nan),
+            "ot_w_hi": np.where([g in covered for g in ids], 8., np.nan)})
 
     def fake_price(frame, mu_h, mu_a, bundle, n_draws=0, seed=0, meta_out=None,
                    pit=None):
@@ -393,7 +409,9 @@ def test_champion_oof_serves_champion_moneyline(monkeypatch):
         fold_id=0, val_start=dates[4], val_end=dates[5],
         train_idx=pd.Index([0, 1, 2, 3]), val_idx=pd.Index([4, 5]))]
     monkeypatch.setattr(hier, "build_weight_tables", lambda *a, **k: {})
-    monkeypatch.setattr(hier, "_fit_core", lambda *a, **k: {"models": {}})
+    monkeypatch.setattr(hier, "_fit_core", lambda *a, **k: {
+        "models": {},
+        "ot_rule": {"d_m1": 0.1, "d_p1": 0.2, "w_lo": 2, "w_hi": 8}})
     monkeypatch.setattr(hier, "predict_step1",
                         lambda f, b: (np.full(len(f), 112.0),
                                       np.full(len(f), 108.0)))
@@ -406,3 +424,158 @@ def test_champion_oof_serves_champion_moneyline(monkeypatch):
     assert all(v != 0.99 for v in val.p_home_win), \
         "OOF served the base frame's stale moneyline"
     assert bundle["monte_carlo"]["model_id"] == "nba_nb_hier_wprod_v1"
+
+
+def _ot_settled_frame():
+    """Settled games with engineered OT flags plus decoys that must not count.
+
+    Margins +/-1 carry known OT shares; unsettled rows (with flags!) and
+    NaN-flag rows at the same margins would corrupt the estimate if the
+    fitter ever looked at them.
+    """
+    rows = []
+    gid = 0
+
+    def add(margin, ot, settled=True, flag_known=True, base=110.0):
+        nonlocal gid
+        gid += 1
+        rows.append({"game_id": f"ot{ gid: 04d}",
+                     "gameday": pd.Timestamp("2024-03-01"),
+                     "home_score": base + margin if settled else np.nan,
+                     "away_score": base if settled else np.nan,
+                     "went_ot": (float(ot) if flag_known else np.nan)})
+    for _ in range(30):
+        add(1.0, 1)
+    for _ in range(70):
+        add(1.0, 0)
+    for _ in range(10):
+        add(-1.0, 1)
+    for _ in range(90):
+        add(-1.0, 0)
+    for m in (2.0, 3.0, 5.0, 8.0):
+        for _ in range(5):
+            add(m, 1)
+            add(-m, 0)
+    for _ in range(50):
+        add(1.0, 1, settled=False)
+    for _ in range(20):
+        add(1.0, 1, flag_known=False)
+    return pd.DataFrame(rows)
+
+
+def test_fit_ot_rule_estimates_from_settled_history_only():
+    """The OT rule is estimated, never assumed -- and only on settled games.
+
+    d_m1/d_p1 are the Laplace-shrunk P(OT | final -/+1) of the fit frame's
+    own settled history; the decoy unsettled and NaN-flag rows must not
+    move the numbers. Exact values pin the shrinkage arithmetic.
+    """
+    frame = _ot_settled_frame()
+    rule = _REAL_HIER._fit_ot_rule(frame)
+    n_pm1, ot_pm1 = 100.0, 30.0
+    n_mm1, ot_mm1 = 100.0, 10.0
+    pool = 60.0 / 240.0  # settled flagged rows only; decoys excluded
+    assert rule["d_p1"] == pytest.approx((ot_pm1 + 20 * pool) / (n_pm1 + 20))
+    assert rule["d_m1"] == pytest.approx((ot_mm1 + 20 * pool) / (n_mm1 + 20))
+    assert (rule["w_lo"], rule["w_hi"]) == (1, 8)
+
+
+def test_fit_ot_rule_without_labels_resamples_only_ties():
+    """No OT labels anywhere: the mechanism stays valid without invention.
+
+    Regulation ties cannot stand, so they still resample; with nothing to
+    estimate from, the rule claims no overtime rate and spans the
+    structural support instead of a fitted window.
+    """
+    frame = pd.DataFrame({"game_id": ["a", "b"],
+                          "gameday": pd.to_datetime(["2024-01-01"] * 2),
+                          "home_score": [110.0, 108.0],
+                          "away_score": [100.0, 107.0]})
+    assert _REAL_HIER._fit_ot_rule(frame) == {"d_m1": 0.0, "d_p1": 0.0,
+                                              "w_lo": 1, "w_hi": 110}
+    assert _REAL_HIER._fit_ot_rule(None)["d_m1"] == 0.0
+
+
+def test_no_frozen_statics_in_champion():
+    """Frozen dispersions and the static OT rule are gone, not bypassed.
+
+    Dispersions are estimated on every fit's own training labels and the
+    OT rule on every fit's own settled games; no file, constant, or
+    fallback can inject a number fitted on other (possibly future) data.
+    """
+    assert not hasattr(_REAL_HIER, "frozen_dispersions")
+    assert not hasattr(_REAL_HIER, "_ot_rule")
+    assert not hasattr(_REAL_HIER, "OT_DEFAULTS")
+
+
+def test_price_cdfs_rejects_pit_without_ot_rule():
+    """The PIT gate covers the OT rule: no partial mus, no static pricing."""
+    frame = pd.DataFrame({"game_id": ["g1", "g2"],
+                          "gameday": pd.to_datetime(["2024-01-01"] * 2)})
+    mu = np.full(2, 110.0)
+    pit = pd.DataFrame({"game_id": ["g1", "g2"], "mu_h": mu, "mu_a": mu,
+                        "mu_KR": np.zeros(2), "mu_KE": np.zeros(2),
+                        "r_R": np.full(2, 5.0), "r_E": np.full(2, 6.0)})
+    with pytest.raises(ValueError, match="PIT mus must cover"):
+        _REAL_HIER.price_cdfs(frame, mu, mu, {}, pit=pit)
+    with pytest.raises(ValueError, match="lacks a fitted ot_rule"):
+        _REAL_HIER.price_cdfs(frame, mu, mu, {}, pit=None)
+
+
+def test_went_ot_flag_reads_the_games_own_pbp():
+    """went_ot is the game's own PBP fact, NaN where PBP is missing."""
+    import features
+    df = pd.DataFrame({"game_id": ["g1", "g2", "g3", "g4"]})
+    ladder = pd.DataFrame({
+        "game_id": ["g1", "g1", "g2", "g2", "g3", "g3", "g4", "g4"],
+        "is_home": [True, False] * 4,
+        "ot_points": [5.0, 0.0, 0.0, 0.0, np.nan, 0.0, 3.0, 3.0][:8],
+    })
+    out = features._attach_contract(df, ladder)
+    got = out.set_index("game_id")["went_ot"]
+    assert got["g1"] == 1.0 and got["g2"] == 0.0
+    assert np.isnan(got["g3"])
+    assert got["g4"] == 1.0
+    assert "went_ot" not in config.active_moneyline_feature_cols()
+
+
+def test_tables_cache_keyed_by_frame_identity():
+    """Same fit_n, different frames: no cross-frame table reuse in-process."""
+    frame_a = pd.DataFrame({"game_id": ["a1", "a2"],
+                            "gameday": pd.to_datetime(["2024-01-01"] * 2)})
+    frame_b = pd.DataFrame({"game_id": ["b1", "b2"],
+                            "gameday": pd.to_datetime(["2024-01-01"] * 2)})
+    assert (_REAL_HIER._tables_fingerprint(frame_a)
+            != _REAL_HIER._tables_fingerprint(frame_b))
+    sentinel = {"final": "run_tables", "cutoffs": [], "tables": []}
+    _REAL_HIER._RUN_TABLES[777777] = sentinel
+    try:
+        got = _REAL_HIER.ensure_tables(frame_a, {"fit_n": 777777})
+        assert got["weight_tables"] is sentinel
+    finally:
+        _REAL_HIER._RUN_TABLES.pop(777777, None)
+
+
+def test_row_weights_dateless_rows_price_unweighted():
+    """A row with no date cannot be shown to precede any table: w = 1."""
+    n = len(_REAL_HIER.GRID)
+    table = np.full(n, 2.0)
+    bundle = {"weight_tables": {"cutoffs": [pd.Timestamp("2024-01-05")],
+                                "tables": [table],
+                                "final": np.full(n, 9.0)}}
+    frame = pd.DataFrame({"game_id": ["dated", "dateless"],
+                          "gameday": [pd.Timestamp("2024-01-10"), pd.NaT]})
+    w = _REAL_HIER._row_weights(frame, bundle)
+    assert np.array_equal(w[0], table)
+    assert np.array_equal(w[1], np.ones(n))
+
+
+def test_saved_bundles_carry_the_fitted_ot_rule(tmp_path):
+    """The serialized bundle keeps the rule: save strips tables only."""
+    bundle = {"model_id": _REAL_HIER.MODEL_ID, "fit_n": 10,
+              "ot_rule": {"d_m1": 0.1, "d_p1": 0.2, "w_lo": 2, "w_hi": 8},
+              "weight_tables": {"cutoffs": [], "tables": [],
+                                "final": None}}
+    path = _REAL_HIER.save_bundle(bundle, tmp_path / "slim.joblib")
+    assert _REAL_HIER.load_bundle(path, refresh=True)["ot_rule"] == \
+        bundle["ot_rule"]

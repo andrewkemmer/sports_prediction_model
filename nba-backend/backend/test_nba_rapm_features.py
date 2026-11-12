@@ -2073,3 +2073,28 @@ def test_gaussian_crps_analytic_gradient_and_hessian():
     numerical_h = (objective(y, prediction + eps)[0]
                    - objective(y, prediction - eps)[0]) / (2 * eps)
     np.testing.assert_allclose(hessian, numerical_h, atol=1e-8)
+
+
+@pytest.fixture(autouse=True)
+def _champion_bundle_carries_a_rule(monkeypatch):
+    """Mechanics-test adapter for the on-disk champion bundle's format.
+
+    The committed slim bundle predates the fitted OT rule: production
+    refits + saves every run so it always carries one, but these mechanics
+    tests (precision guard, seed repro, push extension, monitor scope)
+    load the stale file. Attach the documented no-labels rule at load so
+    they exercise the mechanics they pin, not the bundle format. The
+    format itself is pinned by the PIT suite: fresh bundles carry a fitted
+    rule, stale ones raise.
+    """
+    import nba_hier_mc as hier
+    real = hier.load_bundle
+
+    def _with_rule(*a, **k):
+        bundle = real(*a, **k)
+        if isinstance(bundle, dict) and "ot_rule" not in bundle:
+            bundle = {**bundle, "ot_rule": {"d_m1": 0.0, "d_p1": 0.0,
+                                            "w_lo": 1, "w_hi": 110}}
+        return bundle
+
+    monkeypatch.setattr(hier, "load_bundle", _with_rule)
