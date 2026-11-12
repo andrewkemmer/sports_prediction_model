@@ -222,9 +222,32 @@ RuntimeError: NBA team facts missing or disagree with final scores: 1 team-game(
   facts, "(final 101-108, team facts missing-missing)". Verified against
   synthetic fact sets for both cases; the existing
   test_nba_ingestion expectation ("disagree with final scores") still
-  matches, 4 related tests pass. The offending row for THIS run stays
-  unknown — the repull snapshot is not delivered and only a count was
-  written — and the next occurrence names itself.
+  matches, 4 related tests pass.
+
+  identified (second pass, 2026-11-12 05:47-06:05 UTC): the original
+  record named no row, so the same repull was reproduced against the
+  same window with the new message. It failed with 5 team-games, all on
+  the 2026-11-11 slate: 401909973 UTA (final 108-123, facts 106-123),
+  401909974 HOU/GSW (115-108 vs 88/76) and 401909975 POR/OKC (118-108
+  vs 77/71). Read again minutes later, the same log sums to HOU 115,
+  GSW 105, POR 118, OKC 108, ORL 123 — four of the five cleared on their
+  own, leaving UTA 106 against ESPN's 108 and GSW 105 against 108. So
+  the cause is a same-night freshness race, not a join defect: ESPN's
+  scoreboard publishes a final the moment the horn sounds, while
+  stats.nba.com's team totals fill in over the following minutes, and a
+  run started inside that window compares a finished game to a
+  half-written box score. The contradicting membership across two reads
+  is the proof — a structural break cannot heal itself between reads.
+  The two-point residue (UTA, GSW) may be the tail of the same fill-in
+  or a genuine scoring difference; it is the thing to watch.
+  consequence: `_validate` is a hard gate on a value that is still
+  arriving, so a run started within a few hours of the last tip-off can
+  fail non-deterministically. Whether same-night finals should be
+  treated as not-yet-trainable (rather than fatal) is a pipeline decision
+  left open here; the log now names the rows either way.
+  caveat: the reproduction refetched the same window but merged the
+  local cache, so its schedule frame carried 4,898 games against the
+  Kaggle box's 4,129 — the affected rows are the same slate either way.
 
   why it is not the champion rewire: the crash is upstream of pricing.
   The same validation passed in the 04:43 local run of the same date
