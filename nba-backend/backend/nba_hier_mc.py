@@ -822,6 +822,12 @@ def champion_oof_markets(game_df, fold_list, base_oof, n_draws=None,
             out[c] = champ.fillna(base_mu)
             out["pred_home" if c == "mu_h" else "pred_away"] = out[c]
             out = out.drop(columns=[cc])
+    # ``_marketize`` stamps derived_ml from p_home_win_derived BEFORE the
+    # deferred pricing runs, so the base frame carries all-NaN here and the
+    # merge keeps it (a base column is never overwritten). The champion's
+    # derived moneyline is the margin CDF at -1/0, so re-stamp it: the
+    # monitor's Derived ML card and per-line metric both read this column.
+    out["derived_ml"] = out["p_home_win_derived"]
     priced_ids = set(prices.game_id) if len(prices) else set()
     missing = out.game_id[~out.game_id.isin(priced_ids)]
     if len(missing):
