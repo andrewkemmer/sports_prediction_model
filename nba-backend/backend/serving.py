@@ -385,10 +385,10 @@ def write_markets_csv(path, meta_path, oof_rows, slate_rows, config_meta=None,
     # lineterminator: delivery artifacts are LF-pinned; never let a
     # platform/csv default rewrite every line ending.
     _atomic_to_csv(out, path, index=False, lineterminator="\n")
-    # The priced frame's attrs carry the ACTUAL pricing engine
-    # (champion bundle id + method when the champion priced it): report that,
-    # never a hardcoded family name. The fallback below names the champion
-    # because nothing but the champion may price an NBA artifact anymore.
+    # The priced frame's attrs carry the ACTUAL pricing engine (champion
+    # bundle id + method): report that, never a hardcoded family name. The
+    # fallback below names the champion because nothing but the champion
+    # may price an NBA artifact anymore.
     _mc_meta = oof_rows.attrs.get("mc_meta", {}) or {}
     meta = {
         "distribution_method": oof_rows.attrs.get(

@@ -2210,11 +2210,17 @@ def causal_distribution_frame(frame, n_draws=MC_DRAWS, seed=MC_SEED,
     # history predates them.
     pit_excluded = {"n": 0, "first": None, "last": None}
     excluded_index: list = []
+    # When the champion prices this frame, the split-skew variance /
+    # calibration / lattice maps fit below are never read by any pricing
+    # call, so fitting them per origin is dead compute: origins keep empty
+    # maps and the admission gate is skipped. Pricing is unchanged.
+    hier_prices = False
     if DISTRIBUTION_SPORT == "nba" and str(getattr(
             config, "NBA_DISTRIBUTION_ENGINE", "champion")).lower() == "hier_mc":
         import nba_hier_mc as _hier
         _hb = _hier.load_bundle(getattr(config, "NBA_HIER_MC_BUNDLE", None))
         if _hb is not None:
+            hier_prices = True
             _hier.ensure_tables(frame, _hb)
             _pit = _hier.prepare_pit_mus(frame)
             if _pit is not None:
@@ -2289,48 +2295,56 @@ def causal_distribution_frame(frame, n_draws=MC_DRAWS, seed=MC_SEED,
         hist_teams = None
         if frame_teams_all is not None:
             hist_teams = (frame_teams_all[0][history], frame_teams_all[1][history])
-        candidate = _distribution_fit_maps(h[history], a[history],
-                                           {k: y[history] for k, y in outcomes.items()},
-                                           _lattice_evidence(), loc_teams=hist_teams)
-        maps = dict(candidate)
-        admitted = {}
-        for kind in ("total", "margin"):
-            differences = np.concatenate(evidence[kind]) if evidence[kind] else np.array([])
-            # Paired losses are from previously issued, honest candidate and
-            # identity CDFs. No same-origin fit performance selects the map.
-            admitted[kind] = bool(len(differences) >= CRPS_MIN_HISTORY
-                                  and differences.mean() < 0.)
-            if not admitted[kind]: maps[kind] = [0.] * len(maps[kind])
+        if hier_prices:
+            # Dead compute, skipped: see the prologue note.
+            maps, admitted, candidate = {}, {}, {}
+        else:
+            candidate = _distribution_fit_maps(h[history], a[history],
+                                               {k: y[history] for k, y in outcomes.items()},
+                                               _lattice_evidence(), loc_teams=hist_teams)
+            maps = dict(candidate)
+            admitted = {}
+            for kind in ("total", "margin"):
+                differences = (np.concatenate(evidence[kind])
+                               if evidence[kind] else np.array([]))
+                # Paired losses are from previously issued, honest candidate and
+                # identity CDFs. No same-origin fit performance selects the map.
+                admitted[kind] = bool(len(differences) >= CRPS_MIN_HISTORY
+                                      and differences.mean() < 0.)
+                if not admitted[kind]: maps[kind] = [0.] * len(maps[kind])
         current = frame.iloc[np.flatnonzero(mask)]
         block_cdfs: dict = {}
         part = _distribution_price(current, maps, n_draws=n_draws, seed=seed,
                                    cdfs_out=block_cdfs)
         issued_cdfs.append(block_cdfs)
-        baseline = dict(candidate,
-                        total=[0.] * len(candidate["total"]),
-                        margin=[0.] * len(candidate["margin"]))
-        # The identity baseline prices the BASE family — structural rules
-        # from the variance parameters, no lattice delta — so the admission
-        # gate asks whether the whole candidate (calibration maps + lattice
-        # residual) beats it on prior issued origins.
-        baseline.pop("lattice", None)
-        cc, bc = _distribution_cdfs(current, candidate), _distribution_cdfs(current, baseline)
-        for kind in ("total", "margin"):
-            support, cdf = cc[kind]
-            difference = (lattice_crps(cdf, support, outcomes[kind][mask])
-                          - lattice_crps(bc[kind][1], support, outcomes[kind][mask]))
-            evidence[kind].append(difference[pre_holdout[mask]])
-        # Accumulate this block's BASE-model pmfs for the NEXT origin's
-        # lattice fit (the candidate minus its fitted delta).
-        base_maps = dict(candidate)
-        base_maps.pop("lattice", None)
-        sb = _distribution_cdfs(current, base_maps)
-        for kind in ("total", "margin"):
-            support_b, cdf_b = sb[kind]
-            lattice_prior[kind].append(
-                (np.diff(np.column_stack([np.zeros(len(current)), cdf_b]), axis=1),
-                 outcomes[kind][mask].copy(), support_b,
-                 pre_holdout[mask].copy()))
+        if not hier_prices:
+            # Admission gate + next-origin lattice evidence: meaningless
+            # without fitted maps.
+            baseline = dict(candidate,
+                            total=[0.] * len(candidate["total"]),
+                            margin=[0.] * len(candidate["margin"]))
+            # The identity baseline prices the BASE family — structural rules
+            # from the variance parameters, no lattice delta — so the admission
+            # gate asks whether the whole candidate (calibration maps + lattice
+            # residual) beats it on prior issued origins.
+            baseline.pop("lattice", None)
+            cc, bc = _distribution_cdfs(current, candidate), _distribution_cdfs(current, baseline)
+            for kind in ("total", "margin"):
+                support, cdf = cc[kind]
+                difference = (lattice_crps(cdf, support, outcomes[kind][mask])
+                              - lattice_crps(bc[kind][1], support, outcomes[kind][mask]))
+                evidence[kind].append(difference[pre_holdout[mask]])
+            # Accumulate this block's BASE-model pmfs for the NEXT origin's
+            # lattice fit (the candidate minus its fitted delta).
+            base_maps = dict(candidate)
+            base_maps.pop("lattice", None)
+            sb = _distribution_cdfs(current, base_maps)
+            for kind in ("total", "margin"):
+                support_b, cdf_b = sb[kind]
+                lattice_prior[kind].append(
+                    (np.diff(np.column_stack([np.zeros(len(current)), cdf_b]), axis=1),
+                     outcomes[kind][mask].copy(), support_b,
+                     pre_holdout[mask].copy()))
         part["distribution_fit_n"] = int(history.sum())
         part["distribution_fit_end"] = str(origins[-1]["end"]) if origins else None
         parts.append(part)
@@ -2345,19 +2359,28 @@ def causal_distribution_frame(frame, n_draws=MC_DRAWS, seed=MC_SEED,
         history |= mask & pre_holdout
     # Freeze evaluation learning through the sealed tail; serving can learn
     # from all now-settled past games, but cannot rewrite issued OOF prices.
-    maps = _distribution_fit_maps(h, a, outcomes, _lattice_evidence(True),
-                                    loc_teams=frame_teams_all)
-    for kind in ("total", "margin"):
-        difference = np.concatenate(evidence[kind])
-        if len(difference) < CRPS_MIN_HISTORY or difference.mean() >= 0.:
-            maps[kind] = [0.] * len(maps[kind])
-    bundle = {"method": family.METHOD, "family": family.FAMILY, "scope": "whole_cdf",
+    if hier_prices:
+        # Dead compute, skipped: see the prologue note. The served bundle is
+        # labeled for the engine that priced it, not the family it skipped.
+        maps = {}
+    else:
+        maps = _distribution_fit_maps(h, a, outcomes, _lattice_evidence(True),
+                                        loc_teams=frame_teams_all)
+        for kind in ("total", "margin"):
+            difference = np.concatenate(evidence[kind])
+            if len(difference) < CRPS_MIN_HISTORY or difference.mean() >= 0.:
+                maps[kind] = [0.] * len(maps[kind])
+    bundle = {"method": (_hier.CHAMPION_METHOD if hier_prices
+                         else family.METHOD),
+              "family": (_hier.MODEL_ID if hier_prices else family.FAMILY),
+              "scope": "whole_cdf",
               "sport": DISTRIBUTION_SPORT, "objective": "discrete_crps",
               "maps": maps, "origins": origins, "fit_n": len(frame),
               "pit_excluded": pit_excluded,
-              "lattice_summary": {target: family.lattice_summary(
-                  (maps.get("lattice") or {}).get(target) or {})
-                  for target in family.LATTICE_TARGETS},
+              "lattice_summary": ({} if hier_prices else
+                  {target: family.lattice_summary(
+                      (maps.get("lattice") or {}).get(target) or {})
+                   for target in family.LATTICE_TARGETS}),
               "fit_end": str(dates.max().date()),
               "monte_carlo": parts[-1].attrs["mc_meta"],
               "holdout": {"cutoff": str(cutoff.date()), "n_pre": int(pre_holdout.sum()),
@@ -2365,7 +2388,9 @@ def causal_distribution_frame(frame, n_draws=MC_DRAWS, seed=MC_SEED,
                           "holdout_days": HOLDOUT_DAYS,
                           "fitted_on": "strictly prior pre-holdout origins"},
               "serving_fit_scope": "all_settled_prior_oof_only",
-              "admission": "negative_mean_paired_crps_on_prior_issued_origins"}
+              "admission": ("skipped_champion_prices_every_row"
+                            if hier_prices else
+                            "negative_mean_paired_crps_on_prior_issued_origins")}
     priced = pd.concat(parts).reindex(original_index)
     if excluded_index:
         # Excluded OOF rows leave the priced frame entirely (never NaN rows):

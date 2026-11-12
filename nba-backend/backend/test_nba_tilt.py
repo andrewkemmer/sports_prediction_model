@@ -85,7 +85,17 @@ def test_adopted_fit_maps_carries_tilt_when_flag_on(monkeypatch):
     assert "total_tilt" not in maps["variance"]
 
 
+def _family_only(monkeypatch):
+    """Exercise the split-skew walk, not the champion: no bundle means no
+    hier pricing, so the walk fits its maps instead of skipping them."""
+    import nba_hier_mc as hier
+    import distributions as dist
+    monkeypatch.setattr(hier, "load_bundle", lambda *a, **k: None)
+    monkeypatch.setattr(dist, "_nba_hier_cdfs", lambda *a, **k: None)
+
+
 def test_tilt_watch_panel_reports_slope_and_gap(monkeypatch):
+    _family_only(monkeypatch)
     import pandas as pd
     import distributions as dist
     monkeypatch.setattr(dist.config, "DISTRIBUTION_TOTAL_TILT_PACE", True)

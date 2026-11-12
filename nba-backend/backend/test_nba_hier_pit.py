@@ -45,6 +45,8 @@ def _restore_hier_module():
 def _install_stub(*, pit_rows=None, prepared=True):
     """Stub nba_hier_mc in sys.modules; record price_cdfs arguments."""
     stub = types.ModuleType("nba_hier_mc")
+    stub.CHAMPION_METHOD = _REAL_HIER.CHAMPION_METHOD
+    stub.MODEL_ID = _REAL_HIER.MODEL_ID
     stub.load_bundle = lambda path=None: {"models": {"KR": {"r": 5.0},
                                                      "KE": {"r": 6.0}},
                                           "weight_tables": None}
@@ -252,6 +254,8 @@ def test_walk_drops_uncovered_settled_rows_and_records_them(monkeypatch):
     covered = set(frame["game_id"].iloc[6:])       # 6 pre-coverage rows
 
     stub = types.ModuleType("nba_hier_mc")
+    stub.CHAMPION_METHOD = _REAL_HIER.CHAMPION_METHOD
+    stub.MODEL_ID = _REAL_HIER.MODEL_ID
     stub.load_bundle = lambda path=None: {"models": {"KR": {"r": 5.0},
                                                      "KE": {"r": 6.0}},
                                           "weight_tables": None}

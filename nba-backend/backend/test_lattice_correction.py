@@ -37,6 +37,7 @@ def _family_walk(monkeypatch):
     """
     import nba_hier_mc as hier
     monkeypatch.setattr(hier, "prepare_pit_mus", lambda frame, **k: None)
+    monkeypatch.setattr(hier, "load_bundle", lambda *a, **k: None)
     monkeypatch.setattr(dist, "_nba_hier_cdfs", lambda *a, **k: None)
 
 SPORT = dist.DISTRIBUTION_SPORT

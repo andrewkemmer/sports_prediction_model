@@ -1583,7 +1583,19 @@ class TestSealedChallengerHoldout:
         oof["total"] = oof.home_score + oof.away_score
         return oof
 
-    def test_sealed_outcomes_do_not_change_issued_prices_or_fit_parameters(self):
+    @staticmethod
+    def _family_only(monkeypatch):
+        """Exercise the split-skew walk, not the champion: no bundle means
+        no hier pricing, so the walk fits its maps instead of skipping
+        them (the family behavior under test here)."""
+        import nba_hier_mc as hier
+        import distributions as dist
+        monkeypatch.setattr(hier, "load_bundle", lambda *a, **k: None)
+        monkeypatch.setattr(dist, "_nba_hier_cdfs", lambda *a, **k: None)
+
+    def test_sealed_outcomes_do_not_change_issued_prices_or_fit_parameters(
+            self, monkeypatch):
+        self._family_only(monkeypatch)
         import distributions as dist
         frame = self._oof(n=300)
         priced, bundle = dist.causal_distribution_frame(frame)
@@ -1971,7 +1983,17 @@ def test_crps_point_mass_matches_absolute_error_and_correct_cdf_orientation():
     np.testing.assert_allclose(dist.lattice_crps(cdf, support, [0., 1., -1.]), 0.)
 
 
-def test_crps_full_pipeline_future_poisoning_and_row_order_invariance():
+def _family_only_walk(monkeypatch):
+    """Exercise the split-skew walk, not the champion: no bundle means no
+    hier pricing, so the walk fits its maps instead of skipping them."""
+    import nba_hier_mc as hier
+    import distributions as dist
+    monkeypatch.setattr(hier, "load_bundle", lambda *a, **k: None)
+    monkeypatch.setattr(dist, "_nba_hier_cdfs", lambda *a, **k: None)
+
+
+def test_crps_full_pipeline_future_poisoning_and_row_order_invariance(monkeypatch):
+    _family_only_walk(monkeypatch)
     import distributions as dist
     import numpy as np
     frame = _crps_test_frame()
