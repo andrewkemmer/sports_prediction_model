@@ -1915,7 +1915,7 @@ def run(run_date: str | None = None, out_dir: str | Path | None = None,
         _pl_attached = int(
             game_df[config.PLAYER_RAPM_POSITION_FEATURE_COLS[0]]
             .notna().sum())
-        logger.info("pl_dpm features attached: %d/%d decided rows carry them",
+        logger.info("crossmatch features attached: %d/%d decided rows carry them",
                     _pl_attached, len(game_df))
         _star_attached = int(
             game_df[config.STAR_OUT_FEATURE_COLS[0]].notna().sum())
@@ -1926,7 +1926,7 @@ def run(run_date: str | None = None, out_dir: str | Path | None = None,
         logger.info("o-pts features attached: %d/%d decided rows carry "
                     "them", _opts_attached, len(game_df))
         if _pl_attached < len(game_df):
-            # An unattached row is NaN on all nine position columns, and
+            # An unattached row is NaN on all eleven crossmatch columns, and
             # a bare fraction does not say WHY. The pool gates
             # (PLAYER_EPM_POOL_LOOKBACK_DAYS / RECENCY_DAYS / MIN_MINUTES)
             # have no in-season evidence at the start of a season - a
@@ -1952,7 +1952,7 @@ def run(run_date: str | None = None, out_dir: str | Path | None = None,
                           & (_gap_age < _recency)).sum())
             _n_rest = int(len(_gaps) - _n_look - _n_rec)
             logger.info(
-                "pl_dpm coverage gap: %d/%d decided rows lack position-rapm "
+                "crossmatch coverage gap: %d/%d decided rows lack crossmatch "
                 "features; by days into their season: %d within the "
                 "%d-day pool lookback, %d more within the %d-day "
                 "recency window, %d beyond it - early-season rows are "
@@ -2005,6 +2005,8 @@ def run(run_date: str | None = None, out_dir: str | Path | None = None,
     ml: dict | None = None
     ml_oof = platt = dist_oof = None
     oof_markets = market_calibration = None
+    hb = None  # champion serving bundle: fit once, reused for slate + saved
+    hb_path: str | None = None  # saved bundle, appended to artifacts in phase 9
     _fit_check: dict | None = None
     _mc_meta: dict = {}
     final_models: dict = {}
@@ -2099,7 +2101,21 @@ def run(run_date: str | None = None, out_dir: str | Path | None = None,
         logger.info("marketize (expand=False merge): %.1fs over %d rows",
                     time.time() - _mk0, len(oof_markets))
         _cal0 = time.time()
-        oof_markets, market_calibration = dist_mod.calibrate_market_frame(oof_markets)
+        # Pre-pricing base, kept so a later champion slate failure can put the
+        # whole run (OOF and slate alike) back on the split-skew engine.
+        _oof_base = oof_markets
+        if str(getattr(config, "NBA_DISTRIBUTION_ENGINE", "")).lower() == "hier_mc":
+            try:
+                import nba_hier_mc as hier
+                oof_markets, market_calibration = hier.champion_oof_markets(
+                    game_df, fold_list, oof_markets, progress_every=500)
+            except Exception as exc:  # noqa: BLE001 - old engine stays green
+                logger.warning("champion OOF pricing failed (%s: %s); "
+                               "falling back to split-skew",
+                               type(exc).__name__, exc)
+                oof_markets, market_calibration = dist_mod.calibrate_market_frame(oof_markets)
+        else:
+            oof_markets, market_calibration = dist_mod.calibrate_market_frame(oof_markets)
         logger.info("calibrate_market_frame: %.1fs over %d rows (%d origins)",
                     time.time() - _cal0, len(oof_markets),
                     len((market_calibration or {}).get("origins", [])))
@@ -2139,8 +2155,39 @@ def run(run_date: str | None = None, out_dir: str | Path | None = None,
             # expand=False: apply_market_calibration reprices every row
             # below, so pricing here is discarded work.
             slate_markets = _marketize(slate, slate, "slate", expand=False)
-            slate_markets = dist_mod.apply_market_calibration(slate_markets,
-                                                               market_calibration)
+            if str(getattr(config, "NBA_DISTRIBUTION_ENGINE", "")).lower() == "hier_mc":
+                try:
+                    import nba_hier_mc as hier
+                    if hb is None:
+                        hb = hier.fit_bundle(game_df)
+                        # The artifacts ledger is built after this phase, so
+                        # the published path is recorded here and appended by
+                        # phase 9 rather than reaching an undefined name.
+                        hb_path = str(hier.save_bundle(
+                            hb, getattr(config, "NBA_HIER_MC_BUNDLE", None)))
+                    slate_markets = hier.champion_slate_markets(slate_markets, hb)
+                except Exception as exc:  # noqa: BLE001 - old engine stays green
+                    logger.warning("champion slate pricing failed (%s: %s); "
+                                   "falling back to split-skew",
+                                   type(exc).__name__, exc)
+                    if (market_calibration or {}).get("method") == "hier_nb_mc":
+                        # Champion OOF pricing succeeded but the slate could
+                        # not be priced from it: rebuild the split-skew
+                        # calibration AND reprice the OOF rows, so the shipped
+                        # artifact and its monitor never disagree about which
+                        # engine issued the prices.
+                        oof_markets, market_calibration = \
+                            dist_mod.calibrate_market_frame(_oof_base)
+                        # The sealed-tail stamp was applied to the champion
+                        # frame, so it has to be re-applied to the replacement.
+                        oof_markets = _stamp_sealed_tail(oof_markets)
+                        oof_markets.attrs["challenger_bundle"] = market_calibration
+                        _mc_meta = market_calibration["monte_carlo"]
+                    slate_markets = dist_mod.apply_market_calibration(
+                        slate_markets, market_calibration)
+            else:
+                slate_markets = dist_mod.apply_market_calibration(slate_markets,
+                                                                   market_calibration)
             # First-published wins for the strip too (NFL parity): games this
             # slate date already published keep their locked legs, so an
             # evening re-run cannot wiggle a live game's fair total/spread.
@@ -2353,7 +2400,7 @@ def run(run_date: str | None = None, out_dir: str | Path | None = None,
         # process from strictly prior settled games, and never serialized.
         # A failed fit must never replace a good served bundle, so the write
         # is guarded like the ensemble above.
-        if str(getattr(config, "NBA_DISTRIBUTION_ENGINE", "")).lower() == "hier_mc":
+        if str(getattr(config, "NBA_DISTRIBUTION_ENGINE", "")).lower() == "hier_mc" and hb is None:
             try:
                 import nba_hier_mc as hier
                 hb = hier.fit_bundle(game_df)
@@ -2372,6 +2419,19 @@ def run(run_date: str | None = None, out_dir: str | Path | None = None,
                     "NBA hier-MC bundle NOT rebuilt (%s: %s); the previously "
                     "served bundle stays in place for the distribution engine",
                     type(exc).__name__, exc)
+        elif hb is not None:
+            import nba_hier_mc as hier
+            if hb_path:
+                try:
+                    artifacts.append(str(Path(hb_path).relative_to(out)))
+                except ValueError:
+                    artifacts.append(str(hb_path))
+            _wt = hb.get("weight_tables") or {}
+            _step("nba distribution engine",
+                  f"{hier.MODEL_ID} fitted once on {hb['fit_n']} settled rows "
+                  f"({_wt.get('n_table_dates', 0)} point-in-time weight tables, "
+                  f"{_wt.get('history_source')}); the same bundle priced the "
+                  f"slate, so it is reused, not refit")
     else:
         logger.warning("model bundle NOT rewritten: the previously served "
                        "ensemble stays in place for serving")

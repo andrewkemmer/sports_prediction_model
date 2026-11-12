@@ -600,6 +600,277 @@ def price_cdfs(frame: pd.DataFrame, mu_h, mu_a, bundle: dict,
             "total": (np.arange(TMIN, TMAX + 1).astype(float), cT)}
 
 
+# --------------------------------------------- champion market pricing
+CHAMPION_METHOD = "hier_nb_mc"
+CHAMPION_OBJECTIVE = "negative_binomial_mc"
+
+
+def _champion_grid_key(prefix, value):
+    import distributions as dist_mod
+    return dist_mod._grid_key(prefix, value)
+
+
+def _champion_cdf_at(support, cdf, threshold):
+    sup = np.asarray(support, float)
+    idx = np.searchsorted(sup, np.asarray(threshold, float), side="right") - 1
+    idx = np.clip(idx, -1, len(sup) - 1)
+    out = np.zeros(len(cdf), float)
+    ok = idx >= 0
+    rows = np.flatnonzero(ok)
+    out[rows] = np.asarray(cdf)[rows, idx[ok]]
+    return out
+
+
+def champion_price_columns(frame, mu_h, mu_a, cdfs):
+    sup_m, cM = (np.asarray(cdfs["margin"][0], float),
+                 np.asarray(cdfs["margin"][1], float))
+    sup_t, cT = (np.asarray(cdfs["total"][0], float),
+                 np.asarray(cdfs["total"][1], float))
+    import config
+    n = len(frame)
+    mu_h = np.asarray(mu_h, float)
+    mu_a = np.asarray(mu_a, float)
+    updates = {"mu_margin": mu_h - mu_a, "mu_total": mu_h + mu_a}
+    for kind, sup, cdf in (("margin", sup_m, cM), ("total", sup_t, cT)):
+        mass = np.diff(np.column_stack([np.zeros(n), cdf]), axis=1)
+        mean = mass @ sup
+        updates[f"distribution_mean_{kind}"] = mean
+        updates[f"distribution_sd_{kind}"] = np.sqrt(
+            np.maximum(mass @ (sup ** 2) - mean ** 2, 0.))
+        base_lines = (list(config.TOTAL_GRID) if kind == "total"
+                      else list(config.SPREAD_GRID))
+        extra = [float(x) + .5 for x in base_lines]
+        if kind == "margin":
+            extra += [float(x) for x in config.HALF_STOP_LINES]
+        half = sup[:-1] + .5
+        j = np.argmin(np.abs(1. - cdf[:, :-1] - .5), axis=1)
+        fair = half[j]
+        lines = sorted(set([*base_lines, *extra, *fair.tolist()]))
+        prefix = "p_over" if kind == "total" else "p_home_cover"
+        pp = "p_push_total" if kind == "total" else "p_push"
+        under = "p_under" if kind == "total" else "p_away_cover"
+        for line in lines:
+            upper = _champion_cdf_at(sup, cdf, np.full(n, line))
+            lower = _champion_cdf_at(sup, cdf, np.full(n, np.ceil(line) - 1.))
+            updates[_champion_grid_key(prefix, line)] = 1. - upper
+            updates[_champion_grid_key(pp, line)] = np.maximum(upper - lower, 0.)
+            updates[_champion_grid_key(under, line)] = lower
+        if kind == "margin" and hasattr(config, "MARGIN_PUSH_EXTENSION"):
+            for k in config.MARGIN_PUSH_EXTENSION:
+                upper = _champion_cdf_at(sup, cdf, np.full(n, float(k)))
+                lower = _champion_cdf_at(sup, cdf, np.full(n, np.ceil(float(k)) - 1.))
+                updates.setdefault(_champion_grid_key("p_push", float(k)),
+                                   np.maximum(upper - lower, 0.))
+        if kind == "margin":
+            p_le0 = _champion_cdf_at(sup, cdf, np.zeros(n))
+            p_lem1 = _champion_cdf_at(sup, cdf, np.full(n, -1.))
+            updates["p_home_win_derived"] = 1. - p_le0
+            updates["p_tie"] = np.maximum(p_le0 - p_lem1, 0.)
+            updates["p_away_win_derived"] = p_lem1
+            updates["derived_ml"] = updates["p_home_win_derived"]
+        updates["fair_total" if kind == "total" else "fair_spread"] = fair
+        p_fair = ("p_over_fair" if kind == "total" else "p_cover_fair")
+        updates[p_fair] = 1. - cdf[np.arange(n), j]
+    out = pd.DataFrame(updates, index=frame.index)
+    if {"home_score", "away_score"}.issubset(frame.columns):
+        margin = (pd.to_numeric(frame.home_score, errors="coerce")
+                  - pd.to_numeric(frame.away_score, errors="coerce"))
+        total = (pd.to_numeric(frame.home_score, errors="coerce")
+                 + pd.to_numeric(frame.away_score, errors="coerce"))
+        decided = margin.notna() & total.notna()
+        for col, values in {"y_cover_fair": margin > out.fair_spread,
+                            "y_push_spread_fair": margin == out.fair_spread,
+                            "y_over_fair": total > out.fair_total,
+                            "y_under_fair": total < out.fair_total,
+                            "y_push_fair": total == out.fair_total}.items():
+            out[col] = np.where(decided, values.astype(float), np.nan)
+    out.attrs["distribution_method"] = CHAMPION_METHOD
+    out.attrs["distribution_objective"] = CHAMPION_OBJECTIVE
+    return out
+
+
+def _champion_reporter(priced, cdfs_by_gid):
+    import distributions as dist_mod
+    from sklearn.metrics import roc_auc_score
+    frame = priced.reset_index(drop=True)
+    gids = frame.game_id.astype(str).to_numpy()
+    n = len(frame)
+    values = {"total": [], "margin": []}
+    for kind in ("total", "margin"):
+        if kind == "total":
+            y = (pd.to_numeric(frame.home_score, errors="coerce")
+                 + pd.to_numeric(frame.away_score, errors="coerce")).to_numpy(float)
+        else:
+            y = (pd.to_numeric(frame.home_score, errors="coerce")
+                 - pd.to_numeric(frame.away_score, errors="coerce")).to_numpy(float)
+        loss = np.full(n, np.nan)
+        for i, gid in enumerate(gids):
+            c = cdfs_by_gid.get(str(gid))
+            if c is None or not np.isfinite(y[i]):
+                continue
+            sup, cdf = (np.asarray(c[kind][0], float), np.asarray(c[kind][1], float))
+            loss[i] = float(dist_mod.lattice_crps(
+                np.asarray([cdf]), sup, np.asarray([y[i]]))[0])
+        values[kind] = loss[np.isfinite(loss)]
+    result = {"method": CHAMPION_METHOD, "roi_verified": False}
+    for kind, key, line_key, name in (("total", "p_over_fair", "fair_total", "totals"),
+                                      ("margin", "p_cover_fair", "fair_spread", "run_line")):
+        p = pd.to_numeric(frame[key], errors="coerce").to_numpy(float)
+        if kind == "total":
+            y = (pd.to_numeric(frame.home_score, errors="coerce")
+                 + pd.to_numeric(frame.away_score, errors="coerce")).to_numpy(float)
+        else:
+            y = (pd.to_numeric(frame.home_score, errors="coerce")
+                 - pd.to_numeric(frame.away_score, errors="coerce")).to_numpy(float)
+        line = pd.to_numeric(frame[line_key], errors="coerce").to_numpy(float)
+        ok = np.isfinite(p) & np.isfinite(y) & np.isfinite(line)
+        p, y, line = p[ok], y[ok], line[ok]
+        event = y > line
+        clipped = np.clip(p, 1e-7, 1 - 1e-7)
+        ll = float(-np.mean(event * np.log(clipped)
+                            + (~event) * np.log1p(-clipped))) if len(p) else float("nan")
+        bins = np.minimum((p * 10).astype(int), 9)
+        reliability = []
+        error = 0.
+        for b in np.unique(bins):
+            m = bins == b
+            gap = float(p[m].mean() - event[m].mean())
+            error += float(m.mean()) * abs(gap)
+            reliability.append({"n": int(m.sum()), "predicted": float(p[m].mean()),
+                                "actual": float(event[m].mean()), "gap": gap})
+        vals = values[kind]
+        result[name] = {"n": int(len(p)), "n_pushes": 0,
+                        "crps": float(np.mean(vals)) if len(vals) else float("nan"),
+                        "auc": (float(roc_auc_score(event, p))
+                                if len(np.unique(event)) == 2 else None),
+                        "logloss": ll, "logscore": ll,
+                        "brier": float(np.mean((p - event) ** 2)) if len(p) else float("nan"),
+                        "predicted_mean": float(p.mean()) if len(p) else float("nan"),
+                        "actual_win_rate": float(event.mean()) if len(p) else float("nan"),
+                        "ece_cover": error, "reliability": reliability,
+                        "calibration_in_the_large": (float(p.mean() - event.mean())
+                                                     if len(p) else float("nan")),
+                        "threshold_policy": "closest_half_point_to_model_50_percent"}
+    prob = pd.to_numeric(frame.p_home_win_derived, errors="coerce").to_numpy(float)
+    tie = pd.to_numeric(frame.p_tie, errors="coerce").fillna(0.).to_numpy(float)
+    mg = (pd.to_numeric(frame.home_score, errors="coerce")
+          - pd.to_numeric(frame.away_score, errors="coerce")).to_numpy(float)
+    elig = np.isfinite(prob) & np.isfinite(mg) & (mg != 0)
+    cond = np.clip(prob[elig] / np.maximum(1. - tie[elig], 1e-12), 1e-7, 1 - 1e-7)
+    result["derived_moneyline"] = {
+        "n": int(elig.sum()),
+        "logloss": float(-np.mean((mg[elig] > 0) * np.log(cond)
+                                    + (mg[elig] <= 0) * np.log1p(-cond))) if elig.any() else float("nan"),
+        "brier": float(np.mean((cond - (mg[elig] > 0)) ** 2)) if elig.any() else float("nan"),
+    }
+    return result
+
+
+def champion_oof_markets(game_df, fold_list, base_oof, n_draws=None,
+                         seed=None, progress_every=0):
+    import distributions as dist_mod
+    import folds as folds_mod
+    n_draws = int(n_draws or dist_mod.MC_DRAWS)
+    seed = int(seed or dist_mod.MC_SEED)
+    df = folds_mod.canonical_sort(game_df)
+    settled_mask = (pd.to_numeric(df.home_score, errors="coerce").notna()
+                    & pd.to_numeric(df.away_score, errors="coerce").notna()).to_numpy()
+    tables = build_weight_tables(df[settled_mask].reset_index(drop=True), {})
+    price_parts = []
+    cdf_store = {}
+    origins = []
+    for fold in fold_list:
+        train = df.loc[fold.train_idx]
+        val = df.loc[fold.val_idx]
+        val_settled = val[pd.to_numeric(val.home_score, errors="coerce").notna()
+                          & pd.to_numeric(val.away_score, errors="coerce").notna()]
+        if not len(val_settled):
+            continue
+        core = _fit_core(train)
+        mu_h, mu_a = predict_step1(val_settled, core)
+        if not (np.isfinite(mu_h).all() and np.isfinite(mu_a).all()):
+            raise ValueError(f"champion OOF: non-finite mus in fold {fold.fold_id}")
+        bundle_o = {"models": core["models"], "weight_tables": tables}
+        cdfs = price_cdfs(val_settled, mu_h, mu_a, bundle_o,
+                           n_draws=n_draws, seed=seed)
+        cols = champion_price_columns(val_settled, mu_h, mu_a, cdfs)
+        cols["game_id"] = val_settled.game_id.astype(str).to_numpy()
+        cols["mu_h_champion"] = np.asarray(mu_h, float)
+        cols["mu_a_champion"] = np.asarray(mu_a, float)
+        price_parts.append(cols)
+        sup_m, cM = np.asarray(cdfs["margin"][0]), np.asarray(cdfs["margin"][1])
+        sup_t, cT = np.asarray(cdfs["total"][0]), np.asarray(cdfs["total"][1])
+        for k, gid in enumerate(val_settled.game_id.astype(str).to_numpy()):
+            cdf_store[str(gid)] = {"margin": (sup_m, cM[k]), "total": (sup_t, cT[k])}
+        origins.append({"fold_id": fold.fold_id, "n": int(len(val_settled)),
+                        "fit_n": int(core.get("fit_n", 0))})
+        if progress_every:
+            logger.info("champion OOF: priced fold %s (%d games)",
+                        fold.fold_id, len(val_settled))
+    prices = pd.concat(price_parts, ignore_index=True) if price_parts else pd.DataFrame()
+    base = base_oof.copy()
+    base["game_id"] = base.game_id.astype(str)
+    keep = [c for c in prices.columns if c not in base.columns or c == "game_id"]
+    out = base.merge(prices[keep], on="game_id", how="left",
+                     suffixes=("", "_champion"))
+    for c in ("mu_h", "mu_a"):
+        cc = f"{c}_champion"
+        if cc in out.columns:
+            champ = pd.to_numeric(out[cc], errors="coerce")
+            base_mu = (pd.to_numeric(out[c], errors="coerce")
+                       if c in out.columns else pd.Series(np.nan, index=out.index))
+            out[c] = champ.fillna(base_mu)
+            out["pred_home" if c == "mu_h" else "pred_away"] = out[c]
+            out = out.drop(columns=[cc])
+    missing = out.game_id[~out.game_id.isin(set(prices.game_id))] if len(prices) else out.game_id
+    if len(missing):
+        logger.warning("champion OOF: %d base rows lack champion prices "
+                       "(left as ensemble mus)", len(missing))
+    metrics = _champion_reporter(out, cdf_store)
+    bundle = {"method": CHAMPION_METHOD, "model_id": MODEL_ID,
+              "monte_carlo": {"requested_draws": int(n_draws), "seed": int(seed),
+                                "model_id": MODEL_ID, "method": "hier_nb_weighted_mc"},
+              "fit_n": int(settled_mask.sum()),
+              "fit_end": str(pd.to_datetime(df.gameday).max().date()),
+              "origins": origins, "oof_metrics": metrics,
+              "weight_tables_summary": {
+                  "n_table_dates": (tables or {}).get("n_table_dates", 0),
+                  "history_source": (tables or {}).get("history_source"),
+                  "k_trend": K_TR, "k_spike": K_SP},
+              "lattice_summary": {}, "maps": {}}
+    out.attrs["distribution_metrics"] = metrics
+    out.attrs["challenger_bundle"] = bundle
+    out.attrs["distribution_method"] = CHAMPION_METHOD
+    out.attrs["distribution_objective"] = CHAMPION_OBJECTIVE
+    out.attrs["mc_meta"] = bundle["monte_carlo"]
+    return out, bundle
+
+
+def champion_slate_markets(slate_base, serving_bundle, n_draws=None, seed=None):
+    import distributions as dist_mod
+    n_draws = int(n_draws or dist_mod.MC_DRAWS)
+    seed = int(seed or dist_mod.MC_SEED)
+    frame = slate_base.copy().reset_index(drop=True)
+    mu_h, mu_a = predict_step1(frame, serving_bundle)
+    if not (np.isfinite(mu_h).all() and np.isfinite(mu_a).all()):
+        raise ValueError("champion slate: non-finite mus")
+    bundle = ensure_tables(frame, dict(serving_bundle))
+    cdfs = price_cdfs(frame, mu_h, mu_a, bundle, n_draws=n_draws, seed=seed)
+    cols = champion_price_columns(frame, mu_h, mu_a, cdfs)
+    cols["mu_h"] = np.asarray(mu_h, float)
+    cols["mu_a"] = np.asarray(mu_a, float)
+    cols["pred_home"] = np.asarray(mu_h, float)
+    cols["pred_away"] = np.asarray(mu_a, float)
+    add = cols.drop(columns=["game_id"], errors="ignore")
+    out = frame.copy().drop(columns=[c for c in add.columns
+                                     if c in frame.columns])
+    out = pd.concat([out.reset_index(drop=True),
+                     add.reset_index(drop=True)], axis=1)
+    out.attrs["distribution_method"] = CHAMPION_METHOD
+    out.attrs["distribution_objective"] = CHAMPION_OBJECTIVE
+    return out
+
+
 # ------------------------------------------------------------------ bundles
 def save_bundle(bundle: dict, path: str | Path | None = None) -> Path:
     """Persist models only. Weight tables can never be written to disk.

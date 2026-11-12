@@ -384,8 +384,10 @@ def write_markets_csv(path, meta_path, oof_rows, slate_rows, config_meta=None,
     # platform/csv default rewrite every line ending.
     _atomic_to_csv(out, path, index=False, lineterminator="\n")
     meta = {
-        "distribution_method": "causal_split_skew_crps_mc",
-        "distribution_objective": "discrete_crps",
+        "distribution_method": oof_rows.attrs.get(
+            "distribution_method", "causal_split_skew_crps_mc"),
+        "distribution_objective": oof_rows.attrs.get(
+            "distribution_objective", "discrete_crps"),
         "distribution_metrics": oof_rows.attrs.get("distribution_metrics", {}),
         # Integer-lattice fit disclosure: totals and margin corrections are
         # fit independently (magnitude + gate verdict; no delta vectors).
