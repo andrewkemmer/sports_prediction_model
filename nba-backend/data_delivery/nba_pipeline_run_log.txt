@@ -417,3 +417,24 @@ publish: |          | 11/?, total 1h17m
   artifacts — 357 file(s) committed to main at 90f3df8f25, remotely verified
   run log — this file, re-delivered after the sync so the run's final state ships with it
   📝 Final run-log delivery — pushing the complete log (the sync staged a snapshot before sync finished)
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  log review (review-time remediation, 2026-11-12 02:23 UTC)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  reviewed remote log bf769db2 (run 2026-11-12 02:07 UTC, status ok,
+  4474.12s, 419 lines): the delivery record is present and the file ends
+  with the run's outcome, not a promise. No ERROR/Traceback lines; all
+  ten phases plus publish report ok.
+  count correction: "357 file(s) committed" counts artifacts STAGED into
+  the delivery clone (the sync copies the full payload). The landed commit
+  90f3df8f25 changed 26 files — git records diffs, the other 331 were
+  identical to main. Ancestry verified: 90f3df8f25 is in main's history,
+  so nothing staged failed to land. Wording only; no artifacts missing.
+  bundle warnings (~90x "nba_hier_mc_latest.joblib is missing; falling
+  back to the champion family"): expected on a fresh box — the bundle is
+  runtime-only by policy and never serialized, so the first sync of a
+  session always misses and each origin refits the champion in-process.
+  Phase 9 confirms nba_nb_hier_wprod_v1 fitted on 4101 settled rows, and
+  both model bundles were committed inside 90f3df8f25, so the next run on
+  a warm checkout finds them. Historical lines left as written.
+  scope: log record only — no run code changed, no programs added.
