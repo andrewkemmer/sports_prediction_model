@@ -190,3 +190,39 @@ Traceback (most recent call last):
   File "/kaggle/working/sports_prediction_model/nba-backend/backend/ingestion.py", line 2566, in _validate
     raise RuntimeError(f"NBA team facts missing or disagree with final scores: "
 RuntimeError: NBA team facts missing or disagree with final scores: 5 team-game(s): 401909973 UTA (final 108-123, team facts 106-123), 401909974 HOU (final 115-108, team facts 88-108), 401909975 POR (final 118-108, team facts 77-108), 401909974 GSW (final 108-115, team facts 76-115), 401909975 OKC (final 108-118, team facts 71-118)
+
+  ── review 2026-11-12 (third crash delivery, 07:30-07:51 UTC) ──
+  verdict: same gate, same five rows, third time. 07:30:50 run, full
+  repull, 4,129 games, season log 88,605 rows, play-by-play 4,111
+  fetched 0 unavailable; died in load_ingested at 07:51:09 (~20 min,
+  same shape as the 06:22 run). Nothing downstream ran; the serving
+  path is untouched for the third consecutive delivery.
+  new finding — persistence, against the last block's expectation: the
+  Kaggle box's season-log snapshot is identical to the 06:22 one (same
+  88,605 rows, same five partials: UTA 106, HOU 88, GSW 76, POR 77,
+  OKC 71). Across ~90 minutes this client's upstream view has not
+  filled in, while off-band reads from another box did — consistent
+  with a cached upstream snapshot served per client/URL, not with a
+  box score still being typed. Cause is unchanged (ESPN final vs stale
+  stats.nba.com aggregate for the three 2026-11-11 games), but "wait
+  for it to clear" is no longer a plan: every scheduled run will keep
+  dying here until the Kaggle box sees a refreshed snapshot or the
+  gate changes.
+  observed, not mine: the notebook now self-delivers the crash log
+  ("Crash log pushed to ...") and exits through SystemExit — a
+  Kaggle-side change, left untouched.
+  record notes: the rolling overwrite erased the second review block
+  as well; prior blocks live on only in history (550c52d6, 09ce5914,
+  f3fa7ff0). nba_pipeline_summary.json still reads status ok /
+  errors [] from the 02:04 success beside three crash logs; that
+  defect is still open and still belongs to a crash-path summary
+  write in pipeline code.
+  guardrail notification (per instruction): unblocking the pipeline
+  needs a pipeline-code change — exclude same-night finals from the
+  gate, or run the schedule-vs-season-log comparison before the
+  17-minute play-by-play sweep. Both hit "no change to the nba kaggle
+  run", so neither was made; this is the notification instead. What
+  does not hit a guardrail — waiting for the upstream snapshot to
+  refresh, or hand-supplying one — is not mine to execute from here.
+  scope of this review: this log file only. No program was added or
+  committed, and the Kaggle run is untouched.
