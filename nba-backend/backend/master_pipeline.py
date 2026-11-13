@@ -1635,7 +1635,8 @@ def feature_importance_weights(final_models: dict[str, dict],
     return decomp["model_weight"] if decomp else None
 
 
-def _sync_data_delivery(repo_root: Path) -> dict:
+def _sync_data_delivery(repo_root: Path, date_c: str | None = None,
+                        seen: set | None = None) -> dict:
     """Publish this run's artifacts to ``nba-backend/data_delivery`` on main.
 
     Mirrors MLB's Phase 5: a throwaway clone, the run's artifacts copied in,
@@ -1697,22 +1698,43 @@ def _sync_data_delivery(repo_root: Path) -> dict:
             shutil.copy2(artifact, dest)
             staged.append(f"{delivery}/{rel}")
 
+        # Rolling-retention parity (2026-11-13 audit): the fresh clone still
+        # carries every artifact ever published, so a file the local pruner
+        # removed is resurrected here and re-committed - that is how the NBA
+        # tree reached 45 boards / 1.37 GB across 45 days while the 10-day
+        # window deleted them locally on every run. Run the same pruner over
+        # the clone and let the commit carry its verdict, deletions included.
+        removed: list[str] = []
+        if date_c is not None and seen is not None:
+            before = {p for p in dest_root.rglob("*") if p.is_file()}
+            _prune(dest_root, date_c, set(seen))
+            removed = sorted(f"{delivery}/{p.relative_to(dest_root).as_posix()}"
+                             for p in before if not p.exists())
+            if removed:
+                print(f"retention: {len(removed)} stale artifact(s) deleted "
+                      f"from the delivery and staged for removal")
+
         def _restage() -> None:
             for rel in staged:
                 dest = Path(tmp_dir) / rel
                 dest.parent.mkdir(parents=True, exist_ok=True)
                 shutil.copy2(source / rel[len(delivery) + 1:], dest)
             repo.index.add(staged)
+            if removed:
+                repo.index.remove(removed, working_tree=False)
             repo.index.commit(
                 f"Update NBA features + predictions: "
                 f"{datetime.now().strftime('%Y-%m-%d %H:%M')}")
 
         repo.index.add(staged)
+        if removed:
+            repo.index.remove(removed, working_tree=False)
         repo.index.commit(f"Update NBA features + predictions: "
                           f"{datetime.now().strftime('%Y-%m-%d %H:%M')}")
         push_with_retry(repo, BRANCH, restage=_restage, log=print)
         verify_pushed_paths(repo, BRANCH, staged)
         return {"pushed": True, "staged_files": staged,
+                "removed_files": removed,
                 "delivery_scope": delivery,
                 "commit": repo.head.commit.hexsha}
     except Exception as exc:  # noqa: BLE001 - reported, then fatal below
@@ -2549,7 +2571,7 @@ def run(run_date: str | None = None, out_dir: str | Path | None = None,
     # summary's "sync" key remains the machine-readable record.
     _step("publish", f"status {summary['status']}, "
                      f"{summary['elapsed_seconds']}s")
-    sync = _sync_data_delivery(config.ROOT_DIR.parent)
+    sync = _sync_data_delivery(config.ROOT_DIR.parent, date_c, set(artifacts))
     summary["sync"] = sync
     prog.close()
 
