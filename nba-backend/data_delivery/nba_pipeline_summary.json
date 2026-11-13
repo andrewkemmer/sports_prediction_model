@@ -12,7 +12,6 @@
   "nba_power_rankings_20261113.csv",
   "nba_player_rapm_20261113.csv",
   "nba_feature_v1_20261113.json",
-  "shap_game__CHA@PHX.csv",
   "shap_game__NYK@IND.csv",
   "shap_game__MIL@ORL.csv",
   "shap_game__CLE@MIA.csv",
@@ -820,7 +819,7 @@
   }
  },
  "n_settled": 4111,
- "n_slate": 10,
+ "n_slate": 9,
  "n_features": 98,
  "features_empty": {
   "frame": [],
@@ -832,244 +831,284 @@
   "games_covered": 4111,
   "cross_check": {
    "fga": {
-    "compared": 8224,
+    "compared": 8228,
     "exact": 8222,
-    "max_abs_diff": 43.0,
-    "mean_abs_diff": 0.0097,
+    "max_abs_diff": 85.0,
+    "mean_abs_diff": 0.0436,
     "worst_offenders": [
      {
-      "game_id": "401909976",
-      "team": "PHI",
-      "abs_diff": 43.0
+      "game_id": "401909978",
+      "team": "DAL",
+      "abs_diff": 85.0
      },
      {
-      "game_id": "401909976",
-      "team": "TOR",
-      "abs_diff": 37.0
+      "game_id": "401909978",
+      "team": "MIN",
+      "abs_diff": 79.0
+     },
+     {
+      "game_id": "401909977",
+      "team": "DET",
+      "abs_diff": 58.0
      }
     ]
    },
    "fgm": {
-    "compared": 8224,
+    "compared": 8228,
     "exact": 8222,
-    "max_abs_diff": 22.0,
-    "mean_abs_diff": 0.0049,
+    "max_abs_diff": 47.0,
+    "mean_abs_diff": 0.0207,
     "worst_offenders": [
      {
-      "game_id": "401909976",
-      "team": "PHI",
-      "abs_diff": 22.0
+      "game_id": "401909978",
+      "team": "MIN",
+      "abs_diff": 47.0
      },
      {
-      "game_id": "401909976",
-      "team": "TOR",
-      "abs_diff": 18.0
+      "game_id": "401909978",
+      "team": "DAL",
+      "abs_diff": 30.0
+     },
+     {
+      "game_id": "401909977",
+      "team": "DET",
+      "abs_diff": 27.0
      }
     ]
    },
    "fg3a": {
-    "compared": 8224,
+    "compared": 8228,
     "exact": 8222,
-    "max_abs_diff": 14.0,
-    "mean_abs_diff": 0.0033,
+    "max_abs_diff": 45.0,
+    "mean_abs_diff": 0.017,
     "worst_offenders": [
      {
-      "game_id": "401909976",
-      "team": "PHI",
-      "abs_diff": 14.0
+      "game_id": "401909978",
+      "team": "DAL",
+      "abs_diff": 45.0
      },
      {
-      "game_id": "401909976",
-      "team": "TOR",
-      "abs_diff": 13.0
+      "game_id": "401909978",
+      "team": "MIN",
+      "abs_diff": 28.0
+     },
+     {
+      "game_id": "401909977",
+      "team": "WAS",
+      "abs_diff": 21.0
      }
     ]
    },
    "fg3m": {
-    "compared": 8224,
+    "compared": 8228,
     "exact": 8222,
-    "max_abs_diff": 7.0,
-    "mean_abs_diff": 0.0015,
+    "max_abs_diff": 14.0,
+    "mean_abs_diff": 0.0062,
     "worst_offenders": [
      {
-      "game_id": "401909976",
-      "team": "PHI",
-      "abs_diff": 7.0
+      "game_id": "401909978",
+      "team": "MIN",
+      "abs_diff": 14.0
      },
      {
-      "game_id": "401909976",
-      "team": "TOR",
-      "abs_diff": 5.0
+      "game_id": "401909978",
+      "team": "DAL",
+      "abs_diff": 11.0
+     },
+     {
+      "game_id": "401909977",
+      "team": "DET",
+      "abs_diff": 7.0
      }
     ]
    },
    "fta": {
-    "compared": 8224,
+    "compared": 8228,
     "exact": 8222,
-    "max_abs_diff": 16.0,
-    "mean_abs_diff": 0.0036,
+    "max_abs_diff": 23.0,
+    "mean_abs_diff": 0.0126,
     "worst_offenders": [
      {
-      "game_id": "401909976",
-      "team": "PHI",
-      "abs_diff": 16.0
+      "game_id": "401909977",
+      "team": "WAS",
+      "abs_diff": 23.0
      },
      {
-      "game_id": "401909976",
-      "team": "TOR",
-      "abs_diff": 14.0
+      "game_id": "401909977",
+      "team": "DET",
+      "abs_diff": 22.0
+     },
+     {
+      "game_id": "401909978",
+      "team": "MIN",
+      "abs_diff": 17.0
      }
     ]
    },
    "ftm": {
-    "compared": 8224,
+    "compared": 8228,
     "exact": 8222,
-    "max_abs_diff": 12.0,
-    "mean_abs_diff": 0.0028,
+    "max_abs_diff": 20.0,
+    "mean_abs_diff": 0.0103,
     "worst_offenders": [
      {
-      "game_id": "401909976",
-      "team": "PHI",
-      "abs_diff": 12.0
+      "game_id": "401909977",
+      "team": "WAS",
+      "abs_diff": 20.0
      },
      {
-      "game_id": "401909976",
-      "team": "TOR",
-      "abs_diff": 11.0
+      "game_id": "401909977",
+      "team": "DET",
+      "abs_diff": 19.0
+     },
+     {
+      "game_id": "401909978",
+      "team": "MIN",
+      "abs_diff": 13.0
      }
     ]
    },
    "oreb": {
-    "compared": 8224,
+    "compared": 8228,
     "exact": 8030,
-    "max_abs_diff": 7.0,
-    "mean_abs_diff": 0.0295,
+    "max_abs_diff": 13.0,
+    "mean_abs_diff": 0.034,
     "worst_offenders": [
      {
-      "game_id": "401909976",
-      "team": "PHI",
-      "abs_diff": 7.0
+      "game_id": "401909978",
+      "team": "DAL",
+      "abs_diff": 13.0
      },
      {
-      "game_id": "401705312",
-      "team": "OKC",
-      "abs_diff": 5.0
+      "game_id": "401909977",
+      "team": "DET",
+      "abs_diff": 9.0
      },
      {
-      "game_id": "401705305",
-      "team": "OKC",
-      "abs_diff": 3.0
+      "game_id": "401909977",
+      "team": "WAS",
+      "abs_diff": 9.0
      }
     ]
    },
    "dreb": {
-    "compared": 8224,
+    "compared": 8228,
     "exact": 7672,
-    "max_abs_diff": 15.0,
-    "mean_abs_diff": 0.1798,
+    "max_abs_diff": 38.0,
+    "mean_abs_diff": 0.1917,
     "worst_offenders": [
      {
-      "game_id": "401909976",
-      "team": "TOR",
-      "abs_diff": 15.0
+      "game_id": "401909978",
+      "team": "MIN",
+      "abs_diff": 38.0
      },
      {
-      "game_id": "401909976",
-      "team": "PHI",
-      "abs_diff": 15.0
+      "game_id": "401909977",
+      "team": "WAS",
+      "abs_diff": 21.0
      },
      {
-      "game_id": "401705111",
-      "team": "OKC",
-      "abs_diff": 10.0
+      "game_id": "401909977",
+      "team": "DET",
+      "abs_diff": 20.0
      }
     ]
    },
    "tov": {
-    "compared": 8224,
+    "compared": 8228,
     "exact": 8222,
-    "max_abs_diff": 8.0,
-    "mean_abs_diff": 0.0016,
+    "max_abs_diff": 17.0,
+    "mean_abs_diff": 0.0077,
     "worst_offenders": [
      {
-      "game_id": "401909976",
-      "team": "TOR",
-      "abs_diff": 8.0
+      "game_id": "401909978",
+      "team": "DAL",
+      "abs_diff": 17.0
      },
      {
-      "game_id": "401909976",
-      "team": "PHI",
-      "abs_diff": 5.0
+      "game_id": "401909978",
+      "team": "MIN",
+      "abs_diff": 15.0
+     },
+     {
+      "game_id": "401909977",
+      "team": "WAS",
+      "abs_diff": 10.0
      }
     ]
    },
    "pf": {
-    "compared": 8224,
+    "compared": 8228,
     "exact": 7575,
-    "max_abs_diff": 15.0,
-    "mean_abs_diff": 0.0855,
+    "max_abs_diff": 20.0,
+    "mean_abs_diff": 0.0939,
     "worst_offenders": [
      {
-      "game_id": "401909976",
-      "team": "TOR",
-      "abs_diff": 15.0
+      "game_id": "401909978",
+      "team": "DAL",
+      "abs_diff": 20.0
      },
      {
-      "game_id": "401909976",
-      "team": "PHI",
-      "abs_diff": 10.0
+      "game_id": "401909978",
+      "team": "MIN",
+      "abs_diff": 17.0
      },
      {
-      "game_id": "401705661",
-      "team": "BKN",
-      "abs_diff": 3.0
+      "game_id": "401909977",
+      "team": "DET",
+      "abs_diff": 17.0
      }
     ]
    },
    "assists": {
-    "compared": 8224,
+    "compared": 8228,
     "exact": 7865,
-    "max_abs_diff": 22.0,
-    "mean_abs_diff": 0.1806,
+    "max_abs_diff": 30.0,
+    "mean_abs_diff": 0.1907,
     "worst_offenders": [
+     {
+      "game_id": "401909978",
+      "team": "MIN",
+      "abs_diff": 30.0
+     },
+     {
+      "game_id": "401909978",
+      "team": "DAL",
+      "abs_diff": 23.0
+     },
      {
       "game_id": "401705475",
       "team": "DEN",
       "abs_diff": 22.0
-     },
-     {
-      "game_id": "401704679",
-      "team": "DEN",
-      "abs_diff": 16.0
-     },
-     {
-      "game_id": "401909976",
-      "team": "PHI",
-      "abs_diff": 16.0
      }
     ]
    },
    "points": {
-    "compared": 8224,
+    "compared": 8228,
     "exact": 8222,
-    "max_abs_diff": 63.0,
-    "mean_abs_diff": 0.014,
+    "max_abs_diff": 121.0,
+    "mean_abs_diff": 0.0579,
     "worst_offenders": [
      {
-      "game_id": "401909976",
-      "team": "PHI",
-      "abs_diff": 63.0
+      "game_id": "401909978",
+      "team": "MIN",
+      "abs_diff": 121.0
      },
      {
-      "game_id": "401909976",
-      "team": "TOR",
-      "abs_diff": 52.0
+      "game_id": "401909978",
+      "team": "DAL",
+      "abs_diff": 81.0
+     },
+     {
+      "game_id": "401909977",
+      "team": "DET",
+      "abs_diff": 80.0
      }
     ]
    }
   }
  },
- "elapsed_seconds": 4383.74,
+ "elapsed_seconds": 4089.3,
  "source_manifest": {
   "source_id": "espn schedule + stats.nba.com LeagueGameLog + playbyplayv3",
   "source_route": "espn schedule + stats.nba.com LeagueGameLog + playbyplayv3",
@@ -1103,238 +1142,278 @@
   },
   "play_by_play": {
    "fga": {
-    "compared": 8224,
+    "compared": 8228,
     "exact": 8222,
-    "max_abs_diff": 43.0,
-    "mean_abs_diff": 0.0097,
+    "max_abs_diff": 85.0,
+    "mean_abs_diff": 0.0436,
     "worst_offenders": [
      {
-      "game_id": "401909976",
-      "team": "PHI",
-      "abs_diff": 43.0
+      "game_id": "401909978",
+      "team": "DAL",
+      "abs_diff": 85.0
      },
      {
-      "game_id": "401909976",
-      "team": "TOR",
-      "abs_diff": 37.0
+      "game_id": "401909978",
+      "team": "MIN",
+      "abs_diff": 79.0
+     },
+     {
+      "game_id": "401909977",
+      "team": "DET",
+      "abs_diff": 58.0
      }
     ]
    },
    "fgm": {
-    "compared": 8224,
+    "compared": 8228,
     "exact": 8222,
-    "max_abs_diff": 22.0,
-    "mean_abs_diff": 0.0049,
+    "max_abs_diff": 47.0,
+    "mean_abs_diff": 0.0207,
     "worst_offenders": [
      {
-      "game_id": "401909976",
-      "team": "PHI",
-      "abs_diff": 22.0
+      "game_id": "401909978",
+      "team": "MIN",
+      "abs_diff": 47.0
      },
      {
-      "game_id": "401909976",
-      "team": "TOR",
-      "abs_diff": 18.0
+      "game_id": "401909978",
+      "team": "DAL",
+      "abs_diff": 30.0
+     },
+     {
+      "game_id": "401909977",
+      "team": "DET",
+      "abs_diff": 27.0
      }
     ]
    },
    "fg3a": {
-    "compared": 8224,
+    "compared": 8228,
     "exact": 8222,
-    "max_abs_diff": 14.0,
-    "mean_abs_diff": 0.0033,
+    "max_abs_diff": 45.0,
+    "mean_abs_diff": 0.017,
     "worst_offenders": [
      {
-      "game_id": "401909976",
-      "team": "PHI",
-      "abs_diff": 14.0
+      "game_id": "401909978",
+      "team": "DAL",
+      "abs_diff": 45.0
      },
      {
-      "game_id": "401909976",
-      "team": "TOR",
-      "abs_diff": 13.0
+      "game_id": "401909978",
+      "team": "MIN",
+      "abs_diff": 28.0
+     },
+     {
+      "game_id": "401909977",
+      "team": "WAS",
+      "abs_diff": 21.0
      }
     ]
    },
    "fg3m": {
-    "compared": 8224,
+    "compared": 8228,
     "exact": 8222,
-    "max_abs_diff": 7.0,
-    "mean_abs_diff": 0.0015,
+    "max_abs_diff": 14.0,
+    "mean_abs_diff": 0.0062,
     "worst_offenders": [
      {
-      "game_id": "401909976",
-      "team": "PHI",
-      "abs_diff": 7.0
+      "game_id": "401909978",
+      "team": "MIN",
+      "abs_diff": 14.0
      },
      {
-      "game_id": "401909976",
-      "team": "TOR",
-      "abs_diff": 5.0
+      "game_id": "401909978",
+      "team": "DAL",
+      "abs_diff": 11.0
+     },
+     {
+      "game_id": "401909977",
+      "team": "DET",
+      "abs_diff": 7.0
      }
     ]
    },
    "fta": {
-    "compared": 8224,
+    "compared": 8228,
     "exact": 8222,
-    "max_abs_diff": 16.0,
-    "mean_abs_diff": 0.0036,
+    "max_abs_diff": 23.0,
+    "mean_abs_diff": 0.0126,
     "worst_offenders": [
      {
-      "game_id": "401909976",
-      "team": "PHI",
-      "abs_diff": 16.0
+      "game_id": "401909977",
+      "team": "WAS",
+      "abs_diff": 23.0
      },
      {
-      "game_id": "401909976",
-      "team": "TOR",
-      "abs_diff": 14.0
+      "game_id": "401909977",
+      "team": "DET",
+      "abs_diff": 22.0
+     },
+     {
+      "game_id": "401909978",
+      "team": "MIN",
+      "abs_diff": 17.0
      }
     ]
    },
    "ftm": {
-    "compared": 8224,
+    "compared": 8228,
     "exact": 8222,
-    "max_abs_diff": 12.0,
-    "mean_abs_diff": 0.0028,
+    "max_abs_diff": 20.0,
+    "mean_abs_diff": 0.0103,
     "worst_offenders": [
      {
-      "game_id": "401909976",
-      "team": "PHI",
-      "abs_diff": 12.0
+      "game_id": "401909977",
+      "team": "WAS",
+      "abs_diff": 20.0
      },
      {
-      "game_id": "401909976",
-      "team": "TOR",
-      "abs_diff": 11.0
+      "game_id": "401909977",
+      "team": "DET",
+      "abs_diff": 19.0
+     },
+     {
+      "game_id": "401909978",
+      "team": "MIN",
+      "abs_diff": 13.0
      }
     ]
    },
    "oreb": {
-    "compared": 8224,
+    "compared": 8228,
     "exact": 8030,
-    "max_abs_diff": 7.0,
-    "mean_abs_diff": 0.0295,
+    "max_abs_diff": 13.0,
+    "mean_abs_diff": 0.034,
     "worst_offenders": [
      {
-      "game_id": "401909976",
-      "team": "PHI",
-      "abs_diff": 7.0
+      "game_id": "401909978",
+      "team": "DAL",
+      "abs_diff": 13.0
      },
      {
-      "game_id": "401705312",
-      "team": "OKC",
-      "abs_diff": 5.0
+      "game_id": "401909977",
+      "team": "DET",
+      "abs_diff": 9.0
      },
      {
-      "game_id": "401705305",
-      "team": "OKC",
-      "abs_diff": 3.0
+      "game_id": "401909977",
+      "team": "WAS",
+      "abs_diff": 9.0
      }
     ]
    },
    "dreb": {
-    "compared": 8224,
+    "compared": 8228,
     "exact": 7672,
-    "max_abs_diff": 15.0,
-    "mean_abs_diff": 0.1798,
+    "max_abs_diff": 38.0,
+    "mean_abs_diff": 0.1917,
     "worst_offenders": [
      {
-      "game_id": "401909976",
-      "team": "TOR",
-      "abs_diff": 15.0
+      "game_id": "401909978",
+      "team": "MIN",
+      "abs_diff": 38.0
      },
      {
-      "game_id": "401909976",
-      "team": "PHI",
-      "abs_diff": 15.0
+      "game_id": "401909977",
+      "team": "WAS",
+      "abs_diff": 21.0
      },
      {
-      "game_id": "401705111",
-      "team": "OKC",
-      "abs_diff": 10.0
+      "game_id": "401909977",
+      "team": "DET",
+      "abs_diff": 20.0
      }
     ]
    },
    "tov": {
-    "compared": 8224,
+    "compared": 8228,
     "exact": 8222,
-    "max_abs_diff": 8.0,
-    "mean_abs_diff": 0.0016,
+    "max_abs_diff": 17.0,
+    "mean_abs_diff": 0.0077,
     "worst_offenders": [
      {
-      "game_id": "401909976",
-      "team": "TOR",
-      "abs_diff": 8.0
+      "game_id": "401909978",
+      "team": "DAL",
+      "abs_diff": 17.0
      },
      {
-      "game_id": "401909976",
-      "team": "PHI",
-      "abs_diff": 5.0
+      "game_id": "401909978",
+      "team": "MIN",
+      "abs_diff": 15.0
+     },
+     {
+      "game_id": "401909977",
+      "team": "WAS",
+      "abs_diff": 10.0
      }
     ]
    },
    "pf": {
-    "compared": 8224,
+    "compared": 8228,
     "exact": 7575,
-    "max_abs_diff": 15.0,
-    "mean_abs_diff": 0.0855,
+    "max_abs_diff": 20.0,
+    "mean_abs_diff": 0.0939,
     "worst_offenders": [
      {
-      "game_id": "401909976",
-      "team": "TOR",
-      "abs_diff": 15.0
+      "game_id": "401909978",
+      "team": "DAL",
+      "abs_diff": 20.0
      },
      {
-      "game_id": "401909976",
-      "team": "PHI",
-      "abs_diff": 10.0
+      "game_id": "401909978",
+      "team": "MIN",
+      "abs_diff": 17.0
      },
      {
-      "game_id": "401705661",
-      "team": "BKN",
-      "abs_diff": 3.0
+      "game_id": "401909977",
+      "team": "DET",
+      "abs_diff": 17.0
      }
     ]
    },
    "assists": {
-    "compared": 8224,
+    "compared": 8228,
     "exact": 7865,
-    "max_abs_diff": 22.0,
-    "mean_abs_diff": 0.1806,
+    "max_abs_diff": 30.0,
+    "mean_abs_diff": 0.1907,
     "worst_offenders": [
+     {
+      "game_id": "401909978",
+      "team": "MIN",
+      "abs_diff": 30.0
+     },
+     {
+      "game_id": "401909978",
+      "team": "DAL",
+      "abs_diff": 23.0
+     },
      {
       "game_id": "401705475",
       "team": "DEN",
       "abs_diff": 22.0
-     },
-     {
-      "game_id": "401704679",
-      "team": "DEN",
-      "abs_diff": 16.0
-     },
-     {
-      "game_id": "401909976",
-      "team": "PHI",
-      "abs_diff": 16.0
      }
     ]
    },
    "points": {
-    "compared": 8224,
+    "compared": 8228,
     "exact": 8222,
-    "max_abs_diff": 63.0,
-    "mean_abs_diff": 0.014,
+    "max_abs_diff": 121.0,
+    "mean_abs_diff": 0.0579,
     "worst_offenders": [
      {
-      "game_id": "401909976",
-      "team": "PHI",
-      "abs_diff": 63.0
+      "game_id": "401909978",
+      "team": "MIN",
+      "abs_diff": 121.0
      },
      {
-      "game_id": "401909976",
-      "team": "TOR",
-      "abs_diff": 52.0
+      "game_id": "401909978",
+      "team": "DAL",
+      "abs_diff": 81.0
+     },
+     {
+      "game_id": "401909977",
+      "team": "DET",
+      "abs_diff": 80.0
      }
     ]
    }
