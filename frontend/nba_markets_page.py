@@ -80,7 +80,7 @@ def _decided_rows(frame):
 # --- Diagnostics tabs (the same five as MLB, same renderers) ---------------
 
 
-def _render_team_score_distribution(decided, side, variance=None, family=None):
+def _render_team_score_distribution(decided, side, variance=None):
     """Distribution view — Home / Away: the per-side scoring law (points).
 
     The modeled line is the model's OWN per-side Gaussian (the bivariate
@@ -91,7 +91,7 @@ def _render_team_score_distribution(decided, side, variance=None, family=None):
     refitted; without a usable ``variance`` block the line stays the NaN
     gap it always was.
     """
-    tdist = nd.team_score_distribution(decided, side, variance=variance, family=family)
+    tdist = nd.team_score_distribution(decided, side, variance=variance)
     if tdist["warning"]:
         st.warning(tdist["warning"])
         return
@@ -112,27 +112,18 @@ def _render_team_score_distribution(decided, side, variance=None, family=None):
         f"modeled {_f(c[f'P({side} == 0)']['modeled'])} · "
         f"P({side} wins): observed {_f(c[f'P({side} wins)']['observed'])} / "
         f"modeled {_f(c[f'P({side} wins)']['modeled'])}. "
-        + _per_side_law_note(family)
+        "This is the per-side scoring law. The artifact ships no per-team "
+        "score PMF column, so the orange line is the model's own per-side "
+        "Gaussian — the marginal of the bivariate scoring core — built "
+        "from shipped parameters only (side mean split from the calibrated "
+        "total/margin means, variance = the monitor's fit.variance factor "
+        "× that mean), never refitted. Its off-grid mass (sub-zero and "
+        "beyond the top bin) is disclosed in the note, never renormalized "
+        "away. Compare with the Total and Spread views."
     )
 
 
-def _per_side_law_note(family):
-    if _is_champion({"family": family}):
-        return ("This is the per-side scoring law. The artifact ships no per-team "
-                "score PMF column. The hierarchical NB engine ships no per-side "
-                "variance block, so no modeled line is drawn \u2014 observed bars "
-                "only; see the Total and Spread views for the modeled law.")
-    return ("This is the per-side scoring law. The artifact ships no per-team "
-            "score PMF column, so the orange line is the model\u2019s own per-side "
-            "Gaussian \u2014 the marginal of the bivariate scoring core \u2014 built "
-            "from shipped parameters only (side mean split from the calibrated "
-            "total/margin means, variance = the monitor\u2019s fit.variance "
-            "factor \u00d7 that mean), never refitted. Its off-grid mass "
-            "(sub-zero and beyond the top bin) is disclosed in the note, never "
-            "renormalized away. Compare with the Total and Spread views.")
-
-
-def _render_distribution_tab(decided, variance=None, family=None):
+def _render_distribution_tab(decided, variance=None):
     """Tab 1 — observed bars vs modeled mean marginal, with tail callouts.
 
     The Distribution view toggles Total / Spread / Home / Away (2026-10-16):
@@ -147,10 +138,10 @@ def _render_distribution_tab(decided, variance=None, family=None):
                      ("Total", "Spread", "Home", "Away"),
                      horizontal=True, key="nba_dist_view")
     if _view in ("Home", "Away"):
-        _render_team_score_distribution(decided, _view.lower(), variance, family)
+        _render_team_score_distribution(decided, _view.lower(), variance)
         return
     if _view == "Spread":
-        sdist = nd.spread_distribution(decided, family=family)
+        sdist = nd.spread_distribution(decided)
         if sdist["warning"]:
             st.warning(sdist["warning"])
             return
@@ -163,7 +154,7 @@ def _render_distribution_tab(decided, variance=None, family=None):
             v = sc[key]["modeled"]
             return "--" if v is None else format(v, ".3f")
         st.caption(
-            f"Observed bars vs mean shipped {_engine_label({'family': family})} "
+            f"Observed bars vs mean shipped calibrated split-skew Gaussian "
             f"Monte Carlo margin PMF, without a replacement plotting model, "
             f"over {sdist['n_games']:,} decided games · P(margin≤−10): observed "
             f"{sc['P(margin<=-10)']['observed']:.3f} / modeled {_sm('P(margin<=-10)')} · "
@@ -177,14 +168,14 @@ def _render_distribution_tab(decided, variance=None, family=None):
             "inside the band are noise-level."
         )
         return
-    dist = nd.total_distribution(decided, family=family)
+    dist = nd.total_distribution(decided)
     if dist["warning"]:
         st.warning(dist["warning"])
         return
     utils.show_chart(nd.chart_distribution(dist))
     c = dist["callouts"]
     st.caption(
-        f"Observed bars vs mean shipped {_engine_label({'family': family})} "
+        f"Observed bars vs mean shipped calibrated split-skew Gaussian "
         f"Monte Carlo total PMF, without a replacement plotting model, "
         f"over {dist['n_games']:,} decided games · P(total≤190): observed "
         f"{c['P(total<=190)']['observed']:.3f} / modeled "
@@ -373,29 +364,11 @@ def _render_spread_tab(decided):
 # --- Prediction history (MLB's two fb-box tables) --------------------------
 
 
-CHAMPION_FAMILY = "nba_nb_hier_wprod_v1"
-
-
-def _engine_label(fit: dict | None) -> str:
-    fit = fit or {}
-    if (fit.get("family") or "") == CHAMPION_FAMILY:
-        return "hierarchical NB Monte Carlo"
-    return "split-skew Gaussian + Monte Carlo"
-
-
-def _is_champion(fit: dict | None) -> bool:
-    return (fit or {}).get("family") == CHAMPION_FAMILY or (
-        fit or {}).get("distribution") == "hierarchical_nb_weighted_mc"
-
-
 def _cal_note(monitor: dict | None) -> str:
     fit = (monitor or {}).get("fit") or {}
     if fit.get("family") == "two_sided_asymmetric_gaussian_split_skew":
         return (" · probabilities are issued causal whole-CDF-calibrated "
                 "split-skew Gaussian Monte Carlo forecasts")
-    if _is_champion(fit):
-        return (" · probabilities are issued hierarchical negative-binomial "
-                "Monte Carlo forecasts (per-date empirical margin weights)")
     return (" · historical artifact predates challenger calibration metadata")
 
 
@@ -639,7 +612,7 @@ def _render_runline_calibration_card(decided) -> None:
 
 def _render_fit_panel(fit: dict) -> None:
     """Distributional fit diagnostics over the NBA monitor's fit block."""
-    st.markdown(f"#### Distributional Fit ({_engine_label(fit)})")
+    st.markdown("#### Distributional Fit (split-skew Gaussian + Monte Carlo)")
     if not fit:
         st.info("No fit diagnostics in the monitor artifact.")
         return
@@ -665,27 +638,16 @@ def _render_fit_panel(fit: dict) -> None:
 def _render_model_card(monitor: dict) -> None:
     """Run-engine model card — MLB's per-market-line fb-box table."""
     fit = (monitor or {}).get("fit") or {}
-    st.markdown(f"### Run-Engine Model ({_engine_label(fit)})")
-    if _is_champion(fit):
-        st.caption(
-            f"{fit.get('distribution') or '—'} · family "
-            f"{fit.get('family') or '—'} · per-side negative-binomial score "
-            "models give mu_h/mu_a. Total/margin residual legs plus the "
-            "structural overtime rule and per-date empirical margin weights "
-            "price every line with reproducible Monte Carlo. Totals and spreads "
-            "are model probabilities only; no sportsbook price appears anywhere "
-            "on this page."
-        )
-    else:
-        st.caption(
-            f"{fit.get('distribution') or '—'} · family "
-            f"{fit.get('family') or '—'} · two per-side Poisson score "
-            "regressors give mu_h/mu_a. Home/away residual variance and correlation "
-            "anchor asymmetric left/right Gaussian widths; causal CRPS calibration "
-            "and reproducible Monte Carlo price every line. Totals and spreads are model "
-            "probabilities only; no sportsbook price appears anywhere on this "
-            "page."
-        )
+    st.markdown("### Run-Engine Model (split-skew Gaussian + Monte Carlo)")
+    st.caption(
+        f"{fit.get('distribution') or '—'} · family "
+        f"{fit.get('family') or '—'} · two per-side Poisson score "
+        "regressors give mu_h/mu_a. Home/away residual variance and correlation "
+        "anchor asymmetric left/right Gaussian widths; causal CRPS calibration "
+        "and reproducible Monte Carlo price every line. Totals and spreads are model "
+        "probabilities only; no sportsbook price appears anywhere on this "
+        "page."
+    )
     mm = (monitor or {}).get("market_metrics") or {}
     if not mm:
         st.info("Per-line engine OOF metrics appear after a pipeline run "
@@ -722,10 +684,6 @@ def _render_model_card(monitor: dict) -> None:
         st.info("Per-line engine OOF metrics appear after a pipeline run "
                 "that emits market_metrics.")
         return
-    _engine_fit = (monitor or {}).get("fit") or {}
-    _engine_name = ("hierarchical NB Monte Carlo" if _is_champion(_engine_fit)
-                    else "per-side Poisson score regressors + calibrated "
-                    "split-skew Gaussian Monte Carlo")
     st.markdown(
         f"""
         <div class="fb-box" style="padding:6px 8px;">
@@ -736,7 +694,8 @@ def _render_model_card(monitor: dict) -> None:
           </table>
         </div>
         <div style="color:#64748B;font-size:0.78rem;margin-top:6px;">
-          Run engine is {_engine_name} — no member blend; rows are per market line
+          Run engine is the per-side Poisson score regressors +
+          calibrated split-skew Gaussian Monte Carlo — no member blend; rows are per market line
           (2-way no-push basis). Lines priced at the monitor's canonical
           totals (220/225/230) and spreads (2/5); ECE-CAL is the
           prequentially calibrated figure when a calibration map ships
@@ -769,10 +728,9 @@ def run() -> None:
         "Today's Totals &amp; Run Lines</div>",
         unsafe_allow_html=True,
     )
-    _run_fit = (monitor or {}).get("fit") or {}
     st.markdown(
         "<div style='color:#94A3B8;margin:2px 0 14px;'>"
-        f"{_engine_label(_run_fit)} "
+        "Split-skew Gaussian variance, causal calibration and Monte Carlo "
         "over the line grid — per-game projections and full "
         "probabilities live in nba_run_engine_markets_*.csv.</div>",
         unsafe_allow_html=True,
@@ -803,8 +761,7 @@ def run() -> None:
             _render_distribution_tab(
                 decided,
                 variance=(((monitor or {}).get("fit") or {}).get("variance")
-                          or {}),
-                family=((monitor or {}).get("fit") or {}).get("family"))
+                          or {}))
         with tabs[1]:
             _render_relativized_tab(decided)
         with tabs[2]:

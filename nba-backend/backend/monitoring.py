@@ -1369,31 +1369,6 @@ def _run_engine_market_metrics(oof_market_rows: pd.DataFrame) -> dict:
     return out
 
 
-def _cal_mc(calibration) -> dict:
-    mc = (calibration or {}).get("monte_carlo") or {}
-    return mc if isinstance(mc, dict) else {}
-
-
-def _fit_distribution_label(calibration) -> str:
-    """Distribution label for the model card, driven by the served bundle.
-
-    A challenger-priced bundle carries its model_id in the Monte Carlo meta;
-    the split-skew label is only correct when the split-skew family priced.
-    """
-    return ("hierarchical_nb_weighted_mc" if _cal_mc(calibration).get("model_id")
-            else "causal_split_skew_crps_mc")
-
-
-def _fit_family_label(calibration) -> str:
-    mc = _cal_mc(calibration)
-    return (mc.get("model_id") or "two_sided_asymmetric_gaussian_split_skew")
-
-
-def _fit_priced_by_label(calibration) -> str:
-    mc = _cal_mc(calibration)
-    return (mc.get("method") or "inverse_calibrated_cdf_monte_carlo")
-
-
 def write_run_engine_monitor(path, date_c: str, markets=None,
                              calibration=None, config_meta=None,
                              ml_reference=None,
@@ -1447,9 +1422,9 @@ def write_run_engine_monitor(path, date_c: str, markets=None,
         "markets_persist_error": markets_persist_error,
         "winner_cards": cards,
         "slate_history": slate_history,
-        "fit": {"distribution": _fit_distribution_label(calibration),
-                "family": _fit_family_label(calibration),
-                "priced_by": _fit_priced_by_label(calibration),
+        "fit": {"distribution": "causal_split_skew_crps_mc",
+                "family": "two_sided_asymmetric_gaussian_split_skew",
+                "priced_by": "inverse_calibrated_cdf_monte_carlo",
                 "variance": (calibration or {}).get("maps", {}).get("variance", {}),
                 # Integer-lattice correction disclosure (totals + margin fit
                 # independently; magnitude and gate verdict, no delta vectors).

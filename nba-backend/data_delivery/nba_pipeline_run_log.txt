@@ -1,411 +1,1741 @@
-  📝 Run log tee: /kaggle/working/sports_prediction_model/nba-backend/data_delivery/nba_pipeline_run_log.txt (one rolling master file, overwritten every run)
+  📝 Run log tee: /workspace/chats/ffd1b9706a6c05194c908434/nba-backend/data_delivery/nba_pipeline_run_log.txt (one rolling master file, overwritten every run)
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
   PHASE 1-3  NBA data acquisition - ESPN schedule, stats.nba.com features, play-by-play
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-2026-11-12 20:55:26,628 INFO NBA window 2023-10-24..2026-11-12 (download allowed)
-2026-11-12 20:55:26,629 INFO NBA_FULL_REPULL is set; every schedule day is refetched
-2026-11-12 20:55:26,630 INFO schedule: 1116 day(s) from 2023-10-24 to 2026-11-12, one request per day (ESPN's scoreboard has no date range); 4 worker(s), at most one request start every 0.10s
-2026-11-12 20:55:27,096 INFO preflight: ESPN's scoreboard (site.api.espn.com) answered in 0.47s
-2026-11-12 20:55:27,779 INFO   Chunk: 2023-10-24 -> 2023-12-22
-2026-11-12 20:55:34,946 INFO     -> 418 game(s) over 60 day(s) (60 fetched, 0 from cache)
-schedule: 100%|##########| 60/60 [00:07<00:00,  8.37day/s]
-2026-11-12 20:55:34,947 INFO   Chunk: 2023-12-23 -> 2024-02-20
-2026-11-12 20:55:41,765 WARNING dropping 401623259 on 2024-02-18 00:00:00 (EAST vs WEST): a side is not one of the 30 franchises, and the season log has no player lines for it, so it is not a game this model can score
-2026-11-12 20:55:42,083 INFO     -> 405 game(s) over 60 day(s) (60 fetched, 0 from cache)
-schedule: 100%|##########| 60/60 [00:07<00:00,  8.41day/s]
-2026-11-12 20:55:42,084 INFO   Chunk: 2024-02-21 -> 2024-04-20
-2026-11-12 20:55:49,579 INFO     -> 414 game(s) over 60 day(s) (60 fetched, 0 from cache)
-schedule: 100%|##########| 60/60 [00:07<00:00,  8.01day/s]
-2026-11-12 20:55:49,579 INFO   Chunk: 2024-04-21 -> 2024-06-19
-2026-11-12 20:55:56,411 INFO     -> 78 game(s) over 60 day(s) (60 fetched, 0 from cache)
-schedule: 100%|##########| 60/60 [00:06<00:00,  8.78day/s]
-2026-11-12 20:55:56,412 INFO   Chunk: 2024-06-20 -> 2024-08-18
-2026-11-12 20:56:03,150 INFO     -> 0 game(s) over 60 day(s) (60 fetched, 0 from cache)
-schedule: 100%|##########| 60/60 [00:06<00:00,  8.90day/s]
-2026-11-12 20:56:03,151 INFO   Chunk: 2024-08-19 -> 2024-10-17
-2026-11-12 20:56:10,001 INFO     -> 0 game(s) over 60 day(s) (60 fetched, 0 from cache)
-schedule: 100%|##########| 60/60 [00:06<00:00,  8.76day/s]
-2026-11-12 20:56:10,002 INFO   Chunk: 2024-10-18 -> 2024-12-16
-2026-11-12 20:56:17,402 INFO     -> 389 game(s) over 60 day(s) (60 fetched, 0 from cache)
-schedule: 100%|##########| 60/60 [00:07<00:00,  8.11day/s]
-2026-11-12 20:56:17,402 INFO   Chunk: 2024-12-17 -> 2025-02-14
-2026-11-12 20:56:24,222 INFO     -> 431 game(s) over 60 day(s) (60 fetched, 0 from cache)
-schedule: 100%|##########| 60/60 [00:06<00:00,  8.80day/s]
-2026-11-12 20:56:24,223 INFO   Chunk: 2025-02-15 -> 2025-04-15
-2026-11-12 20:56:24,312 WARNING dropping 401752955 on 2025-02-16 00:00:00 (CHK vs KEN): a side is not one of the 30 franchises, and the season log has no player lines for it, so it is not a game this model can score
-2026-11-12 20:56:24,314 WARNING dropping 401752956 on 2025-02-16 00:00:00 (SHQ vs CAN): a side is not one of the 30 franchises, and the season log has no player lines for it, so it is not a game this model can score
-2026-11-12 20:56:24,315 WARNING dropping 401752957 on 2025-02-16 00:00:00 (CHK vs SHQ): a side is not one of the 30 franchises, and the season log has no player lines for it, so it is not a game this model can score
-2026-11-12 20:56:32,383 INFO     -> 416 game(s) over 60 day(s) (60 fetched, 0 from cache)
-schedule: 100%|##########| 60/60 [00:08<00:00,  7.35day/s]
-2026-11-12 20:56:32,384 INFO   Chunk: 2025-04-16 -> 2025-06-14
-2026-11-12 20:56:39,607 INFO     -> 81 game(s) over 60 day(s) (60 fetched, 0 from cache)
-schedule: 100%|##########| 60/60 [00:07<00:00,  8.31day/s]
-2026-11-12 20:56:39,608 INFO   Chunk: 2025-06-15 -> 2025-08-13
-2026-11-12 20:56:46,658 INFO     -> 3 game(s) over 60 day(s) (60 fetched, 0 from cache)
-schedule: 100%|##########| 60/60 [00:07<00:00,  8.51day/s]
-2026-11-12 20:56:46,659 INFO   Chunk: 2025-08-14 -> 2025-10-12
-2026-11-12 20:56:53,076 INFO     -> 0 game(s) over 60 day(s) (60 fetched, 0 from cache)
-schedule: 100%|##########| 60/60 [00:06<00:00,  9.35day/s]
-2026-11-12 20:56:53,077 INFO   Chunk: 2025-10-13 -> 2025-12-11
-2026-11-12 20:56:59,836 INFO     -> 365 game(s) over 60 day(s) (60 fetched, 0 from cache)
-schedule: 100%|##########| 60/60 [00:06<00:00,  8.88day/s]
-2026-11-12 20:56:59,837 INFO   Chunk: 2025-12-12 -> 2026-02-09
-2026-11-12 20:57:07,734 INFO     -> 438 game(s) over 60 day(s) (60 fetched, 0 from cache)
-schedule: 100%|##########| 60/60 [00:07<00:00,  7.60day/s]
-2026-11-12 20:57:07,735 INFO   Chunk: 2026-02-10 -> 2026-04-10
-2026-11-12 20:57:08,049 WARNING dropping 401838140 on 2026-02-15 00:00:00 (STARS vs WORLD): a side is not one of the 30 franchises, and the season log has no player lines for it, so it is not a game this model can score
-2026-11-12 20:57:08,051 WARNING dropping 401838141 on 2026-02-15 00:00:00 (STRIPES vs STARS): a side is not one of the 30 franchises, and the season log has no player lines for it, so it is not a game this model can score
-2026-11-12 20:57:08,053 WARNING dropping 401838142 on 2026-02-15 00:00:00 (STRIPES vs WORLD): a side is not one of the 30 franchises, and the season log has no player lines for it, so it is not a game this model can score
-2026-11-12 20:57:08,054 WARNING dropping 401838143 on 2026-02-15 00:00:00 (STRIPES vs STARS): a side is not one of the 30 franchises, and the season log has no player lines for it, so it is not a game this model can score
-2026-11-12 20:57:14,614 INFO     -> 417 game(s) over 60 day(s) (60 fetched, 0 from cache)
-schedule: 100%|##########| 60/60 [00:06<00:00,  8.72day/s]
-2026-11-12 20:57:14,615 INFO   Chunk: 2026-04-11 -> 2026-06-09
-2026-11-12 20:57:22,314 INFO     -> 98 game(s) over 60 day(s) (60 fetched, 0 from cache)
-schedule: 100%|##########| 60/60 [00:07<00:00,  7.79day/s]
-2026-11-12 20:57:22,315 INFO   Chunk: 2026-06-10 -> 2026-08-08
-2026-11-12 20:57:29,348 INFO     -> 2 game(s) over 60 day(s) (60 fetched, 0 from cache)
-schedule: 100%|##########| 60/60 [00:07<00:00,  8.53day/s]
-2026-11-12 20:57:29,349 INFO   Chunk: 2026-08-09 -> 2026-10-07
-2026-11-12 20:57:35,943 INFO     -> 0 game(s) over 60 day(s) (60 fetched, 0 from cache)
-schedule: 100%|##########| 60/60 [00:06<00:00,  9.10day/s]
-2026-11-12 20:57:35,945 INFO   Chunk: 2026-10-08 -> 2026-11-12
-2026-11-12 20:57:39,589 INFO     -> 174 game(s) over 36 day(s) (36 fetched, 0 from cache)
-schedule: 100%|##########| 36/36 [00:03<00:00,  9.88day/s]
-2026-11-12 20:57:39,671 INFO schedule: 4129 games over 1116 days (1116 fetched, 0 from cache); 8.39 day/s against a 10.00/s gate (84% of ceiling)
-2026-11-12 20:57:39,698 INFO season log: 36 request(s) of up to 60 day(s) over 2023-10-24..2026-11-12 (NBA_SLICE_DAYS overrides the width); 4 worker(s)
-2026-11-12 20:57:39,925 INFO preflight: stats.nba.com answered in 0.22s
-2026-11-12 20:57:42,027 INFO   Chunk: 2023-10-24 -> 2023-12-22  2023-24 Regular Season
-2026-11-12 20:57:42,028 INFO 2023-24 Regular Season 2023-10-24..2023-12-22: 8975 player rows
-2026-11-12 20:57:42,028 INFO   Chunk: 2023-10-24 -> 2023-12-22  2023-24 Playoffs
-2026-11-12 20:57:42,029 INFO 2023-24 Playoffs 2023-10-24..2023-12-22: no rows (no games in this window)
-2026-11-12 20:57:42,031 INFO   Chunk: 2023-12-23 -> 2024-02-20  2023-24 Regular Season
-2026-11-12 20:57:42,032 INFO 2023-24 Regular Season 2023-12-23..2024-02-20: 8662 player rows
-2026-11-12 20:57:42,032 INFO   Chunk: 2023-12-23 -> 2024-02-20  2023-24 Playoffs
-2026-11-12 20:57:42,033 INFO 2023-24 Playoffs 2023-12-23..2024-02-20: no rows (no games in this window)
-2026-11-12 20:57:42,546 INFO   Chunk: 2024-02-21 -> 2024-04-20  2023-24 Regular Season
-2026-11-12 20:57:42,546 INFO 2023-24 Regular Season 2024-02-21..2024-04-20: 8764 player rows
-2026-11-12 20:57:42,866 INFO   Chunk: 2024-02-21 -> 2024-04-20  2023-24 Playoffs
-2026-11-12 20:57:42,866 INFO 2023-24 Playoffs 2024-02-21..2024-04-20: 81 player rows
-2026-11-12 20:57:43,262 INFO   Chunk: 2024-04-21 -> 2024-06-19  2023-24 Regular Season
-2026-11-12 20:57:43,263 INFO 2023-24 Regular Season 2024-04-21..2024-06-19: no rows (no games in this window)
-2026-11-12 20:57:43,825 INFO   Chunk: 2024-04-21 -> 2024-06-19  2023-24 Playoffs
-2026-11-12 20:57:43,826 INFO 2023-24 Playoffs 2024-04-21..2024-06-19: 1604 player rows
-2026-11-12 20:57:44,292 INFO   Chunk: 2024-06-20 -> 2024-07-31  2023-24 Regular Season
-2026-11-12 20:57:44,293 INFO 2023-24 Regular Season 2024-06-20..2024-07-31: no rows (no games in this window)
-2026-11-12 20:57:44,829 INFO   Chunk: 2024-06-20 -> 2024-07-31  2023-24 Playoffs
-2026-11-12 20:57:44,829 INFO 2023-24 Playoffs 2024-06-20..2024-07-31: no rows (no games in this window)
-2026-11-12 20:57:45,473 INFO   Chunk: 2024-10-01 -> 2024-11-29  2024-25 Regular Season
-2026-11-12 20:57:45,474 INFO 2024-25 Regular Season 2024-10-01..2024-11-29: 6274 player rows
-2026-11-12 20:57:45,766 INFO   Chunk: 2024-10-01 -> 2024-11-29  2024-25 Playoffs
-2026-11-12 20:57:45,767 INFO 2024-25 Playoffs 2024-10-01..2024-11-29: no rows (no games in this window)
-2026-11-12 20:57:46,642 INFO   Chunk: 2024-11-30 -> 2025-01-28  2024-25 Regular Season
-2026-11-12 20:57:46,643 INFO 2024-25 Regular Season 2024-11-30..2025-01-28: 8550 player rows
-2026-11-12 20:57:46,844 INFO   Chunk: 2024-11-30 -> 2025-01-28  2024-25 Playoffs
-2026-11-12 20:57:46,844 INFO 2024-25 Playoffs 2024-11-30..2025-01-28: no rows (no games in this window)
-2026-11-12 20:57:47,511 INFO   Chunk: 2025-01-29 -> 2025-03-29  2024-25 Regular Season
-2026-11-12 20:57:47,511 INFO 2024-25 Regular Season 2025-01-29..2025-03-29: 8926 player rows
-2026-11-12 20:57:47,753 INFO   Chunk: 2025-01-29 -> 2025-03-29  2024-25 Playoffs
-2026-11-12 20:57:47,754 INFO 2024-25 Playoffs 2025-01-29..2025-03-29: no rows (no games in this window)
-2026-11-12 20:57:48,429 INFO   Chunk: 2025-03-30 -> 2025-05-28  2024-25 Regular Season
-2026-11-12 20:57:48,430 INFO 2024-25 Regular Season 2025-03-30..2025-05-28: 2556 player rows
-2026-11-12 20:57:48,823 INFO   Chunk: 2025-03-30 -> 2025-05-28  2024-25 Playoffs
-2026-11-12 20:57:48,824 INFO 2024-25 Playoffs 2025-03-30..2025-05-28: 1595 player rows
-2026-11-12 20:57:49,308 INFO   Chunk: 2025-05-29 -> 2025-07-27  2024-25 Regular Season
-2026-11-12 20:57:49,308 INFO 2024-25 Regular Season 2025-05-29..2025-07-27: no rows (no games in this window)
-2026-11-12 20:57:49,777 INFO   Chunk: 2025-05-29 -> 2025-07-27  2024-25 Playoffs
-2026-11-12 20:57:49,777 INFO 2024-25 Playoffs 2025-05-29..2025-07-27: 209 player rows
-2026-11-12 20:57:50,247 INFO   Chunk: 2025-07-28 -> 2025-07-31  2024-25 Regular Season
-2026-11-12 20:57:50,247 INFO 2024-25 Regular Season 2025-07-28..2025-07-31: no rows (no games in this window)
-2026-11-12 20:57:50,761 INFO   Chunk: 2025-07-28 -> 2025-07-31  2024-25 Playoffs
-2026-11-12 20:57:50,762 INFO 2024-25 Playoffs 2025-07-28..2025-07-31: no rows (no games in this window)
-2026-11-12 20:57:51,450 INFO   Chunk: 2025-10-01 -> 2025-11-29  2025-26 Regular Season
-2026-11-12 20:57:51,451 INFO 2025-26 Regular Season 2025-10-01..2025-11-29: 6403 player rows
-2026-11-12 20:57:51,741 INFO   Chunk: 2025-10-01 -> 2025-11-29  2025-26 Playoffs
-2026-11-12 20:57:51,741 INFO 2025-26 Playoffs 2025-10-01..2025-11-29: no rows (no games in this window)
-2026-11-12 20:57:52,517 INFO   Chunk: 2025-11-30 -> 2026-01-28  2025-26 Regular Season
-2026-11-12 20:57:52,518 INFO 2025-26 Regular Season 2025-11-30..2026-01-28: 8937 player rows
-2026-11-12 20:57:52,738 INFO   Chunk: 2025-11-30 -> 2026-01-28  2025-26 Playoffs
-2026-11-12 20:57:52,739 INFO 2025-26 Playoffs 2025-11-30..2026-01-28: no rows (no games in this window)
-2026-11-12 20:57:53,513 INFO   Chunk: 2026-01-29 -> 2026-03-29  2025-26 Regular Season
-2026-11-12 20:57:53,514 INFO 2025-26 Regular Season 2026-01-29..2026-03-29: 8921 player rows
-2026-11-12 20:57:53,820 INFO   Chunk: 2026-01-29 -> 2026-03-29  2025-26 Playoffs
-2026-11-12 20:57:53,820 INFO 2025-26 Playoffs 2026-01-29..2026-03-29: no rows (no games in this window)
-2026-11-12 20:57:54,481 INFO   Chunk: 2026-03-30 -> 2026-05-28  2025-26 Regular Season
-2026-11-12 20:57:54,482 INFO 2025-26 Regular Season 2026-03-30..2026-05-28: 2390 player rows
-2026-11-12 20:57:54,845 INFO   Chunk: 2026-03-30 -> 2026-05-28  2025-26 Playoffs
-2026-11-12 20:57:54,846 INFO 2025-26 Playoffs 2026-03-30..2026-05-28: 1801 player rows
-2026-11-12 20:57:55,286 INFO   Chunk: 2026-05-29 -> 2026-07-27  2025-26 Regular Season
-2026-11-12 20:57:55,287 INFO 2025-26 Regular Season 2026-05-29..2026-07-27: no rows (no games in this window)
-2026-11-12 20:57:55,904 INFO   Chunk: 2026-05-29 -> 2026-07-27  2025-26 Playoffs
-2026-11-12 20:57:55,904 INFO 2025-26 Playoffs 2026-05-29..2026-07-27: 120 player rows
-2026-11-12 20:57:56,260 INFO   Chunk: 2026-07-28 -> 2026-07-31  2025-26 Regular Season
-2026-11-12 20:57:56,260 INFO 2025-26 Regular Season 2026-07-28..2026-07-31: no rows (no games in this window)
-2026-11-12 20:57:56,727 INFO   Chunk: 2026-07-28 -> 2026-07-31  2025-26 Playoffs
-2026-11-12 20:57:56,728 INFO 2025-26 Playoffs 2026-07-28..2026-07-31: no rows (no games in this window)
-2026-11-12 20:57:57,424 INFO   Chunk: 2026-10-01 -> 2026-11-12  2026-27 Regular Season
-2026-11-12 20:57:57,425 INFO 2026-27 Regular Season 2026-10-01..2026-11-12: 3843 player rows
-2026-11-12 20:57:57,753 INFO   Chunk: 2026-10-01 -> 2026-11-12  2026-27 Playoffs
-2026-11-12 20:57:57,754 INFO 2026-27 Playoffs 2026-10-01..2026-11-12: no rows (no games in this window)
-season log slices: 100%|##########| 36/36 [00:18<00:00,  1.99slice/s]
-2026-11-12 20:57:57,755 INFO season log: 88611 player row(s) over 36 slice(s); 1.99 slice/s against a 2.00/s gate (100% of ceiling)
-2026-11-12 20:58:00,287 WARNING 18 scheduled game(s) have no season-log match; they have no player lines and no play-by-play: 401607495 (2023-12-09 LAL@IND), 401585204 (2024-01-17 UTA@GSW), 401585217 (2024-01-19 GSW@DAL), 401734908 (2024-12-17 OKC@MIL), 401705090 (2025-01-09 LAL@CHA), 401705098 (2025-01-11 ATL@HOU), 401705103 (2025-01-11 LAL@SAS), 401705104 (2025-01-11 LAC@CHA), 401705183 (2025-01-22 NOP@MIL), 401809839 (2025-12-16 NYK@SAS), 401810384 (2026-01-08 CHI@MIA), 401810499 (2026-01-24 MIN@GSW), 401810506 (2026-01-25 MEM@DEN), 401810507 (2026-01-25 MIL@DAL), 401909976 (2026-11-12 PHI@TOR), 401909977 (2026-11-12 WAS@DET), 401909978 (2026-11-12 MIN@DAL), 401909979 (2026-11-12 PHX@CHA)
-2026-11-12 20:58:00,535 WARNING 18 game(s) carry no NBA game id; they have no play-by-play to fetch and are not swept: 401607495 (2023-12-09 LAL@IND), 401585204 (2024-01-17 UTA@GSW), 401585217 (2024-01-19 GSW@DAL), 401734908 (2024-12-17 OKC@MIL), 401705090 (2025-01-09 LAL@CHA), 401705098 (2025-01-11 ATL@HOU), 401705103 (2025-01-11 LAL@SAS), 401705104 (2025-01-11 LAC@CHA), 401705183 (2025-01-22 NOP@MIL), 401809839 (2025-12-16 NYK@SAS), 401810384 (2026-01-08 CHI@MIA), 401810499 (2026-01-24 MIN@GSW), 401810506 (2026-01-25 MEM@DEN), 401810507 (2026-01-25 MIL@DAL), 401909976 (2026-11-12 PHI@TOR), 401909977 (2026-11-12 WAS@DET), 401909978 (2026-11-12 MIN@DAL), 401909979 (2026-11-12 PHX@CHA)
-2026-11-12 20:58:00,619 INFO play-by-play backfill: 4111 game(s) have no cached rollup; the sweep covers the full window
-2026-11-12 20:58:00,620 INFO play-by-play: 4111 candidate game(s), sweeping 4111 on 4 worker(s), at most one request start every 0.25s
-play-by-play: 100%|##########| 4111/4111 [17:09<00:00,  3.99game/s, 0022600226]
-2026-11-12 21:15:09,964 INFO play-by-play: 4111 fetched, 0 from cache, 0 unavailable; 3.99 game/s against a 4.00/s gate (100% of ceiling)
-2026-11-12 21:16:02,211 INFO event rollup archive not absorbed under NBA_FULL_REPULL; this run's sweep of 8222 team-game(s) is the only source
-2026-11-12 21:16:02,302 INFO 3 finished game(s) have no season-log player lines and so no features; they are excluded from training. These are the postponed, neutral-site and all-star games, not a join failure: 2023-12-09 IND@LAL, 2024-12-17 MIL@OKC, 2025-12-16 SAS@NYK
-2026-11-12 21:16:02,343 INFO NBA facts: 4129 games, 8222 team rows, 88611 player rows, 2039216 play-by-play actions, 8222 event rows
-2026-11-12 21:16:02,343 INFO ingest timing: 1236s = schedule 133s + season log 18s + play-by-play 1035s + contract 0s + archive 49s (download allowed; 4129 game(s), 88611 player row(s), 2039216 play-by-play action(s))
-  ✅ facts: 4129 games, 88611 player rows, 8222 event rows, 2039216 play-by-play actions
-2026-11-12 21:16:02,964 INFO   phase 1/11  ingest schedule  (2m13s)
-2026-11-12 21:16:02,965 INFO   phase 2/11  ingest features  (18s)
-2026-11-12 21:16:02,965 INFO   phase 3/11  ingest play-by-play  (18m03s)
-2026-11-12 21:16:02,993 INFO 3 finished game(s) have no season-log player lines and so no features; they are excluded from training. These are the postponed, neutral-site and all-star games, not a join failure: 2023-12-09 IND@LAL, 2024-12-17 MIL@OKC, 2025-12-16 SAS@NYK
-2026-11-12 21:16:03,004 INFO excluding 11 postponed game(s) from the slate: 401585204, 401585217, 401705090, 401705098, 401705103, 401705104, 401705183, 401810384, 401810499, 401810506, 401810507
-2026-11-12 21:16:11,597 INFO game feature build: 9s (4111 decided game(s), 186 column(s))
-2026-11-12 21:16:12,046 INFO positions for 2023-24 written: 572 players from 3 of 3 positions
-2026-11-12 21:16:12,348 INFO positions for 2024-25 written: 569 players from 3 of 3 positions
-2026-11-12 21:16:13,204 INFO positions for 2025-26 written: 582 players from 3 of 3 positions
-2026-11-12 21:16:14,067 INFO positions for 2026-27 written: 464 players from 3 of 3 positions
-2026-11-12 21:16:15,215 INFO designation archive repopulate: resolving 647 decided day(s) 2023-10-24..2026-11-11 (archive covers 645 day(s))
-2026-11-12 21:17:46,358 INFO designation archive repopulate: 25/647 day(s) resolved (25 with rows)
-2026-11-12 21:17:49,671 WARNING no filing lists BOS@NYK before tipoff on 2023-10-25: game uncovered
-2026-11-12 21:19:16,870 INFO designation archive repopulate: 50/647 day(s) resolved (50 with rows)
-2026-11-12 21:20:57,344 INFO designation archive repopulate: 75/647 day(s) resolved (75 with rows)
-2026-11-12 21:22:47,499 INFO designation archive repopulate: 100/647 day(s) resolved (100 with rows)
-2026-11-12 21:23:12,010 WARNING no filing lists DAL@GSW before tipoff on 2024-01-19: game uncovered
-2026-11-12 21:24:31,155 INFO designation archive repopulate: 125/647 day(s) resolved (125 with rows)
-2026-11-12 21:26:20,665 INFO designation archive repopulate: 150/647 day(s) resolved (150 with rows)
-2026-11-12 21:27:31,671 INFO designation archive repopulate: 175/647 day(s) resolved (175 with rows)
-2026-11-12 21:27:52,004 INFO designation archive repopulate: 200/647 day(s) resolved (200 with rows)
-2026-11-12 21:29:14,428 INFO designation archive repopulate: 225/647 day(s) resolved (225 with rows)
-2026-11-12 21:31:04,936 INFO designation archive repopulate: 250/647 day(s) resolved (250 with rows)
-2026-11-12 21:32:42,765 INFO designation archive repopulate: 275/647 day(s) resolved (275 with rows)
-2026-11-12 21:34:32,445 INFO designation archive repopulate: 300/647 day(s) resolved (300 with rows)
-2026-11-12 21:36:30,683 INFO designation archive repopulate: 325/647 day(s) resolved (325 with rows)
-2026-11-12 21:38:39,967 INFO designation archive repopulate: 350/647 day(s) resolved (350 with rows)
-2026-11-12 21:40:14,871 INFO designation archive repopulate: 375/647 day(s) resolved (375 with rows)
-2026-11-12 21:40:44,202 INFO designation archive repopulate: 400/647 day(s) resolved (400 with rows)
-2026-11-12 21:41:40,370 INFO designation archive repopulate: 425/647 day(s) resolved (425 with rows)
-2026-11-12 21:42:19,581 WARNING no filing lists NYK@BOS before tipoff on 2025-05-05: game uncovered
-2026-11-12 21:43:19,514 INFO designation archive repopulate: 450/647 day(s) resolved (450 with rows)
-2026-11-12 21:44:42,717 INFO designation archive repopulate: 475/647 day(s) resolved (475 with rows)
-2026-11-12 21:46:51,336 INFO designation archive repopulate: 500/647 day(s) resolved (500 with rows)
-2026-11-12 21:49:00,367 INFO designation archive repopulate: 525/647 day(s) resolved (525 with rows)
-2026-11-12 21:51:05,202 INFO designation archive repopulate: 550/647 day(s) resolved (550 with rows)
-2026-11-12 21:53:18,001 INFO designation archive repopulate: 575/647 day(s) resolved (575 with rows)
-2026-11-12 21:54:19,306 INFO designation archive repopulate: 600/647 day(s) resolved (600 with rows)
-2026-11-12 21:55:12,998 INFO designation archive repopulate: 625/647 day(s) resolved (625 with rows)
-2026-11-12 21:56:31,307 WARNING no filing lists CLE@NYK before tipoff on 2026-05-21: game uncovered
-2026-11-12 21:56:33,255 WARNING no filing lists NYK@CLE before tipoff on 2026-05-23: game uncovered
-2026-11-12 21:57:20,468 INFO designation archive repopulate: 647/647 day(s) resolved (645 with rows)
-consolidated 43469 records from 54 shard(s) -> /root/.cache/sports_prediction_model/nba/nba_designations.parquet
-2026-11-12 21:57:22,513 INFO designation archive full: 645 day(s) resolved, 43469 new row(s), archive now 43469 row(s) -> /kaggle/working/sports_prediction_model/nba-backend/data_delivery/nba_designations.parquet (injury-report host answered 423 403(s) during refresh)
-2026-11-12 21:57:22,513 INFO designation archive full timing: 2468s phase = resolve 2465s + merge 0s + write 2s; filings 4920 parsed in 2229s (453 ms each, 0 unparseable), pdfs 4237 disk-hit / 4444 fetched; requests 4867 in 5792s worker-time, 423 403(s), 84 known-missing skip(s)
-2026-11-12 21:57:22,514 WARNING injury-report host answered 423 403(s) resolving the archive; days it throttled are uncovered, not filled - a rate-limited refresh looks like an empty archive
-2026-11-12 21:57:22,896 INFO PIT designations: 43469 record(s) from the published archive
-2026-11-12 21:57:56,217 WARNING no filing lists DAL@GSW before tipoff on 2024-01-19: game uncovered
-2026-11-12 21:58:08,830 WARNING injury-report host answered 423 403(s) resolving the slate; designation coverage may be incomplete
-2026-11-12 21:58:08,833 INFO slate designations resolved live: 160 record(s) across 8 date(s), 156 with a submission status
-2026-11-12 21:58:09,181 WARNING current roster unresolved (ValueError: incomplete or ambiguous official league roster); using dated history/strict-prior appearances
-2026-11-12 22:02:14,702 INFO DARKO history: 352865 rows for 876 player(s)
-2026-11-12 22:02:15,596 INFO DARKO rating: 100.0% of rows carry a DPM value
-2026-11-12 22:02:30,388 INFO DARKO expected minutes: 39.4% of rows carry x_minutes
-2026-11-12 22:08:24,077 INFO waterfall minutes redistribution (position-feature build): 12444 donor(s), 274524.8 minute(s) absorbed, 20460.2 vanished (489 no-survivor), 30919 spill(s)
-2026-11-12 22:08:24,135 INFO projected-lineup feature build: 3133s (4114 row(s), 23 feature column(s))
-2026-11-12 22:08:24,160 INFO crossmatch features attached: 4088/4111 decided rows carry them
-2026-11-12 22:08:24,161 INFO star-out features attached: 4096/4111 decided rows carry them
-2026-11-12 22:08:24,162 INFO o-pts features attached: 4096/4111 decided rows carry them
-2026-11-12 22:08:24,182 INFO crossmatch coverage gap: 23/4111 decided rows lack crossmatch features; by days into their season: 23 within the 10-day pool lookback, 0 more within the 30-day recency window, 0 beyond it - early-season rows are structural, not a build failure
-2026-11-12 22:08:24,294 WARNING OOF validation population is thin on 22 of 88 window(s) (< MIN_VAL_FOLD_GAMES=40 games): [2024-04-23..2024-04-29 n=22 postseason], [2024-04-30..2024-05-06 n=13 postseason], [2024-05-07..2024-05-13 n=13 postseason], [2024-05-14..2024-05-21 n=10 postseason], [2024-05-22..2024-05-28 n=7 postseason], +17 more - retained and scored, but PROVISIONAL: excluded from pooled metrics, blend weights and calibration (playoff weeks and season ramps are the usual cause)
-2026-11-12 22:08:24,299 INFO OOF season-type split: 21 window(s) carry postseason games (251 rows); their playoff rows are reported as oof_postseason and never grade the blend
+2026-11-13 01:55:48,730 INFO NBA window 2023-01-01..2026-11-13 (download allowed)
+2026-11-13 01:55:48,730 INFO schedule: 1413 day(s) from 2023-01-01 to 2026-11-13, one request per day (ESPN's scoreboard has no date range); 4 worker(s), at most one request start every 0.10s
+2026-11-13 01:55:48,780 INFO   Chunk: 2023-01-01 -> 2023-03-01
+2026-11-13 01:55:48,911 INFO     -> 395 game(s) over 60 day(s) (0 fetched, 60 from cache)
+schedule: 100%|##########| 60/60 [00:00<00:00, 452.94day/s]
+2026-11-13 01:55:48,913 INFO   Chunk: 2023-03-02 -> 2023-04-30
+2026-11-13 01:55:49,036 INFO     -> 335 game(s) over 60 day(s) (0 fetched, 60 from cache)
+schedule: 100%|##########| 60/60 [00:00<00:00, 489.42day/s]
+2026-11-13 01:55:49,037 INFO   Chunk: 2023-05-01 -> 2023-06-29
+2026-11-13 01:55:49,133 INFO     -> 39 game(s) over 60 day(s) (0 fetched, 60 from cache)
+schedule: 100%|##########| 60/60 [00:00<00:00, 621.38day/s]
+2026-11-13 01:55:49,134 INFO   Chunk: 2023-06-30 -> 2023-08-28
+2026-11-13 01:55:49,194 INFO     -> 0 game(s) over 60 day(s) (0 fetched, 60 from cache)
+schedule: 100%|##########| 60/60 [00:00<00:00, 986.77day/s]
+2026-11-13 01:55:49,195 INFO   Chunk: 2023-08-29 -> 2023-10-27
+2026-11-13 01:55:49,259 INFO     -> 27 game(s) over 60 day(s) (0 fetched, 60 from cache)
+schedule: 100%|##########| 60/60 [00:00<00:00, 917.53day/s]
+2026-11-13 01:55:49,261 INFO   Chunk: 2023-10-28 -> 2023-12-26
+2026-11-13 01:55:49,411 INFO     -> 418 game(s) over 60 day(s) (0 fetched, 60 from cache)
+schedule: 100%|##########| 60/60 [00:00<00:00, 405.25day/s]
+2026-11-13 01:55:49,412 INFO   Chunk: 2023-12-27 -> 2024-02-24
+2026-11-13 01:55:49,514 INFO     -> 403 game(s) over 60 day(s) (0 fetched, 60 from cache)
+schedule: 100%|##########| 60/60 [00:00<00:00, 576.58day/s]
+2026-11-13 01:55:49,516 INFO   Chunk: 2024-02-25 -> 2024-04-24
+2026-11-13 01:55:49,616 INFO     -> 401 game(s) over 60 day(s) (0 fetched, 60 from cache)
+schedule: 100%|##########| 60/60 [00:00<00:00, 598.78day/s]
+2026-11-13 01:55:49,617 INFO   Chunk: 2024-04-25 -> 2024-06-23
+2026-11-13 01:55:49,704 INFO     -> 66 game(s) over 60 day(s) (0 fetched, 60 from cache)
+schedule: 100%|##########| 60/60 [00:00<00:00, 690.78day/s]
+2026-11-13 01:55:49,705 INFO   Chunk: 2024-06-24 -> 2024-08-22
+2026-11-13 01:55:49,764 INFO     -> 0 game(s) over 60 day(s) (0 fetched, 60 from cache)
+schedule: 100%|##########| 60/60 [00:00<00:00, 1006.81day/s]
+2026-11-13 01:55:49,765 INFO   Chunk: 2024-08-23 -> 2024-10-21
+2026-11-13 01:55:49,824 INFO     -> 0 game(s) over 60 day(s) (0 fetched, 60 from cache)
+schedule: 100%|##########| 60/60 [00:00<00:00, 1018.45day/s]
+2026-11-13 01:55:49,825 INFO   Chunk: 2024-10-22 -> 2024-12-20
+2026-11-13 01:55:49,923 INFO     -> 406 game(s) over 60 day(s) (0 fetched, 60 from cache)
+schedule: 100%|##########| 60/60 [00:00<00:00, 616.94day/s]
+2026-11-13 01:55:49,923 INFO   Chunk: 2024-12-21 -> 2025-02-18
+2026-11-13 01:55:50,020 INFO     -> 414 game(s) over 60 day(s) (0 fetched, 60 from cache)
+schedule: 100%|##########| 60/60 [00:00<00:00, 619.35day/s]
+2026-11-13 01:55:50,021 INFO   Chunk: 2025-02-19 -> 2025-04-19
+2026-11-13 01:55:50,116 INFO     -> 420 game(s) over 60 day(s) (0 fetched, 60 from cache)
+schedule: 100%|##########| 60/60 [00:00<00:00, 635.39day/s]
+2026-11-13 01:55:50,118 INFO   Chunk: 2025-04-20 -> 2025-06-18
+2026-11-13 01:55:50,200 INFO     -> 78 game(s) over 60 day(s) (0 fetched, 60 from cache)
+schedule: 100%|##########| 60/60 [00:00<00:00, 726.07day/s]
+2026-11-13 01:55:50,202 INFO   Chunk: 2025-06-19 -> 2025-08-17
+2026-11-13 01:55:50,260 INFO     -> 2 game(s) over 60 day(s) (0 fetched, 60 from cache)
+schedule: 100%|##########| 60/60 [00:00<00:00, 1005.98day/s]
+2026-11-13 01:55:50,262 INFO   Chunk: 2025-08-18 -> 2025-10-16
+2026-11-13 01:55:50,322 INFO     -> 0 game(s) over 60 day(s) (0 fetched, 60 from cache)
+schedule: 100%|##########| 60/60 [00:00<00:00, 967.43day/s]
+2026-11-13 01:55:50,325 INFO   Chunk: 2025-10-17 -> 2025-12-15
+2026-11-13 01:55:50,429 INFO     -> 387 game(s) over 60 day(s) (0 fetched, 60 from cache)
+schedule: 100%|##########| 60/60 [00:00<00:00, 569.21day/s]
+2026-11-13 01:55:50,431 INFO   Chunk: 2025-12-16 -> 2026-02-13
+2026-11-13 01:55:50,533 INFO     -> 437 game(s) over 60 day(s) (0 fetched, 60 from cache)
+schedule: 100%|##########| 60/60 [00:00<00:00, 581.51day/s]
+2026-11-13 01:55:50,535 INFO   Chunk: 2026-02-14 -> 2026-04-14
+2026-11-13 01:55:50,643 INFO     -> 411 game(s) over 60 day(s) (0 fetched, 60 from cache)
+schedule: 100%|##########| 60/60 [00:00<00:00, 554.90day/s]
+2026-11-13 01:55:50,644 INFO   Chunk: 2026-04-15 -> 2026-06-13
+2026-11-13 01:55:50,741 INFO     -> 85 game(s) over 60 day(s) (0 fetched, 60 from cache)
+schedule: 100%|##########| 60/60 [00:00<00:00, 612.85day/s]
+2026-11-13 01:55:50,742 INFO   Chunk: 2026-06-14 -> 2026-08-12
+2026-11-13 01:55:50,798 INFO     -> 0 game(s) over 60 day(s) (0 fetched, 60 from cache)
+schedule: 100%|##########| 60/60 [00:00<00:00, 1067.36day/s]
+2026-11-13 01:55:50,799 INFO   Chunk: 2026-08-13 -> 2026-10-11
+2026-11-13 01:55:50,856 INFO     -> 0 game(s) over 60 day(s) (0 fetched, 60 from cache)
+schedule: 100%|##########| 60/60 [00:00<00:00, 1064.29day/s]
+2026-11-13 01:55:50,857 INFO   Chunk: 2026-10-12 -> 2026-11-13
+2026-11-13 01:55:50,907 INFO     -> 183 game(s) over 33 day(s) (0 fetched, 33 from cache)
+schedule: 100%|##########| 33/33 [00:00<00:00, 666.77day/s]
+2026-11-13 01:55:50,969 INFO schedule: 4907 games over 1413 days (0 fetched, 1413 from cache)
+2026-11-13 01:55:50,975 INFO season log: 46 request(s) of up to 60 day(s) over 2023-01-01..2026-11-13 (NBA_SLICE_DAYS overrides the width); 4 worker(s)
+2026-11-13 01:55:51,006 INFO   Chunk: 2023-01-01 -> 2023-03-01  2022-23 Regular Season
+2026-11-13 01:55:51,006 INFO 2022-23 Regular Season 2023-01-01..2023-03-01: 8207 rows from cache
+2026-11-13 01:55:51,007 INFO   Chunk: 2023-01-01 -> 2023-03-01  2022-23 Playoffs
+2026-11-13 01:55:51,007 INFO 2022-23 Playoffs 2023-01-01..2023-03-01: cached, no games in this window
+2026-11-13 01:55:51,008 INFO   Chunk: 2023-03-02 -> 2023-04-30  2022-23 Regular Season
+2026-11-13 01:55:51,008 INFO 2022-23 Regular Season 2023-03-02..2023-04-30: 6061 rows from cache
+2026-11-13 01:55:51,009 INFO   Chunk: 2023-03-02 -> 2023-04-30  2022-23 Playoffs
+2026-11-13 01:55:51,010 INFO 2022-23 Playoffs 2023-03-02..2023-04-30: 930 rows from cache
+2026-11-13 01:55:51,012 INFO   Chunk: 2023-05-01 -> 2023-06-29  2022-23 Regular Season
+2026-11-13 01:55:51,013 INFO 2022-23 Regular Season 2023-05-01..2023-06-29: cached, no games in this window
+2026-11-13 01:55:51,019 INFO   Chunk: 2023-05-01 -> 2023-06-29  2022-23 Playoffs
+2026-11-13 01:55:51,019 INFO 2022-23 Playoffs 2023-05-01..2023-06-29: 798 rows from cache
+2026-11-13 01:55:51,020 INFO   Chunk: 2023-06-30 -> 2023-07-31  2022-23 Regular Season
+2026-11-13 01:55:51,021 INFO 2022-23 Regular Season 2023-06-30..2023-07-31: cached, no games in this window
+2026-11-13 01:55:51,021 INFO   Chunk: 2023-06-30 -> 2023-07-31  2022-23 Playoffs
+2026-11-13 01:55:51,022 INFO 2022-23 Playoffs 2023-06-30..2023-07-31: cached, no games in this window
+2026-11-13 01:55:51,031 INFO   Chunk: 2023-10-01 -> 2023-11-29  2023-24 Regular Season
+2026-11-13 01:55:51,031 INFO 2023-24 Regular Season 2023-10-01..2023-11-29: 5717 rows from cache
+2026-11-13 01:55:51,031 INFO   Chunk: 2023-10-01 -> 2023-11-29  2023-24 Playoffs
+2026-11-13 01:55:51,032 INFO 2023-24 Playoffs 2023-10-01..2023-11-29: cached, no games in this window
+2026-11-13 01:55:51,043 INFO   Chunk: 2023-11-30 -> 2024-01-28  2023-24 Regular Season
+2026-11-13 01:55:51,043 INFO 2023-24 Regular Season 2023-11-30..2024-01-28: 9028 rows from cache
+2026-11-13 01:55:51,044 INFO   Chunk: 2023-11-30 -> 2024-01-28  2023-24 Playoffs
+2026-11-13 01:55:51,045 INFO 2023-24 Playoffs 2023-11-30..2024-01-28: cached, no games in this window
+2026-11-13 01:55:51,060 INFO   Chunk: 2024-01-29 -> 2024-03-28  2023-24 Regular Season
+2026-11-13 01:55:51,060 INFO 2023-24 Regular Season 2024-01-29..2024-03-28: 8641 rows from cache
+2026-11-13 01:55:51,061 INFO   Chunk: 2024-01-29 -> 2024-03-28  2023-24 Playoffs
+2026-11-13 01:55:51,064 INFO 2023-24 Playoffs 2024-01-29..2024-03-28: cached, no games in this window
+2026-11-13 01:55:51,070 INFO   Chunk: 2024-03-29 -> 2024-05-27  2023-24 Regular Season
+2026-11-13 01:55:51,072 INFO 2023-24 Regular Season 2024-03-29..2024-05-27: 3015 rows from cache
+2026-11-13 01:55:51,075 INFO   Chunk: 2024-03-29 -> 2024-05-27  2023-24 Playoffs
+2026-11-13 01:55:51,076 INFO 2023-24 Playoffs 2024-03-29..2024-05-27: 1528 rows from cache
+2026-11-13 01:55:51,079 INFO   Chunk: 2024-05-28 -> 2024-07-26  2023-24 Regular Season
+2026-11-13 01:55:51,080 INFO 2023-24 Regular Season 2024-05-28..2024-07-26: cached, no games in this window
+2026-11-13 01:55:51,081 INFO   Chunk: 2024-05-28 -> 2024-07-26  2023-24 Playoffs
+2026-11-13 01:55:51,082 INFO 2023-24 Playoffs 2024-05-28..2024-07-26: 157 rows from cache
+2026-11-13 01:55:51,083 INFO   Chunk: 2024-07-27 -> 2024-07-31  2023-24 Regular Season
+2026-11-13 01:55:51,084 INFO 2023-24 Regular Season 2024-07-27..2024-07-31: cached, no games in this window
+2026-11-13 01:55:51,085 INFO   Chunk: 2024-07-27 -> 2024-07-31  2023-24 Playoffs
+2026-11-13 01:55:51,086 INFO 2023-24 Playoffs 2024-07-27..2024-07-31: cached, no games in this window
+2026-11-13 01:55:51,101 INFO   Chunk: 2024-10-01 -> 2024-11-29  2024-25 Regular Season
+2026-11-13 01:55:51,108 INFO 2024-25 Regular Season 2024-10-01..2024-11-29: 6274 rows from cache
+2026-11-13 01:55:51,109 INFO   Chunk: 2024-10-01 -> 2024-11-29  2024-25 Playoffs
+2026-11-13 01:55:51,110 INFO 2024-25 Playoffs 2024-10-01..2024-11-29: cached, no games in this window
+2026-11-13 01:55:51,111 INFO   Chunk: 2024-11-30 -> 2025-01-28  2024-25 Regular Season
+2026-11-13 01:55:51,112 INFO 2024-25 Regular Season 2024-11-30..2025-01-28: 8550 rows from cache
+2026-11-13 01:55:51,113 INFO   Chunk: 2024-11-30 -> 2025-01-28  2024-25 Playoffs
+2026-11-13 01:55:51,115 INFO 2024-25 Playoffs 2024-11-30..2025-01-28: cached, no games in this window
+2026-11-13 01:55:51,137 INFO   Chunk: 2025-01-29 -> 2025-03-29  2024-25 Regular Season
+2026-11-13 01:55:51,138 INFO 2024-25 Regular Season 2025-01-29..2025-03-29: 8926 rows from cache
+2026-11-13 01:55:51,139 INFO   Chunk: 2025-01-29 -> 2025-03-29  2024-25 Playoffs
+2026-11-13 01:55:51,140 INFO 2024-25 Playoffs 2025-01-29..2025-03-29: cached, no games in this window
+2026-11-13 01:55:51,141 INFO   Chunk: 2025-03-30 -> 2025-05-28  2024-25 Regular Season
+2026-11-13 01:55:51,145 INFO 2024-25 Regular Season 2025-03-30..2025-05-28: 2556 rows from cache
+2026-11-13 01:55:51,147 INFO   Chunk: 2025-03-30 -> 2025-05-28  2024-25 Playoffs
+2026-11-13 01:55:51,149 INFO 2024-25 Playoffs 2025-03-30..2025-05-28: 1595 rows from cache
+2026-11-13 01:55:51,150 INFO   Chunk: 2025-05-29 -> 2025-07-27  2024-25 Regular Season
+2026-11-13 01:55:51,153 INFO 2024-25 Regular Season 2025-05-29..2025-07-27: cached, no games in this window
+2026-11-13 01:55:51,158 INFO   Chunk: 2025-05-29 -> 2025-07-27  2024-25 Playoffs
+2026-11-13 01:55:51,159 INFO 2024-25 Playoffs 2025-05-29..2025-07-27: 209 rows from cache
+2026-11-13 01:55:51,160 INFO   Chunk: 2025-07-28 -> 2025-07-31  2024-25 Regular Season
+2026-11-13 01:55:51,161 INFO 2024-25 Regular Season 2025-07-28..2025-07-31: cached, no games in this window
+2026-11-13 01:55:51,162 INFO   Chunk: 2025-07-28 -> 2025-07-31  2024-25 Playoffs
+2026-11-13 01:55:51,164 INFO 2024-25 Playoffs 2025-07-28..2025-07-31: cached, no games in this window
+2026-11-13 01:55:51,183 INFO   Chunk: 2025-10-01 -> 2025-11-29  2025-26 Regular Season
+2026-11-13 01:55:51,184 INFO 2025-26 Regular Season 2025-10-01..2025-11-29: 6403 rows from cache
+2026-11-13 01:55:51,185 INFO   Chunk: 2025-10-01 -> 2025-11-29  2025-26 Playoffs
+2026-11-13 01:55:51,187 INFO 2025-26 Playoffs 2025-10-01..2025-11-29: cached, no games in this window
+2026-11-13 01:55:51,201 INFO   Chunk: 2025-11-30 -> 2026-01-28  2025-26 Regular Season
+2026-11-13 01:55:51,202 INFO 2025-26 Regular Season 2025-11-30..2026-01-28: 8937 rows from cache
+2026-11-13 01:55:51,208 INFO   Chunk: 2025-11-30 -> 2026-01-28  2025-26 Playoffs
+2026-11-13 01:55:51,215 INFO 2025-26 Playoffs 2025-11-30..2026-01-28: cached, no games in this window
+2026-11-13 01:55:51,216 INFO   Chunk: 2026-01-29 -> 2026-03-29  2025-26 Regular Season
+2026-11-13 01:55:51,218 INFO 2025-26 Regular Season 2026-01-29..2026-03-29: 8921 rows from cache
+2026-11-13 01:55:51,219 INFO   Chunk: 2026-01-29 -> 2026-03-29  2025-26 Playoffs
+2026-11-13 01:55:51,221 INFO 2025-26 Playoffs 2026-01-29..2026-03-29: cached, no games in this window
+2026-11-13 01:55:51,227 INFO   Chunk: 2026-03-30 -> 2026-05-28  2025-26 Regular Season
+2026-11-13 01:55:51,232 INFO 2025-26 Regular Season 2026-03-30..2026-05-28: 2390 rows from cache
+2026-11-13 01:55:51,232 INFO   Chunk: 2026-03-30 -> 2026-05-28  2025-26 Playoffs
+2026-11-13 01:55:51,236 INFO 2025-26 Playoffs 2026-03-30..2026-05-28: 1801 rows from cache
+2026-11-13 01:55:51,237 INFO   Chunk: 2026-05-29 -> 2026-07-27  2025-26 Regular Season
+2026-11-13 01:55:51,240 INFO 2025-26 Regular Season 2026-05-29..2026-07-27: cached, no games in this window
+2026-11-13 01:55:51,241 INFO   Chunk: 2026-05-29 -> 2026-07-27  2025-26 Playoffs
+2026-11-13 01:55:51,242 INFO 2025-26 Playoffs 2026-05-29..2026-07-27: 120 rows from cache
+2026-11-13 01:55:51,243 INFO   Chunk: 2026-07-28 -> 2026-07-31  2025-26 Regular Season
+2026-11-13 01:55:51,245 INFO 2025-26 Regular Season 2026-07-28..2026-07-31: cached, no games in this window
+2026-11-13 01:55:51,247 INFO   Chunk: 2026-07-28 -> 2026-07-31  2025-26 Playoffs
+2026-11-13 01:55:51,249 INFO 2025-26 Playoffs 2026-07-28..2026-07-31: cached, no games in this window
+2026-11-13 01:55:51,254 INFO   Chunk: 2026-10-01 -> 2026-11-13  2026-27 Regular Season
+2026-11-13 01:55:51,254 INFO 2026-27 Regular Season 2026-10-01..2026-11-13: 3843 rows from cache
+2026-11-13 01:55:51,255 INFO   Chunk: 2026-10-01 -> 2026-11-13  2026-27 Playoffs
+2026-11-13 01:55:51,255 INFO 2026-27 Playoffs 2026-10-01..2026-11-13: cached, no games in this window
+season log slices: 100%|##########| 46/46 [00:00<00:00, 163.90slice/s]
+2026-11-13 01:55:51,257 INFO season log: 104607 player row(s) over 46 slice(s)
+2026-11-13 01:55:53,093 WARNING 28 scheduled game(s) have no season-log match; they have no player lines and no play-by-play: 401468924 (2023-02-01 DET@WAS), 401607495 (2023-12-09 LAL@IND), 401585204 (2024-01-17 UTA@GSW), 401585217 (2024-01-19 GSW@DAL), 401734908 (2024-12-17 OKC@MIL), 401705090 (2025-01-09 LAL@CHA), 401705098 (2025-01-11 ATL@HOU), 401705103 (2025-01-11 LAL@SAS), 401705104 (2025-01-11 LAC@CHA), 401705183 (2025-01-22 NOP@MIL), 401809839 (2025-12-16 NYK@SAS), 401810384 (2026-01-08 CHI@MIA), 401810499 (2026-01-24 MIN@GSW), 401810506 (2026-01-25 MEM@DEN), 401810507 (2026-01-25 MIL@DAL), 401909976 (2026-11-12 PHI@TOR), 401909977 (2026-11-12 WAS@DET), 401909978 (2026-11-12 MIN@DAL), 401909979 (2026-11-12 PHX@CHA), 401909296 (2026-11-13 IND@NYK), 401909297 (2026-11-13 ORL@MIL), 401909298 (2026-11-13 MIA@CLE), 401909299 (2026-11-13 CHI@ATL), 401909300 (2026-11-13 NOP@MEM), 401909301 (2026-11-13 HOU@UTA) (+3 more)
+2026-11-13 01:55:53,235 WARNING 28 game(s) carry no NBA game id; they have no play-by-play to fetch and are not swept: 401468924 (2023-02-01 DET@WAS), 401607495 (2023-12-09 LAL@IND), 401585204 (2024-01-17 UTA@GSW), 401585217 (2024-01-19 GSW@DAL), 401734908 (2024-12-17 OKC@MIL), 401705090 (2025-01-09 LAL@CHA), 401705098 (2025-01-11 ATL@HOU), 401705103 (2025-01-11 LAL@SAS), 401705104 (2025-01-11 LAC@CHA), 401705183 (2025-01-22 NOP@MIL), 401809839 (2025-12-16 NYK@SAS), 401810384 (2026-01-08 CHI@MIA), 401810499 (2026-01-24 MIN@GSW), 401810506 (2026-01-25 MEM@DEN), 401810507 (2026-01-25 MIL@DAL), 401909976 (2026-11-12 PHI@TOR), 401909977 (2026-11-12 WAS@DET), 401909978 (2026-11-12 MIN@DAL), 401909979 (2026-11-12 PHX@CHA), 401909296 (2026-11-13 IND@NYK), 401909297 (2026-11-13 ORL@MIL), 401909298 (2026-11-13 MIA@CLE), 401909299 (2026-11-13 CHI@ATL), 401909300 (2026-11-13 NOP@MEM), 401909301 (2026-11-13 HOU@UTA) (+3 more)
+2026-11-13 01:55:53,320 INFO play-by-play backfill: cache complete, nothing to fill
+2026-11-13 01:55:53,320 INFO play-by-play: 4879 candidate game(s), sweeping 4879 on 4 worker(s), at most one request start every 0.25s
+play-by-play: 100%|##########| 4879/4879 [00:20<00:00, 241.00game/s, 0022600226]
+2026-11-13 01:56:13,565 INFO play-by-play: 0 fetched, 4879 from cache, 0 unavailable
+2026-11-13 01:56:47,213 INFO 3 finished game(s) have no season-log player lines and so no features; they are excluded from training. These are the postponed, neutral-site and all-star games, not a join failure: 2023-12-09 IND@LAL, 2024-12-17 MIL@OKC, 2025-12-16 SAS@NYK
+2026-11-13 01:56:47,234 INFO NBA facts: 4907 games, 9758 team rows, 104607 player rows, 2412704 play-by-play actions, 9758 event rows
+2026-11-13 01:56:47,234 INFO ingest timing: 59s = schedule 2s + season log 0s + play-by-play 24s + contract 0s + archive 31s (download allowed; 4907 game(s), 104607 player row(s), 2412704 play-by-play action(s))
+  ✅ facts: 4907 games, 104607 player rows, 9758 event rows, 2412704 play-by-play actions
+2026-11-13 01:56:47,461 INFO   phase 1/10  ingest schedule  (2s)
+2026-11-13 01:56:47,461 INFO   phase 2/10  ingest features  (0s)
+2026-11-13 01:56:47,461 INFO   phase 3/10  ingest play-by-play  (55s)
+2026-11-13 01:56:47,478 INFO 3 finished game(s) have no season-log player lines and so no features; they are excluded from training. These are the postponed, neutral-site and all-star games, not a join failure: 2023-12-09 IND@LAL, 2024-12-17 MIL@OKC, 2025-12-16 SAS@NYK
+2026-11-13 01:56:47,483 INFO excluding 12 postponed game(s) from the slate: 401468924, 401585204, 401585217, 401705090, 401705098, 401705103, 401705104, 401705183, 401810384, 401810499, 401810506, 401810507
+2026-11-13 01:56:53,843 INFO game feature build: 6s (4879 decided game(s), 185 column(s))
+2026-11-13 01:56:55,386 INFO positions for 2022-23 written: 539 players from 3 of 3 positions
+2026-11-13 01:56:55,736 INFO positions for 2023-24 written: 572 players from 3 of 3 positions
+2026-11-13 01:56:56,293 INFO positions for 2024-25 written: 569 players from 3 of 3 positions
+2026-11-13 01:56:57,122 INFO positions for 2025-26 written: 582 players from 3 of 3 positions
+2026-11-13 01:56:57,847 INFO positions for 2026-27 written: 464 players from 3 of 3 positions
+2026-11-13 01:56:58,542 INFO designation archive top-off: resolving 98 decided day(s) 2023-01-01..2026-05-23 (archive covers 687 day(s))
+2026-11-13 01:56:59,135 WARNING designation refresh: 2023-01-02 unresolved ('NoneType' object has no attribute 'matchup'); that day keeps its prior coverage
+2026-11-13 01:56:59,760 WARNING designation refresh: 2023-01-04 unresolved ('NoneType' object has no attribute 'matchup'); that day keeps its prior coverage
+2026-11-13 01:57:00,124 WARNING designation refresh: 2023-01-01 unresolved ('NoneType' object has no attribute 'matchup'); that day keeps its prior coverage
+2026-11-13 01:57:00,294 WARNING designation refresh: 2023-01-05 unresolved ('NoneType' object has no attribute 'matchup'); that day keeps its prior coverage
+2026-11-13 01:57:00,726 WARNING designation refresh: 2023-01-03 unresolved ('NoneType' object has no attribute 'matchup'); that day keeps its prior coverage
+2026-11-13 01:57:01,136 WARNING designation refresh: 2023-01-06 unresolved ('NoneType' object has no attribute 'matchup'); that day keeps its prior coverage
+2026-11-13 01:57:01,304 WARNING designation refresh: 2023-01-07 unresolved ('NoneType' object has no attribute 'matchup'); that day keeps its prior coverage
+2026-11-13 01:57:01,673 WARNING designation refresh: 2023-01-08 unresolved ('NoneType' object has no attribute 'matchup'); that day keeps its prior coverage
+2026-11-13 01:57:01,856 WARNING designation refresh: 2023-01-09 unresolved ('NoneType' object has no attribute 'matchup'); that day keeps its prior coverage
+2026-11-13 01:57:02,186 WARNING designation refresh: 2023-01-10 unresolved ('NoneType' object has no attribute 'matchup'); that day keeps its prior coverage
+2026-11-13 01:57:02,423 WARNING designation refresh: 2023-01-11 unresolved ('NoneType' object has no attribute 'matchup'); that day keeps its prior coverage
+2026-11-13 01:57:02,757 WARNING designation refresh: 2023-01-12 unresolved ('NoneType' object has no attribute 'matchup'); that day keeps its prior coverage
+2026-11-13 01:57:03,139 WARNING designation refresh: 2023-01-13 unresolved ('NoneType' object has no attribute 'matchup'); that day keeps its prior coverage
+2026-11-13 01:57:03,335 WARNING designation refresh: 2023-01-14 unresolved ('NoneType' object has no attribute 'matchup'); that day keeps its prior coverage
+2026-11-13 01:57:03,639 WARNING designation refresh: 2023-01-15 unresolved ('NoneType' object has no attribute 'matchup'); that day keeps its prior coverage
+2026-11-13 01:57:03,880 WARNING designation refresh: 2023-01-16 unresolved ('NoneType' object has no attribute 'matchup'); that day keeps its prior coverage
+2026-11-13 01:57:04,099 WARNING designation refresh: 2023-01-17 unresolved ('NoneType' object has no attribute 'matchup'); that day keeps its prior coverage
+2026-11-13 01:57:04,375 WARNING designation refresh: 2023-01-18 unresolved ('NoneType' object has no attribute 'matchup'); that day keeps its prior coverage
+2026-11-13 01:57:04,631 WARNING designation refresh: 2023-01-19 unresolved ('NoneType' object has no attribute 'matchup'); that day keeps its prior coverage
+2026-11-13 01:57:04,920 WARNING designation refresh: 2023-01-20 unresolved ('NoneType' object has no attribute 'matchup'); that day keeps its prior coverage
+2026-11-13 01:57:05,190 WARNING designation refresh: 2023-01-21 unresolved ('NoneType' object has no attribute 'matchup'); that day keeps its prior coverage
+2026-11-13 01:57:05,383 WARNING designation refresh: 2023-01-22 unresolved ('NoneType' object has no attribute 'matchup'); that day keeps its prior coverage
+2026-11-13 01:57:05,654 WARNING designation refresh: 2023-01-23 unresolved ('NoneType' object has no attribute 'matchup'); that day keeps its prior coverage
+2026-11-13 01:57:05,911 WARNING designation refresh: 2023-01-24 unresolved ('NoneType' object has no attribute 'matchup'); that day keeps its prior coverage
+2026-11-13 01:57:06,273 WARNING designation refresh: 2023-01-25 unresolved ('NoneType' object has no attribute 'matchup'); that day keeps its prior coverage
+2026-11-13 01:57:06,274 INFO designation archive top-off: 25/98 day(s) resolved (0 with rows)
+2026-11-13 01:57:06,465 WARNING designation refresh: 2023-01-26 unresolved ('NoneType' object has no attribute 'matchup'); that day keeps its prior coverage
+2026-11-13 01:57:06,757 WARNING designation refresh: 2023-01-27 unresolved ('NoneType' object has no attribute 'matchup'); that day keeps its prior coverage
+2026-11-13 01:57:07,110 WARNING designation refresh: 2023-01-28 unresolved ('NoneType' object has no attribute 'matchup'); that day keeps its prior coverage
+2026-11-13 01:57:07,473 WARNING designation refresh: 2023-01-30 unresolved ('NoneType' object has no attribute 'matchup'); that day keeps its prior coverage
+2026-11-13 01:57:07,778 WARNING designation refresh: 2023-01-31 unresolved ('NoneType' object has no attribute 'matchup'); that day keeps its prior coverage
+2026-11-13 01:57:08,022 WARNING designation refresh: 2023-02-01 unresolved ('NoneType' object has no attribute 'matchup'); that day keeps its prior coverage
+2026-11-13 01:57:08,243 WARNING designation refresh: 2023-01-29 unresolved ('NoneType' object has no attribute 'matchup'); that day keeps its prior coverage
+2026-11-13 01:57:08,457 WARNING designation refresh: 2023-02-02 unresolved ('NoneType' object has no attribute 'matchup'); that day keeps its prior coverage
+2026-11-13 01:57:08,789 WARNING designation refresh: 2023-02-03 unresolved ('NoneType' object has no attribute 'matchup'); that day keeps its prior coverage
+2026-11-13 01:57:09,152 WARNING designation refresh: 2023-02-04 unresolved ('NoneType' object has no attribute 'matchup'); that day keeps its prior coverage
+2026-11-13 01:57:09,337 WARNING designation refresh: 2023-02-05 unresolved ('NoneType' object has no attribute 'matchup'); that day keeps its prior coverage
+2026-11-13 01:57:09,700 WARNING designation refresh: 2023-02-06 unresolved ('NoneType' object has no attribute 'matchup'); that day keeps its prior coverage
+2026-11-13 01:57:09,945 WARNING designation refresh: 2023-02-07 unresolved ('NoneType' object has no attribute 'matchup'); that day keeps its prior coverage
+2026-11-13 01:57:10,265 WARNING designation refresh: 2023-02-08 unresolved ('NoneType' object has no attribute 'matchup'); that day keeps its prior coverage
+2026-11-13 01:57:10,463 WARNING designation refresh: 2023-02-09 unresolved ('NoneType' object has no attribute 'matchup'); that day keeps its prior coverage
+2026-11-13 01:57:10,886 WARNING designation refresh: 2023-02-10 unresolved ('NoneType' object has no attribute 'matchup'); that day keeps its prior coverage
+2026-11-13 01:57:11,116 WARNING designation refresh: 2023-02-11 unresolved ('NoneType' object has no attribute 'matchup'); that day keeps its prior coverage
+2026-11-13 01:57:11,622 WARNING designation refresh: 2023-02-13 unresolved ('NoneType' object has no attribute 'matchup'); that day keeps its prior coverage
+2026-11-13 01:57:12,163 WARNING designation refresh: 2023-02-15 unresolved ('NoneType' object has no attribute 'matchup'); that day keeps its prior coverage
+2026-11-13 01:57:12,367 WARNING designation refresh: 2023-02-12 unresolved ('NoneType' object has no attribute 'matchup'); that day keeps its prior coverage
+2026-11-13 01:57:12,617 WARNING designation refresh: 2023-02-23 unresolved ('NoneType' object has no attribute 'matchup'); that day keeps its prior coverage
+2026-11-13 01:57:13,041 WARNING designation refresh: 2023-02-14 unresolved ('NoneType' object has no attribute 'matchup'); that day keeps its prior coverage
+2026-11-13 01:57:13,308 WARNING designation refresh: 2023-02-24 unresolved ('NoneType' object has no attribute 'matchup'); that day keeps its prior coverage
+2026-11-13 01:57:13,506 WARNING designation refresh: 2023-02-25 unresolved ('NoneType' object has no attribute 'matchup'); that day keeps its prior coverage
+2026-11-13 01:57:13,799 WARNING designation refresh: 2023-02-26 unresolved ('NoneType' object has no attribute 'matchup'); that day keeps its prior coverage
+2026-11-13 01:57:13,802 INFO designation archive top-off: 50/98 day(s) resolved (0 with rows)
+2026-11-13 01:57:13,973 WARNING designation refresh: 2023-02-27 unresolved ('NoneType' object has no attribute 'matchup'); that day keeps its prior coverage
+2026-11-13 01:57:14,342 WARNING designation refresh: 2023-02-28 unresolved ('NoneType' object has no attribute 'matchup'); that day keeps its prior coverage
+2026-11-13 01:57:14,572 WARNING designation refresh: 2023-03-01 unresolved ('NoneType' object has no attribute 'matchup'); that day keeps its prior coverage
+2026-11-13 01:57:14,839 WARNING designation refresh: 2023-03-02 unresolved ('NoneType' object has no attribute 'matchup'); that day keeps its prior coverage
+2026-11-13 01:57:15,108 WARNING designation refresh: 2023-03-03 unresolved ('NoneType' object has no attribute 'matchup'); that day keeps its prior coverage
+2026-11-13 01:57:15,383 WARNING designation refresh: 2023-03-04 unresolved ('NoneType' object has no attribute 'matchup'); that day keeps its prior coverage
+2026-11-13 01:57:15,637 WARNING designation refresh: 2023-03-05 unresolved ('NoneType' object has no attribute 'matchup'); that day keeps its prior coverage
+2026-11-13 01:57:15,935 WARNING designation refresh: 2023-03-06 unresolved ('NoneType' object has no attribute 'matchup'); that day keeps its prior coverage
+2026-11-13 01:57:16,188 WARNING designation refresh: 2023-03-07 unresolved ('NoneType' object has no attribute 'matchup'); that day keeps its prior coverage
+2026-11-13 01:57:16,471 WARNING designation refresh: 2023-03-08 unresolved ('NoneType' object has no attribute 'matchup'); that day keeps its prior coverage
+2026-11-13 01:57:16,674 WARNING designation refresh: 2023-03-09 unresolved ('NoneType' object has no attribute 'matchup'); that day keeps its prior coverage
+2026-11-13 01:57:16,940 WARNING designation refresh: 2023-03-10 unresolved ('NoneType' object has no attribute 'matchup'); that day keeps its prior coverage
+2026-11-13 01:57:17,331 WARNING designation refresh: 2023-03-11 unresolved ('NoneType' object has no attribute 'matchup'); that day keeps its prior coverage
+2026-11-13 01:57:17,483 WARNING designation refresh: 2023-03-12 unresolved ('NoneType' object has no attribute 'matchup'); that day keeps its prior coverage
+2026-11-13 01:57:17,705 WARNING designation refresh: 2023-03-13 unresolved ('NoneType' object has no attribute 'matchup'); that day keeps its prior coverage
+2026-11-13 01:57:18,057 WARNING designation refresh: 2023-03-14 unresolved ('NoneType' object has no attribute 'matchup'); that day keeps its prior coverage
+2026-11-13 01:57:18,353 WARNING designation refresh: 2023-03-15 unresolved ('NoneType' object has no attribute 'matchup'); that day keeps its prior coverage
+2026-11-13 01:57:18,537 WARNING designation refresh: 2023-03-16 unresolved ('NoneType' object has no attribute 'matchup'); that day keeps its prior coverage
+2026-11-13 01:57:18,899 WARNING designation refresh: 2023-03-17 unresolved ('NoneType' object has no attribute 'matchup'); that day keeps its prior coverage
+2026-11-13 01:57:19,087 WARNING designation refresh: 2023-03-18 unresolved ('NoneType' object has no attribute 'matchup'); that day keeps its prior coverage
+2026-11-13 01:57:19,395 WARNING designation refresh: 2023-03-19 unresolved ('NoneType' object has no attribute 'matchup'); that day keeps its prior coverage
+2026-11-13 01:57:19,594 WARNING designation refresh: 2023-03-20 unresolved ('NoneType' object has no attribute 'matchup'); that day keeps its prior coverage
+2026-11-13 01:57:19,896 WARNING designation refresh: 2023-03-21 unresolved ('NoneType' object has no attribute 'matchup'); that day keeps its prior coverage
+2026-11-13 01:57:20,164 WARNING designation refresh: 2023-03-22 unresolved ('NoneType' object has no attribute 'matchup'); that day keeps its prior coverage
+2026-11-13 01:57:20,409 WARNING designation refresh: 2023-03-23 unresolved ('NoneType' object has no attribute 'matchup'); that day keeps its prior coverage
+2026-11-13 01:57:20,410 INFO designation archive top-off: 75/98 day(s) resolved (0 with rows)
+2026-11-13 01:57:20,716 WARNING designation refresh: 2023-03-24 unresolved ('NoneType' object has no attribute 'matchup'); that day keeps its prior coverage
+2026-11-13 01:57:20,950 WARNING designation refresh: 2023-03-25 unresolved ('NoneType' object has no attribute 'matchup'); that day keeps its prior coverage
+2026-11-13 01:57:21,223 WARNING designation refresh: 2023-03-26 unresolved ('NoneType' object has no attribute 'matchup'); that day keeps its prior coverage
+2026-11-13 01:57:21,541 WARNING designation refresh: 2023-03-27 unresolved ('NoneType' object has no attribute 'matchup'); that day keeps its prior coverage
+2026-11-13 01:57:21,777 WARNING designation refresh: 2023-03-28 unresolved ('NoneType' object has no attribute 'matchup'); that day keeps its prior coverage
+2026-11-13 01:57:22,136 WARNING designation refresh: 2023-03-29 unresolved ('NoneType' object has no attribute 'matchup'); that day keeps its prior coverage
+2026-11-13 01:57:22,293 WARNING designation refresh: 2023-03-30 unresolved ('NoneType' object has no attribute 'matchup'); that day keeps its prior coverage
+2026-11-13 01:57:22,778 WARNING designation refresh: 2023-03-31 unresolved ('NoneType' object has no attribute 'matchup'); that day keeps its prior coverage
+2026-11-13 01:57:23,291 WARNING designation refresh: 2023-04-02 unresolved ('NoneType' object has no attribute 'matchup'); that day keeps its prior coverage
+2026-11-13 01:57:23,767 WARNING designation refresh: 2023-04-04 unresolved ('NoneType' object has no attribute 'matchup'); that day keeps its prior coverage
+2026-11-13 01:57:24,058 WARNING designation refresh: 2023-04-05 unresolved ('NoneType' object has no attribute 'matchup'); that day keeps its prior coverage
+2026-11-13 01:57:24,441 WARNING designation refresh: 2023-04-01 unresolved ('NoneType' object has no attribute 'matchup'); that day keeps its prior coverage
+2026-11-13 01:57:24,664 WARNING designation refresh: 2023-04-06 unresolved ('NoneType' object has no attribute 'matchup'); that day keeps its prior coverage
+2026-11-13 01:57:25,093 WARNING designation refresh: 2023-04-07 unresolved ('NoneType' object has no attribute 'matchup'); that day keeps its prior coverage
+2026-11-13 01:57:25,425 WARNING designation refresh: 2023-04-08 unresolved ('NoneType' object has no attribute 'matchup'); that day keeps its prior coverage
+2026-11-13 01:57:26,012 WARNING designation refresh: 2023-04-09 unresolved ('NoneType' object has no attribute 'matchup'); that day keeps its prior coverage
+2026-11-13 01:57:27,066 WARNING designation refresh: 2023-04-19 unresolved ('NoneType' object has no attribute 'matchup'); that day keeps its prior coverage
+2026-11-13 01:57:27,941 WARNING designation refresh: 2023-04-21 unresolved ('NoneType' object has no attribute 'matchup'); that day keeps its prior coverage
+2026-11-13 01:57:28,080 WARNING designation refresh: 2023-04-22 unresolved ('NoneType' object has no attribute 'matchup'); that day keeps its prior coverage
+2026-11-13 01:57:28,654 WARNING designation refresh: 2023-04-23 unresolved ('NoneType' object has no attribute 'matchup'); that day keeps its prior coverage
+2026-11-13 01:57:36,109 WARNING no filing lists PHX@DEN before tipoff on 2023-04-29: game uncovered
+2026-11-13 01:57:37,489 WARNING no filing lists CLE@NYK before tipoff on 2026-05-21: game uncovered
+2026-11-13 01:57:37,521 WARNING no filing lists NYK@CLE before tipoff on 2026-05-23: game uncovered
+2026-11-13 01:57:37,523 INFO designation archive top-off: 98/98 day(s) resolved (0 with rows)
+2026-11-13 01:57:37,524 WARNING designation refresh resolved nothing; keeping the existing archive (43841 rows)
+2026-11-13 01:57:37,560 INFO PIT designations: 43841 record(s) from the published archive
+2026-11-13 01:57:37,997 WARNING slate designations for 2023-02-01 not resolved ('NoneType' object has no attribute 'matchup'); that date relies on the archive
+2026-11-13 01:58:02,630 WARNING no filing lists DAL@GSW before tipoff on 2024-01-19: game uncovered
+2026-11-13 01:58:13,408 INFO no filing for POR@SAC on 2026-11-13: pre-submission (window closes 2026-11-13 16:00:00) - no designations yet
+2026-11-13 01:58:13,411 INFO no filing for OKC@LAC on 2026-11-13: pre-submission (window closes 2026-11-13 16:00:00) - no designations yet
+2026-11-13 01:58:13,413 INFO slate designations resolved live: 230 record(s) across 9 date(s), 223 with a submission status
+2026-11-13 01:58:13,779 WARNING current roster unresolved (ValueError: incomplete or ambiguous official league roster); using dated history/strict-prior appearances
+2026-11-13 02:01:11,430 INFO DARKO history: 387262 rows for 941 player(s)
+2026-11-13 02:01:12,165 INFO DARKO rating: 100.0% of rows carry a DPM value
+2026-11-13 02:01:23,644 INFO DARKO expected minutes: 38.7% of rows carry x_minutes
+2026-11-13 02:05:40,656 INFO waterfall minutes redistribution (position-feature build): 12562 donor(s), 276463.1 minute(s) absorbed, 20745.9 vanished (489 no-survivor), 31035 spill(s)
+2026-11-13 02:05:40,696 INFO projected-lineup feature build: 527s (4882 row(s), 23 feature column(s))
+2026-11-13 02:05:40,716 INFO pl_dpm features attached: 4853/4879 decided rows carry them
+2026-11-13 02:05:40,717 INFO star-out features attached: 4866/4879 decided rows carry them
+2026-11-13 02:05:40,717 INFO o-pts features attached: 4866/4879 decided rows carry them
+2026-11-13 02:05:40,731 INFO pl_dpm coverage gap: 26/4879 decided rows lack position-rapm features; by days into their season: 26 within the 10-day pool lookback, 0 more within the 30-day recency window, 0 beyond it - early-season rows are structural, not a build failure
+2026-11-13 02:05:40,801 WARNING OOF validation population is thin on 22 of 88 window(s) (< MIN_VAL_FOLD_GAMES=40 games): [2024-04-23..2024-04-29 n=22 postseason], [2024-04-30..2024-05-06 n=13 postseason], [2024-05-07..2024-05-13 n=13 postseason], [2024-05-14..2024-05-21 n=10 postseason], [2024-05-22..2024-05-28 n=7 postseason], +17 more - retained and scored, but PROVISIONAL: excluded from pooled metrics, blend weights and calibration (playoff weeks and season ramps are the usual cause)
+2026-11-13 02:05:40,804 INFO OOF season-type split: 21 window(s) carry postseason games (251 rows); their playoff rows are reported as oof_postseason and never grade the blend
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
   features
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-2026-11-12 22:08:24,301 INFO   phase 4/11  features  (52m21s)
-  ✅ 4111 games, 98 features, 88 folds
-2026-11-12 22:08:55,678 INFO moneyline OOF fold 25/88
-2026-11-12 22:09:23,463 INFO moneyline OOF fold 50/88
-2026-11-12 22:09:58,723 INFO moneyline OOF fold 75/88
-2026-11-12 22:10:23,988 INFO Published blend: 3881 OOF rows — headline metrics grade the causal rolling blend; final weights {'elasticnet': '100.0%', 'lightgbm': '0.0%', 'xgboost': '0.0%'} replay only in p_ensemble_retrospective (NOT OOF)
-2026-11-12 22:10:24,078 INFO moneyline retrospective final-weight replay (NOT OOF): {'n': 3485, 'auc': 0.7476181932954582, 'logloss': 0.589733243091613, 'brier': 0.20237971456540768, 'ece': 0.017561522143270215}
-2026-11-12 22:10:24,078 INFO final serving calibration gate: identity (gated_no_gain)
-2026-11-12 22:10:24,079 INFO final serving calibrator: identity map (no fitted correction)
-2026-11-12 22:11:45,707 INFO score-ensemble OOF fold 25/88
-2026-11-12 22:13:35,423 INFO score-ensemble OOF fold 50/88
-2026-11-12 22:15:45,116 INFO score-ensemble OOF fold 75/88
-2026-11-12 22:16:58,890 INFO score-ensemble serving weights (OOF-earned): {'elasticnet': 0.7842, 'lightgbm': 0.0, 'xgboost': 0.2158}
-2026-11-12 22:16:58,914 INFO run-line fit check: home pearson 1.1832 dev 1.18897 (baseline 1.44511) | away pearson 1.2135 dev 1.21729 (baseline 1.49282)
-2026-11-12 22:16:58,944 INFO marketize (expand=False merge): 0.0s over 3881 rows
-2026-11-12 22:18:28,423 INFO weight tables: walk-forward history replayed in process (3511 games, 6 blocks)
-2026-11-12 22:18:31,748 INFO champion OOF: priced fold 0 (49 games)
-2026-11-12 22:18:34,225 INFO champion OOF: priced fold 1 (55 games)
-2026-11-12 22:18:36,928 INFO champion OOF: priced fold 2 (55 games)
-2026-11-12 22:18:39,778 INFO champion OOF: priced fold 3 (55 games)
-2026-11-12 22:18:42,638 INFO champion OOF: priced fold 4 (50 games)
-2026-11-12 22:18:45,643 INFO champion OOF: priced fold 5 (52 games)
-2026-11-12 22:18:48,839 INFO champion OOF: priced fold 6 (52 games)
-2026-11-12 22:18:51,975 INFO champion OOF: priced fold 7 (48 games)
-2026-11-12 22:18:55,295 INFO champion OOF: priced fold 8 (55 games)
-2026-11-12 22:18:58,736 INFO champion OOF: priced fold 9 (52 games)
-2026-11-12 22:19:02,091 INFO champion OOF: priced fold 10 (51 games)
-2026-11-12 22:19:05,744 INFO champion OOF: priced fold 11 (56 games)
-2026-11-12 22:19:09,431 INFO champion OOF: priced fold 12 (53 games)
-2026-11-12 22:19:13,200 INFO champion OOF: priced fold 13 (54 games)
-2026-11-12 22:19:16,967 INFO champion OOF: priced fold 14 (52 games)
-2026-11-12 22:19:20,919 INFO champion OOF: priced fold 15 (53 games)
-2026-11-12 22:19:24,905 INFO champion OOF: priced fold 16 (49 games)
-2026-11-12 22:19:29,244 INFO champion OOF: priced fold 17 (66 games)
-2026-11-12 22:19:33,355 INFO champion OOF: priced fold 18 (54 games)
-2026-11-12 22:19:37,042 INFO champion OOF: priced fold 19 (22 games)
-2026-11-12 22:19:40,583 INFO champion OOF: priced fold 20 (13 games)
-2026-11-12 22:19:44,273 INFO champion OOF: priced fold 21 (13 games)
-2026-11-12 22:19:47,857 INFO champion OOF: priced fold 22 (10 games)
-2026-11-12 22:19:51,378 INFO champion OOF: priced fold 23 (7 games)
-2026-11-12 22:19:54,874 INFO champion OOF: priced fold 24 (8 games)
-2026-11-12 22:19:59,324 INFO champion OOF: priced fold 25 (54 games)
-2026-11-12 22:20:04,065 INFO champion OOF: priced fold 26 (64 games)
-2026-11-12 22:20:08,888 INFO champion OOF: priced fold 27 (55 games)
-2026-11-12 22:20:13,601 INFO champion OOF: priced fold 28 (50 games)
-2026-11-12 22:20:18,490 INFO champion OOF: priced fold 29 (53 games)
-2026-11-12 22:20:23,462 INFO champion OOF: priced fold 30 (54 games)
-2026-11-12 22:20:28,073 INFO champion OOF: priced fold 31 (34 games)
-2026-11-12 22:20:32,920 INFO champion OOF: priced fold 32 (51 games)
-2026-11-12 22:20:37,923 INFO champion OOF: priced fold 33 (54 games)
-2026-11-12 22:20:42,876 INFO champion OOF: priced fold 34 (51 games)
-2026-11-12 22:20:47,890 INFO champion OOF: priced fold 35 (51 games)
-2026-11-12 22:20:52,914 INFO champion OOF: priced fold 36 (51 games)
-2026-11-12 22:20:58,006 INFO champion OOF: priced fold 37 (48 games)
-2026-11-12 22:21:03,176 INFO champion OOF: priced fold 38 (53 games)
-2026-11-12 22:21:08,440 INFO champion OOF: priced fold 39 (55 games)
-2026-11-12 22:21:13,670 INFO champion OOF: priced fold 40 (53 games)
-2026-11-12 22:21:19,026 INFO champion OOF: priced fold 41 (54 games)
-2026-11-12 22:21:24,447 INFO champion OOF: priced fold 42 (53 games)
-2026-11-12 22:21:29,962 INFO champion OOF: priced fold 43 (56 games)
-2026-11-12 22:21:35,404 INFO champion OOF: priced fold 44 (56 games)
-2026-11-12 22:21:40,851 INFO champion OOF: priced fold 45 (50 games)
-2026-11-12 22:21:46,384 INFO champion OOF: priced fold 46 (55 games)
-2026-11-12 22:21:52,011 INFO champion OOF: priced fold 47 (58 games)
-2026-11-12 22:21:57,309 INFO champion OOF: priced fold 48 (34 games)
-2026-11-12 22:22:02,340 INFO champion OOF: priced fold 49 (21 games)
-2026-11-12 22:22:07,274 INFO champion OOF: priced fold 50 (11 games)
-2026-11-12 22:22:12,293 INFO champion OOF: priced fold 51 (13 games)
-2026-11-12 22:22:17,143 INFO champion OOF: priced fold 52 (7 games)
-2026-11-12 22:22:22,014 INFO champion OOF: priced fold 53 (7 games)
-2026-11-12 22:22:26,983 INFO champion OOF: priced fold 54 (8 games)
-2026-11-12 22:22:32,727 INFO champion OOF: priced fold 55 (56 games)
-2026-11-12 22:22:38,382 INFO champion OOF: priced fold 56 (51 games)
-2026-11-12 22:22:44,099 INFO champion OOF: priced fold 57 (53 games)
-2026-11-12 22:22:49,764 INFO champion OOF: priced fold 58 (51 games)
-2026-11-12 22:22:55,525 INFO champion OOF: priced fold 59 (50 games)
-2026-11-12 22:23:01,620 INFO champion OOF: priced fold 60 (60 games)
-2026-11-12 22:23:07,451 INFO champion OOF: priced fold 61 (38 games)
-2026-11-12 22:23:13,254 INFO champion OOF: priced fold 62 (40 games)
-2026-11-12 22:23:19,364 INFO champion OOF: priced fold 63 (56 games)
-2026-11-12 22:23:25,642 INFO champion OOF: priced fold 64 (54 games)
-2026-11-12 22:23:31,796 INFO champion OOF: priced fold 65 (55 games)
-2026-11-12 22:23:38,014 INFO champion OOF: priced fold 66 (51 games)
-2026-11-12 22:23:44,377 INFO champion OOF: priced fold 67 (54 games)
-2026-11-12 22:23:50,635 INFO champion OOF: priced fold 68 (52 games)
-2026-11-12 22:23:57,021 INFO champion OOF: priced fold 69 (51 games)
-2026-11-12 22:24:03,768 INFO champion OOF: priced fold 70 (55 games)
-2026-11-12 22:24:10,765 INFO champion OOF: priced fold 71 (56 games)
-2026-11-12 22:24:17,440 INFO champion OOF: priced fold 72 (50 games)
-2026-11-12 22:24:24,068 INFO champion OOF: priced fold 73 (54 games)
-2026-11-12 22:24:30,706 INFO champion OOF: priced fold 74 (55 games)
-2026-11-12 22:24:37,297 INFO champion OOF: priced fold 75 (50 games)
-2026-11-12 22:24:44,199 INFO champion OOF: priced fold 76 (55 games)
-2026-11-12 22:24:50,887 INFO champion OOF: priced fold 77 (51 games)
-2026-11-12 22:24:57,498 INFO champion OOF: priced fold 78 (46 games)
-2026-11-12 22:25:03,696 INFO champion OOF: priced fold 79 (23 games)
-2026-11-12 22:25:09,765 INFO champion OOF: priced fold 80 (15 games)
-2026-11-12 22:25:15,771 INFO champion OOF: priced fold 81 (12 games)
-2026-11-12 22:25:21,650 INFO champion OOF: priced fold 82 (8 games)
-2026-11-12 22:25:27,987 INFO champion OOF: priced fold 83 (7 games)
-2026-11-12 22:25:34,253 INFO champion OOF: priced fold 84 (20 games)
-2026-11-12 22:25:41,170 INFO champion OOF: priced fold 85 (55 games)
-2026-11-12 22:25:48,181 INFO champion OOF: priced fold 86 (61 games)
-2026-11-12 22:25:54,726 INFO champion OOF: priced fold 87 (38 games)
-2026-11-12 22:25:57,534 INFO champion OOF pricing: 538.6s over 3881 rows (88 origins)
+2026-11-13 02:05:40,805 INFO   phase 4/10  features  (8m53s)
+  ✅ 4879 games, 98 features, 88 folds
+features:  40%|####      | 4/10
+/workspace/chats/ffd1b9706a6c05194c908434/.venv/lib/python3.12/site-packages/sklearn/linear_model/_logistic.py:1381: FutureWarning: 'penalty' was deprecated in version 1.8 and will be removed in 1.10. To avoid this warning, leave 'penalty' set to its default value and use 'l1_ratio' or 'C' instead. Use l1_ratio=0 instead of penalty='l2', l1_ratio=1 instead of penalty='l1', l1_ratio set to a float between 0 and 1 instead of penalty='elasticnet', and C=np.inf instead of penalty=None.
+  warnings.warn(
+/workspace/chats/ffd1b9706a6c05194c908434/.venv/lib/python3.12/site-packages/sklearn/linear_model/_logistic.py:1381: FutureWarning: 'penalty' was deprecated in version 1.8 and will be removed in 1.10. To avoid this warning, leave 'penalty' set to its default value and use 'l1_ratio' or 'C' instead. Use l1_ratio=0 instead of penalty='l2', l1_ratio=1 instead of penalty='l1', l1_ratio set to a float between 0 and 1 instead of penalty='elasticnet', and C=np.inf instead of penalty=None.
+  warnings.warn(
+/workspace/chats/ffd1b9706a6c05194c908434/.venv/lib/python3.12/site-packages/sklearn/linear_model/_logistic.py:1381: FutureWarning: 'penalty' was deprecated in version 1.8 and will be removed in 1.10. To avoid this warning, leave 'penalty' set to its default value and use 'l1_ratio' or 'C' instead. Use l1_ratio=0 instead of penalty='l2', l1_ratio=1 instead of penalty='l1', l1_ratio set to a float between 0 and 1 instead of penalty='elasticnet', and C=np.inf instead of penalty=None.
+  warnings.warn(
+/workspace/chats/ffd1b9706a6c05194c908434/.venv/lib/python3.12/site-packages/sklearn/linear_model/_logistic.py:1381: FutureWarning: 'penalty' was deprecated in version 1.8 and will be removed in 1.10. To avoid this warning, leave 'penalty' set to its default value and use 'l1_ratio' or 'C' instead. Use l1_ratio=0 instead of penalty='l2', l1_ratio=1 instead of penalty='l1', l1_ratio set to a float between 0 and 1 instead of penalty='elasticnet', and C=np.inf instead of penalty=None.
+  warnings.warn(
+/workspace/chats/ffd1b9706a6c05194c908434/.venv/lib/python3.12/site-packages/sklearn/linear_model/_logistic.py:1381: FutureWarning: 'penalty' was deprecated in version 1.8 and will be removed in 1.10. To avoid this warning, leave 'penalty' set to its default value and use 'l1_ratio' or 'C' instead. Use l1_ratio=0 instead of penalty='l2', l1_ratio=1 instead of penalty='l1', l1_ratio set to a float between 0 and 1 instead of penalty='elasticnet', and C=np.inf instead of penalty=None.
+  warnings.warn(
+/workspace/chats/ffd1b9706a6c05194c908434/.venv/lib/python3.12/site-packages/sklearn/linear_model/_logistic.py:1381: FutureWarning: 'penalty' was deprecated in version 1.8 and will be removed in 1.10. To avoid this warning, leave 'penalty' set to its default value and use 'l1_ratio' or 'C' instead. Use l1_ratio=0 instead of penalty='l2', l1_ratio=1 instead of penalty='l1', l1_ratio set to a float between 0 and 1 instead of penalty='elasticnet', and C=np.inf instead of penalty=None.
+  warnings.warn(
+/workspace/chats/ffd1b9706a6c05194c908434/.venv/lib/python3.12/site-packages/sklearn/linear_model/_logistic.py:1381: FutureWarning: 'penalty' was deprecated in version 1.8 and will be removed in 1.10. To avoid this warning, leave 'penalty' set to its default value and use 'l1_ratio' or 'C' instead. Use l1_ratio=0 instead of penalty='l2', l1_ratio=1 instead of penalty='l1', l1_ratio set to a float between 0 and 1 instead of penalty='elasticnet', and C=np.inf instead of penalty=None.
+  warnings.warn(
+/workspace/chats/ffd1b9706a6c05194c908434/.venv/lib/python3.12/site-packages/sklearn/linear_model/_logistic.py:1381: FutureWarning: 'penalty' was deprecated in version 1.8 and will be removed in 1.10. To avoid this warning, leave 'penalty' set to its default value and use 'l1_ratio' or 'C' instead. Use l1_ratio=0 instead of penalty='l2', l1_ratio=1 instead of penalty='l1', l1_ratio set to a float between 0 and 1 instead of penalty='elasticnet', and C=np.inf instead of penalty=None.
+  warnings.warn(
+/workspace/chats/ffd1b9706a6c05194c908434/.venv/lib/python3.12/site-packages/sklearn/linear_model/_logistic.py:1381: FutureWarning: 'penalty' was deprecated in version 1.8 and will be removed in 1.10. To avoid this warning, leave 'penalty' set to its default value and use 'l1_ratio' or 'C' instead. Use l1_ratio=0 instead of penalty='l2', l1_ratio=1 instead of penalty='l1', l1_ratio set to a float between 0 and 1 instead of penalty='elasticnet', and C=np.inf instead of penalty=None.
+  warnings.warn(
+/workspace/chats/ffd1b9706a6c05194c908434/.venv/lib/python3.12/site-packages/sklearn/linear_model/_logistic.py:1381: FutureWarning: 'penalty' was deprecated in version 1.8 and will be removed in 1.10. To avoid this warning, leave 'penalty' set to its default value and use 'l1_ratio' or 'C' instead. Use l1_ratio=0 instead of penalty='l2', l1_ratio=1 instead of penalty='l1', l1_ratio set to a float between 0 and 1 instead of penalty='elasticnet', and C=np.inf instead of penalty=None.
+  warnings.warn(
+/workspace/chats/ffd1b9706a6c05194c908434/.venv/lib/python3.12/site-packages/sklearn/linear_model/_logistic.py:1381: FutureWarning: 'penalty' was deprecated in version 1.8 and will be removed in 1.10. To avoid this warning, leave 'penalty' set to its default value and use 'l1_ratio' or 'C' instead. Use l1_ratio=0 instead of penalty='l2', l1_ratio=1 instead of penalty='l1', l1_ratio set to a float between 0 and 1 instead of penalty='elasticnet', and C=np.inf instead of penalty=None.
+  warnings.warn(
+/workspace/chats/ffd1b9706a6c05194c908434/.venv/lib/python3.12/site-packages/sklearn/linear_model/_logistic.py:1381: FutureWarning: 'penalty' was deprecated in version 1.8 and will be removed in 1.10. To avoid this warning, leave 'penalty' set to its default value and use 'l1_ratio' or 'C' instead. Use l1_ratio=0 instead of penalty='l2', l1_ratio=1 instead of penalty='l1', l1_ratio set to a float between 0 and 1 instead of penalty='elasticnet', and C=np.inf instead of penalty=None.
+  warnings.warn(
+/workspace/chats/ffd1b9706a6c05194c908434/.venv/lib/python3.12/site-packages/sklearn/linear_model/_logistic.py:1381: FutureWarning: 'penalty' was deprecated in version 1.8 and will be removed in 1.10. To avoid this warning, leave 'penalty' set to its default value and use 'l1_ratio' or 'C' instead. Use l1_ratio=0 instead of penalty='l2', l1_ratio=1 instead of penalty='l1', l1_ratio set to a float between 0 and 1 instead of penalty='elasticnet', and C=np.inf instead of penalty=None.
+  warnings.warn(
+/workspace/chats/ffd1b9706a6c05194c908434/.venv/lib/python3.12/site-packages/sklearn/linear_model/_logistic.py:1381: FutureWarning: 'penalty' was deprecated in version 1.8 and will be removed in 1.10. To avoid this warning, leave 'penalty' set to its default value and use 'l1_ratio' or 'C' instead. Use l1_ratio=0 instead of penalty='l2', l1_ratio=1 instead of penalty='l1', l1_ratio set to a float between 0 and 1 instead of penalty='elasticnet', and C=np.inf instead of penalty=None.
+  warnings.warn(
+/workspace/chats/ffd1b9706a6c05194c908434/.venv/lib/python3.12/site-packages/sklearn/linear_model/_logistic.py:1381: FutureWarning: 'penalty' was deprecated in version 1.8 and will be removed in 1.10. To avoid this warning, leave 'penalty' set to its default value and use 'l1_ratio' or 'C' instead. Use l1_ratio=0 instead of penalty='l2', l1_ratio=1 instead of penalty='l1', l1_ratio set to a float between 0 and 1 instead of penalty='elasticnet', and C=np.inf instead of penalty=None.
+  warnings.warn(
+/workspace/chats/ffd1b9706a6c05194c908434/.venv/lib/python3.12/site-packages/sklearn/linear_model/_logistic.py:1381: FutureWarning: 'penalty' was deprecated in version 1.8 and will be removed in 1.10. To avoid this warning, leave 'penalty' set to its default value and use 'l1_ratio' or 'C' instead. Use l1_ratio=0 instead of penalty='l2', l1_ratio=1 instead of penalty='l1', l1_ratio set to a float between 0 and 1 instead of penalty='elasticnet', and C=np.inf instead of penalty=None.
+  warnings.warn(
+/workspace/chats/ffd1b9706a6c05194c908434/.venv/lib/python3.12/site-packages/sklearn/linear_model/_logistic.py:1381: FutureWarning: 'penalty' was deprecated in version 1.8 and will be removed in 1.10. To avoid this warning, leave 'penalty' set to its default value and use 'l1_ratio' or 'C' instead. Use l1_ratio=0 instead of penalty='l2', l1_ratio=1 instead of penalty='l1', l1_ratio set to a float between 0 and 1 instead of penalty='elasticnet', and C=np.inf instead of penalty=None.
+  warnings.warn(
+/workspace/chats/ffd1b9706a6c05194c908434/.venv/lib/python3.12/site-packages/sklearn/linear_model/_logistic.py:1381: FutureWarning: 'penalty' was deprecated in version 1.8 and will be removed in 1.10. To avoid this warning, leave 'penalty' set to its default value and use 'l1_ratio' or 'C' instead. Use l1_ratio=0 instead of penalty='l2', l1_ratio=1 instead of penalty='l1', l1_ratio set to a float between 0 and 1 instead of penalty='elasticnet', and C=np.inf instead of penalty=None.
+  warnings.warn(
+/workspace/chats/ffd1b9706a6c05194c908434/.venv/lib/python3.12/site-packages/sklearn/linear_model/_logistic.py:1381: FutureWarning: 'penalty' was deprecated in version 1.8 and will be removed in 1.10. To avoid this warning, leave 'penalty' set to its default value and use 'l1_ratio' or 'C' instead. Use l1_ratio=0 instead of penalty='l2', l1_ratio=1 instead of penalty='l1', l1_ratio set to a float between 0 and 1 instead of penalty='elasticnet', and C=np.inf instead of penalty=None.
+  warnings.warn(
+/workspace/chats/ffd1b9706a6c05194c908434/.venv/lib/python3.12/site-packages/sklearn/linear_model/_logistic.py:1381: FutureWarning: 'penalty' was deprecated in version 1.8 and will be removed in 1.10. To avoid this warning, leave 'penalty' set to its default value and use 'l1_ratio' or 'C' instead. Use l1_ratio=0 instead of penalty='l2', l1_ratio=1 instead of penalty='l1', l1_ratio set to a float between 0 and 1 instead of penalty='elasticnet', and C=np.inf instead of penalty=None.
+  warnings.warn(
+/workspace/chats/ffd1b9706a6c05194c908434/.venv/lib/python3.12/site-packages/sklearn/linear_model/_logistic.py:1381: FutureWarning: 'penalty' was deprecated in version 1.8 and will be removed in 1.10. To avoid this warning, leave 'penalty' set to its default value and use 'l1_ratio' or 'C' instead. Use l1_ratio=0 instead of penalty='l2', l1_ratio=1 instead of penalty='l1', l1_ratio set to a float between 0 and 1 instead of penalty='elasticnet', and C=np.inf instead of penalty=None.
+  warnings.warn(
+/workspace/chats/ffd1b9706a6c05194c908434/.venv/lib/python3.12/site-packages/sklearn/linear_model/_logistic.py:1381: FutureWarning: 'penalty' was deprecated in version 1.8 and will be removed in 1.10. To avoid this warning, leave 'penalty' set to its default value and use 'l1_ratio' or 'C' instead. Use l1_ratio=0 instead of penalty='l2', l1_ratio=1 instead of penalty='l1', l1_ratio set to a float between 0 and 1 instead of penalty='elasticnet', and C=np.inf instead of penalty=None.
+  warnings.warn(
+/workspace/chats/ffd1b9706a6c05194c908434/.venv/lib/python3.12/site-packages/sklearn/linear_model/_logistic.py:1381: FutureWarning: 'penalty' was deprecated in version 1.8 and will be removed in 1.10. To avoid this warning, leave 'penalty' set to its default value and use 'l1_ratio' or 'C' instead. Use l1_ratio=0 instead of penalty='l2', l1_ratio=1 instead of penalty='l1', l1_ratio set to a float between 0 and 1 instead of penalty='elasticnet', and C=np.inf instead of penalty=None.
+  warnings.warn(
+/workspace/chats/ffd1b9706a6c05194c908434/.venv/lib/python3.12/site-packages/sklearn/linear_model/_logistic.py:1381: FutureWarning: 'penalty' was deprecated in version 1.8 and will be removed in 1.10. To avoid this warning, leave 'penalty' set to its default value and use 'l1_ratio' or 'C' instead. Use l1_ratio=0 instead of penalty='l2', l1_ratio=1 instead of penalty='l1', l1_ratio set to a float between 0 and 1 instead of penalty='elasticnet', and C=np.inf instead of penalty=None.
+  warnings.warn(
+/workspace/chats/ffd1b9706a6c05194c908434/.venv/lib/python3.12/site-packages/sklearn/linear_model/_logistic.py:1381: FutureWarning: 'penalty' was deprecated in version 1.8 and will be removed in 1.10. To avoid this warning, leave 'penalty' set to its default value and use 'l1_ratio' or 'C' instead. Use l1_ratio=0 instead of penalty='l2', l1_ratio=1 instead of penalty='l1', l1_ratio set to a float between 0 and 1 instead of penalty='elasticnet', and C=np.inf instead of penalty=None.
+  warnings.warn(
+2026-11-13 02:05:57,136 INFO moneyline OOF fold 25/88
+features:  40%|####      | 4/10
+/workspace/chats/ffd1b9706a6c05194c908434/.venv/lib/python3.12/site-packages/sklearn/linear_model/_logistic.py:1381: FutureWarning: 'penalty' was deprecated in version 1.8 and will be removed in 1.10. To avoid this warning, leave 'penalty' set to its default value and use 'l1_ratio' or 'C' instead. Use l1_ratio=0 instead of penalty='l2', l1_ratio=1 instead of penalty='l1', l1_ratio set to a float between 0 and 1 instead of penalty='elasticnet', and C=np.inf instead of penalty=None.
+  warnings.warn(
+/workspace/chats/ffd1b9706a6c05194c908434/.venv/lib/python3.12/site-packages/sklearn/linear_model/_logistic.py:1381: FutureWarning: 'penalty' was deprecated in version 1.8 and will be removed in 1.10. To avoid this warning, leave 'penalty' set to its default value and use 'l1_ratio' or 'C' instead. Use l1_ratio=0 instead of penalty='l2', l1_ratio=1 instead of penalty='l1', l1_ratio set to a float between 0 and 1 instead of penalty='elasticnet', and C=np.inf instead of penalty=None.
+  warnings.warn(
+/workspace/chats/ffd1b9706a6c05194c908434/.venv/lib/python3.12/site-packages/sklearn/linear_model/_logistic.py:1381: FutureWarning: 'penalty' was deprecated in version 1.8 and will be removed in 1.10. To avoid this warning, leave 'penalty' set to its default value and use 'l1_ratio' or 'C' instead. Use l1_ratio=0 instead of penalty='l2', l1_ratio=1 instead of penalty='l1', l1_ratio set to a float between 0 and 1 instead of penalty='elasticnet', and C=np.inf instead of penalty=None.
+  warnings.warn(
+/workspace/chats/ffd1b9706a6c05194c908434/.venv/lib/python3.12/site-packages/sklearn/linear_model/_logistic.py:1381: FutureWarning: 'penalty' was deprecated in version 1.8 and will be removed in 1.10. To avoid this warning, leave 'penalty' set to its default value and use 'l1_ratio' or 'C' instead. Use l1_ratio=0 instead of penalty='l2', l1_ratio=1 instead of penalty='l1', l1_ratio set to a float between 0 and 1 instead of penalty='elasticnet', and C=np.inf instead of penalty=None.
+  warnings.warn(
+/workspace/chats/ffd1b9706a6c05194c908434/.venv/lib/python3.12/site-packages/sklearn/linear_model/_logistic.py:1381: FutureWarning: 'penalty' was deprecated in version 1.8 and will be removed in 1.10. To avoid this warning, leave 'penalty' set to its default value and use 'l1_ratio' or 'C' instead. Use l1_ratio=0 instead of penalty='l2', l1_ratio=1 instead of penalty='l1', l1_ratio set to a float between 0 and 1 instead of penalty='elasticnet', and C=np.inf instead of penalty=None.
+  warnings.warn(
+/workspace/chats/ffd1b9706a6c05194c908434/.venv/lib/python3.12/site-packages/sklearn/linear_model/_logistic.py:1381: FutureWarning: 'penalty' was deprecated in version 1.8 and will be removed in 1.10. To avoid this warning, leave 'penalty' set to its default value and use 'l1_ratio' or 'C' instead. Use l1_ratio=0 instead of penalty='l2', l1_ratio=1 instead of penalty='l1', l1_ratio set to a float between 0 and 1 instead of penalty='elasticnet', and C=np.inf instead of penalty=None.
+  warnings.warn(
+/workspace/chats/ffd1b9706a6c05194c908434/.venv/lib/python3.12/site-packages/sklearn/linear_model/_logistic.py:1381: FutureWarning: 'penalty' was deprecated in version 1.8 and will be removed in 1.10. To avoid this warning, leave 'penalty' set to its default value and use 'l1_ratio' or 'C' instead. Use l1_ratio=0 instead of penalty='l2', l1_ratio=1 instead of penalty='l1', l1_ratio set to a float between 0 and 1 instead of penalty='elasticnet', and C=np.inf instead of penalty=None.
+  warnings.warn(
+/workspace/chats/ffd1b9706a6c05194c908434/.venv/lib/python3.12/site-packages/sklearn/linear_model/_logistic.py:1381: FutureWarning: 'penalty' was deprecated in version 1.8 and will be removed in 1.10. To avoid this warning, leave 'penalty' set to its default value and use 'l1_ratio' or 'C' instead. Use l1_ratio=0 instead of penalty='l2', l1_ratio=1 instead of penalty='l1', l1_ratio set to a float between 0 and 1 instead of penalty='elasticnet', and C=np.inf instead of penalty=None.
+  warnings.warn(
+/workspace/chats/ffd1b9706a6c05194c908434/.venv/lib/python3.12/site-packages/sklearn/linear_model/_logistic.py:1381: FutureWarning: 'penalty' was deprecated in version 1.8 and will be removed in 1.10. To avoid this warning, leave 'penalty' set to its default value and use 'l1_ratio' or 'C' instead. Use l1_ratio=0 instead of penalty='l2', l1_ratio=1 instead of penalty='l1', l1_ratio set to a float between 0 and 1 instead of penalty='elasticnet', and C=np.inf instead of penalty=None.
+  warnings.warn(
+/workspace/chats/ffd1b9706a6c05194c908434/.venv/lib/python3.12/site-packages/sklearn/linear_model/_logistic.py:1381: FutureWarning: 'penalty' was deprecated in version 1.8 and will be removed in 1.10. To avoid this warning, leave 'penalty' set to its default value and use 'l1_ratio' or 'C' instead. Use l1_ratio=0 instead of penalty='l2', l1_ratio=1 instead of penalty='l1', l1_ratio set to a float between 0 and 1 instead of penalty='elasticnet', and C=np.inf instead of penalty=None.
+  warnings.warn(
+/workspace/chats/ffd1b9706a6c05194c908434/.venv/lib/python3.12/site-packages/sklearn/linear_model/_logistic.py:1381: FutureWarning: 'penalty' was deprecated in version 1.8 and will be removed in 1.10. To avoid this warning, leave 'penalty' set to its default value and use 'l1_ratio' or 'C' instead. Use l1_ratio=0 instead of penalty='l2', l1_ratio=1 instead of penalty='l1', l1_ratio set to a float between 0 and 1 instead of penalty='elasticnet', and C=np.inf instead of penalty=None.
+  warnings.warn(
+/workspace/chats/ffd1b9706a6c05194c908434/.venv/lib/python3.12/site-packages/sklearn/linear_model/_logistic.py:1381: FutureWarning: 'penalty' was deprecated in version 1.8 and will be removed in 1.10. To avoid this warning, leave 'penalty' set to its default value and use 'l1_ratio' or 'C' instead. Use l1_ratio=0 instead of penalty='l2', l1_ratio=1 instead of penalty='l1', l1_ratio set to a float between 0 and 1 instead of penalty='elasticnet', and C=np.inf instead of penalty=None.
+  warnings.warn(
+/workspace/chats/ffd1b9706a6c05194c908434/.venv/lib/python3.12/site-packages/sklearn/linear_model/_logistic.py:1381: FutureWarning: 'penalty' was deprecated in version 1.8 and will be removed in 1.10. To avoid this warning, leave 'penalty' set to its default value and use 'l1_ratio' or 'C' instead. Use l1_ratio=0 instead of penalty='l2', l1_ratio=1 instead of penalty='l1', l1_ratio set to a float between 0 and 1 instead of penalty='elasticnet', and C=np.inf instead of penalty=None.
+  warnings.warn(
+/workspace/chats/ffd1b9706a6c05194c908434/.venv/lib/python3.12/site-packages/sklearn/linear_model/_logistic.py:1381: FutureWarning: 'penalty' was deprecated in version 1.8 and will be removed in 1.10. To avoid this warning, leave 'penalty' set to its default value and use 'l1_ratio' or 'C' instead. Use l1_ratio=0 instead of penalty='l2', l1_ratio=1 instead of penalty='l1', l1_ratio set to a float between 0 and 1 instead of penalty='elasticnet', and C=np.inf instead of penalty=None.
+  warnings.warn(
+/workspace/chats/ffd1b9706a6c05194c908434/.venv/lib/python3.12/site-packages/sklearn/linear_model/_logistic.py:1381: FutureWarning: 'penalty' was deprecated in version 1.8 and will be removed in 1.10. To avoid this warning, leave 'penalty' set to its default value and use 'l1_ratio' or 'C' instead. Use l1_ratio=0 instead of penalty='l2', l1_ratio=1 instead of penalty='l1', l1_ratio set to a float between 0 and 1 instead of penalty='elasticnet', and C=np.inf instead of penalty=None.
+  warnings.warn(
+/workspace/chats/ffd1b9706a6c05194c908434/.venv/lib/python3.12/site-packages/sklearn/linear_model/_logistic.py:1381: FutureWarning: 'penalty' was deprecated in version 1.8 and will be removed in 1.10. To avoid this warning, leave 'penalty' set to its default value and use 'l1_ratio' or 'C' instead. Use l1_ratio=0 instead of penalty='l2', l1_ratio=1 instead of penalty='l1', l1_ratio set to a float between 0 and 1 instead of penalty='elasticnet', and C=np.inf instead of penalty=None.
+  warnings.warn(
+/workspace/chats/ffd1b9706a6c05194c908434/.venv/lib/python3.12/site-packages/sklearn/linear_model/_logistic.py:1381: FutureWarning: 'penalty' was deprecated in version 1.8 and will be removed in 1.10. To avoid this warning, leave 'penalty' set to its default value and use 'l1_ratio' or 'C' instead. Use l1_ratio=0 instead of penalty='l2', l1_ratio=1 instead of penalty='l1', l1_ratio set to a float between 0 and 1 instead of penalty='elasticnet', and C=np.inf instead of penalty=None.
+  warnings.warn(
+/workspace/chats/ffd1b9706a6c05194c908434/.venv/lib/python3.12/site-packages/sklearn/linear_model/_logistic.py:1381: FutureWarning: 'penalty' was deprecated in version 1.8 and will be removed in 1.10. To avoid this warning, leave 'penalty' set to its default value and use 'l1_ratio' or 'C' instead. Use l1_ratio=0 instead of penalty='l2', l1_ratio=1 instead of penalty='l1', l1_ratio set to a float between 0 and 1 instead of penalty='elasticnet', and C=np.inf instead of penalty=None.
+  warnings.warn(
+/workspace/chats/ffd1b9706a6c05194c908434/.venv/lib/python3.12/site-packages/sklearn/linear_model/_logistic.py:1381: FutureWarning: 'penalty' was deprecated in version 1.8 and will be removed in 1.10. To avoid this warning, leave 'penalty' set to its default value and use 'l1_ratio' or 'C' instead. Use l1_ratio=0 instead of penalty='l2', l1_ratio=1 instead of penalty='l1', l1_ratio set to a float between 0 and 1 instead of penalty='elasticnet', and C=np.inf instead of penalty=None.
+  warnings.warn(
+/workspace/chats/ffd1b9706a6c05194c908434/.venv/lib/python3.12/site-packages/sklearn/linear_model/_logistic.py:1381: FutureWarning: 'penalty' was deprecated in version 1.8 and will be removed in 1.10. To avoid this warning, leave 'penalty' set to its default value and use 'l1_ratio' or 'C' instead. Use l1_ratio=0 instead of penalty='l2', l1_ratio=1 instead of penalty='l1', l1_ratio set to a float between 0 and 1 instead of penalty='elasticnet', and C=np.inf instead of penalty=None.
+  warnings.warn(
+/workspace/chats/ffd1b9706a6c05194c908434/.venv/lib/python3.12/site-packages/sklearn/linear_model/_logistic.py:1381: FutureWarning: 'penalty' was deprecated in version 1.8 and will be removed in 1.10. To avoid this warning, leave 'penalty' set to its default value and use 'l1_ratio' or 'C' instead. Use l1_ratio=0 instead of penalty='l2', l1_ratio=1 instead of penalty='l1', l1_ratio set to a float between 0 and 1 instead of penalty='elasticnet', and C=np.inf instead of penalty=None.
+  warnings.warn(
+/workspace/chats/ffd1b9706a6c05194c908434/.venv/lib/python3.12/site-packages/sklearn/linear_model/_logistic.py:1381: FutureWarning: 'penalty' was deprecated in version 1.8 and will be removed in 1.10. To avoid this warning, leave 'penalty' set to its default value and use 'l1_ratio' or 'C' instead. Use l1_ratio=0 instead of penalty='l2', l1_ratio=1 instead of penalty='l1', l1_ratio set to a float between 0 and 1 instead of penalty='elasticnet', and C=np.inf instead of penalty=None.
+  warnings.warn(
+/workspace/chats/ffd1b9706a6c05194c908434/.venv/lib/python3.12/site-packages/sklearn/linear_model/_logistic.py:1381: FutureWarning: 'penalty' was deprecated in version 1.8 and will be removed in 1.10. To avoid this warning, leave 'penalty' set to its default value and use 'l1_ratio' or 'C' instead. Use l1_ratio=0 instead of penalty='l2', l1_ratio=1 instead of penalty='l1', l1_ratio set to a float between 0 and 1 instead of penalty='elasticnet', and C=np.inf instead of penalty=None.
+  warnings.warn(
+/workspace/chats/ffd1b9706a6c05194c908434/.venv/lib/python3.12/site-packages/sklearn/linear_model/_logistic.py:1381: FutureWarning: 'penalty' was deprecated in version 1.8 and will be removed in 1.10. To avoid this warning, leave 'penalty' set to its default value and use 'l1_ratio' or 'C' instead. Use l1_ratio=0 instead of penalty='l2', l1_ratio=1 instead of penalty='l1', l1_ratio set to a float between 0 and 1 instead of penalty='elasticnet', and C=np.inf instead of penalty=None.
+  warnings.warn(
+/workspace/chats/ffd1b9706a6c05194c908434/.venv/lib/python3.12/site-packages/sklearn/linear_model/_logistic.py:1381: FutureWarning: 'penalty' was deprecated in version 1.8 and will be removed in 1.10. To avoid this warning, leave 'penalty' set to its default value and use 'l1_ratio' or 'C' instead. Use l1_ratio=0 instead of penalty='l2', l1_ratio=1 instead of penalty='l1', l1_ratio set to a float between 0 and 1 instead of penalty='elasticnet', and C=np.inf instead of penalty=None.
+  warnings.warn(
+2026-11-13 02:06:09,916 INFO moneyline OOF fold 50/88
+features:  40%|####      | 4/10
+/workspace/chats/ffd1b9706a6c05194c908434/.venv/lib/python3.12/site-packages/sklearn/linear_model/_logistic.py:1381: FutureWarning: 'penalty' was deprecated in version 1.8 and will be removed in 1.10. To avoid this warning, leave 'penalty' set to its default value and use 'l1_ratio' or 'C' instead. Use l1_ratio=0 instead of penalty='l2', l1_ratio=1 instead of penalty='l1', l1_ratio set to a float between 0 and 1 instead of penalty='elasticnet', and C=np.inf instead of penalty=None.
+  warnings.warn(
+/workspace/chats/ffd1b9706a6c05194c908434/.venv/lib/python3.12/site-packages/sklearn/linear_model/_logistic.py:1381: FutureWarning: 'penalty' was deprecated in version 1.8 and will be removed in 1.10. To avoid this warning, leave 'penalty' set to its default value and use 'l1_ratio' or 'C' instead. Use l1_ratio=0 instead of penalty='l2', l1_ratio=1 instead of penalty='l1', l1_ratio set to a float between 0 and 1 instead of penalty='elasticnet', and C=np.inf instead of penalty=None.
+  warnings.warn(
+/workspace/chats/ffd1b9706a6c05194c908434/.venv/lib/python3.12/site-packages/sklearn/linear_model/_logistic.py:1381: FutureWarning: 'penalty' was deprecated in version 1.8 and will be removed in 1.10. To avoid this warning, leave 'penalty' set to its default value and use 'l1_ratio' or 'C' instead. Use l1_ratio=0 instead of penalty='l2', l1_ratio=1 instead of penalty='l1', l1_ratio set to a float between 0 and 1 instead of penalty='elasticnet', and C=np.inf instead of penalty=None.
+  warnings.warn(
+/workspace/chats/ffd1b9706a6c05194c908434/.venv/lib/python3.12/site-packages/sklearn/linear_model/_logistic.py:1381: FutureWarning: 'penalty' was deprecated in version 1.8 and will be removed in 1.10. To avoid this warning, leave 'penalty' set to its default value and use 'l1_ratio' or 'C' instead. Use l1_ratio=0 instead of penalty='l2', l1_ratio=1 instead of penalty='l1', l1_ratio set to a float between 0 and 1 instead of penalty='elasticnet', and C=np.inf instead of penalty=None.
+  warnings.warn(
+/workspace/chats/ffd1b9706a6c05194c908434/.venv/lib/python3.12/site-packages/sklearn/linear_model/_logistic.py:1381: FutureWarning: 'penalty' was deprecated in version 1.8 and will be removed in 1.10. To avoid this warning, leave 'penalty' set to its default value and use 'l1_ratio' or 'C' instead. Use l1_ratio=0 instead of penalty='l2', l1_ratio=1 instead of penalty='l1', l1_ratio set to a float between 0 and 1 instead of penalty='elasticnet', and C=np.inf instead of penalty=None.
+  warnings.warn(
+/workspace/chats/ffd1b9706a6c05194c908434/.venv/lib/python3.12/site-packages/sklearn/linear_model/_logistic.py:1381: FutureWarning: 'penalty' was deprecated in version 1.8 and will be removed in 1.10. To avoid this warning, leave 'penalty' set to its default value and use 'l1_ratio' or 'C' instead. Use l1_ratio=0 instead of penalty='l2', l1_ratio=1 instead of penalty='l1', l1_ratio set to a float between 0 and 1 instead of penalty='elasticnet', and C=np.inf instead of penalty=None.
+  warnings.warn(
+/workspace/chats/ffd1b9706a6c05194c908434/.venv/lib/python3.12/site-packages/sklearn/linear_model/_logistic.py:1381: FutureWarning: 'penalty' was deprecated in version 1.8 and will be removed in 1.10. To avoid this warning, leave 'penalty' set to its default value and use 'l1_ratio' or 'C' instead. Use l1_ratio=0 instead of penalty='l2', l1_ratio=1 instead of penalty='l1', l1_ratio set to a float between 0 and 1 instead of penalty='elasticnet', and C=np.inf instead of penalty=None.
+  warnings.warn(
+/workspace/chats/ffd1b9706a6c05194c908434/.venv/lib/python3.12/site-packages/sklearn/linear_model/_logistic.py:1381: FutureWarning: 'penalty' was deprecated in version 1.8 and will be removed in 1.10. To avoid this warning, leave 'penalty' set to its default value and use 'l1_ratio' or 'C' instead. Use l1_ratio=0 instead of penalty='l2', l1_ratio=1 instead of penalty='l1', l1_ratio set to a float between 0 and 1 instead of penalty='elasticnet', and C=np.inf instead of penalty=None.
+  warnings.warn(
+/workspace/chats/ffd1b9706a6c05194c908434/.venv/lib/python3.12/site-packages/sklearn/linear_model/_logistic.py:1381: FutureWarning: 'penalty' was deprecated in version 1.8 and will be removed in 1.10. To avoid this warning, leave 'penalty' set to its default value and use 'l1_ratio' or 'C' instead. Use l1_ratio=0 instead of penalty='l2', l1_ratio=1 instead of penalty='l1', l1_ratio set to a float between 0 and 1 instead of penalty='elasticnet', and C=np.inf instead of penalty=None.
+  warnings.warn(
+/workspace/chats/ffd1b9706a6c05194c908434/.venv/lib/python3.12/site-packages/sklearn/linear_model/_logistic.py:1381: FutureWarning: 'penalty' was deprecated in version 1.8 and will be removed in 1.10. To avoid this warning, leave 'penalty' set to its default value and use 'l1_ratio' or 'C' instead. Use l1_ratio=0 instead of penalty='l2', l1_ratio=1 instead of penalty='l1', l1_ratio set to a float between 0 and 1 instead of penalty='elasticnet', and C=np.inf instead of penalty=None.
+  warnings.warn(
+/workspace/chats/ffd1b9706a6c05194c908434/.venv/lib/python3.12/site-packages/sklearn/linear_model/_logistic.py:1381: FutureWarning: 'penalty' was deprecated in version 1.8 and will be removed in 1.10. To avoid this warning, leave 'penalty' set to its default value and use 'l1_ratio' or 'C' instead. Use l1_ratio=0 instead of penalty='l2', l1_ratio=1 instead of penalty='l1', l1_ratio set to a float between 0 and 1 instead of penalty='elasticnet', and C=np.inf instead of penalty=None.
+  warnings.warn(
+/workspace/chats/ffd1b9706a6c05194c908434/.venv/lib/python3.12/site-packages/sklearn/linear_model/_logistic.py:1381: FutureWarning: 'penalty' was deprecated in version 1.8 and will be removed in 1.10. To avoid this warning, leave 'penalty' set to its default value and use 'l1_ratio' or 'C' instead. Use l1_ratio=0 instead of penalty='l2', l1_ratio=1 instead of penalty='l1', l1_ratio set to a float between 0 and 1 instead of penalty='elasticnet', and C=np.inf instead of penalty=None.
+  warnings.warn(
+/workspace/chats/ffd1b9706a6c05194c908434/.venv/lib/python3.12/site-packages/sklearn/linear_model/_logistic.py:1381: FutureWarning: 'penalty' was deprecated in version 1.8 and will be removed in 1.10. To avoid this warning, leave 'penalty' set to its default value and use 'l1_ratio' or 'C' instead. Use l1_ratio=0 instead of penalty='l2', l1_ratio=1 instead of penalty='l1', l1_ratio set to a float between 0 and 1 instead of penalty='elasticnet', and C=np.inf instead of penalty=None.
+  warnings.warn(
+/workspace/chats/ffd1b9706a6c05194c908434/.venv/lib/python3.12/site-packages/sklearn/linear_model/_logistic.py:1381: FutureWarning: 'penalty' was deprecated in version 1.8 and will be removed in 1.10. To avoid this warning, leave 'penalty' set to its default value and use 'l1_ratio' or 'C' instead. Use l1_ratio=0 instead of penalty='l2', l1_ratio=1 instead of penalty='l1', l1_ratio set to a float between 0 and 1 instead of penalty='elasticnet', and C=np.inf instead of penalty=None.
+  warnings.warn(
+/workspace/chats/ffd1b9706a6c05194c908434/.venv/lib/python3.12/site-packages/sklearn/linear_model/_logistic.py:1381: FutureWarning: 'penalty' was deprecated in version 1.8 and will be removed in 1.10. To avoid this warning, leave 'penalty' set to its default value and use 'l1_ratio' or 'C' instead. Use l1_ratio=0 instead of penalty='l2', l1_ratio=1 instead of penalty='l1', l1_ratio set to a float between 0 and 1 instead of penalty='elasticnet', and C=np.inf instead of penalty=None.
+  warnings.warn(
+/workspace/chats/ffd1b9706a6c05194c908434/.venv/lib/python3.12/site-packages/sklearn/linear_model/_logistic.py:1381: FutureWarning: 'penalty' was deprecated in version 1.8 and will be removed in 1.10. To avoid this warning, leave 'penalty' set to its default value and use 'l1_ratio' or 'C' instead. Use l1_ratio=0 instead of penalty='l2', l1_ratio=1 instead of penalty='l1', l1_ratio set to a float between 0 and 1 instead of penalty='elasticnet', and C=np.inf instead of penalty=None.
+  warnings.warn(
+/workspace/chats/ffd1b9706a6c05194c908434/.venv/lib/python3.12/site-packages/sklearn/linear_model/_logistic.py:1381: FutureWarning: 'penalty' was deprecated in version 1.8 and will be removed in 1.10. To avoid this warning, leave 'penalty' set to its default value and use 'l1_ratio' or 'C' instead. Use l1_ratio=0 instead of penalty='l2', l1_ratio=1 instead of penalty='l1', l1_ratio set to a float between 0 and 1 instead of penalty='elasticnet', and C=np.inf instead of penalty=None.
+  warnings.warn(
+/workspace/chats/ffd1b9706a6c05194c908434/.venv/lib/python3.12/site-packages/sklearn/linear_model/_logistic.py:1381: FutureWarning: 'penalty' was deprecated in version 1.8 and will be removed in 1.10. To avoid this warning, leave 'penalty' set to its default value and use 'l1_ratio' or 'C' instead. Use l1_ratio=0 instead of penalty='l2', l1_ratio=1 instead of penalty='l1', l1_ratio set to a float between 0 and 1 instead of penalty='elasticnet', and C=np.inf instead of penalty=None.
+  warnings.warn(
+/workspace/chats/ffd1b9706a6c05194c908434/.venv/lib/python3.12/site-packages/sklearn/linear_model/_logistic.py:1381: FutureWarning: 'penalty' was deprecated in version 1.8 and will be removed in 1.10. To avoid this warning, leave 'penalty' set to its default value and use 'l1_ratio' or 'C' instead. Use l1_ratio=0 instead of penalty='l2', l1_ratio=1 instead of penalty='l1', l1_ratio set to a float between 0 and 1 instead of penalty='elasticnet', and C=np.inf instead of penalty=None.
+  warnings.warn(
+/workspace/chats/ffd1b9706a6c05194c908434/.venv/lib/python3.12/site-packages/sklearn/linear_model/_logistic.py:1381: FutureWarning: 'penalty' was deprecated in version 1.8 and will be removed in 1.10. To avoid this warning, leave 'penalty' set to its default value and use 'l1_ratio' or 'C' instead. Use l1_ratio=0 instead of penalty='l2', l1_ratio=1 instead of penalty='l1', l1_ratio set to a float between 0 and 1 instead of penalty='elasticnet', and C=np.inf instead of penalty=None.
+  warnings.warn(
+/workspace/chats/ffd1b9706a6c05194c908434/.venv/lib/python3.12/site-packages/sklearn/linear_model/_logistic.py:1381: FutureWarning: 'penalty' was deprecated in version 1.8 and will be removed in 1.10. To avoid this warning, leave 'penalty' set to its default value and use 'l1_ratio' or 'C' instead. Use l1_ratio=0 instead of penalty='l2', l1_ratio=1 instead of penalty='l1', l1_ratio set to a float between 0 and 1 instead of penalty='elasticnet', and C=np.inf instead of penalty=None.
+  warnings.warn(
+/workspace/chats/ffd1b9706a6c05194c908434/.venv/lib/python3.12/site-packages/sklearn/linear_model/_logistic.py:1381: FutureWarning: 'penalty' was deprecated in version 1.8 and will be removed in 1.10. To avoid this warning, leave 'penalty' set to its default value and use 'l1_ratio' or 'C' instead. Use l1_ratio=0 instead of penalty='l2', l1_ratio=1 instead of penalty='l1', l1_ratio set to a float between 0 and 1 instead of penalty='elasticnet', and C=np.inf instead of penalty=None.
+  warnings.warn(
+/workspace/chats/ffd1b9706a6c05194c908434/.venv/lib/python3.12/site-packages/sklearn/linear_model/_logistic.py:1381: FutureWarning: 'penalty' was deprecated in version 1.8 and will be removed in 1.10. To avoid this warning, leave 'penalty' set to its default value and use 'l1_ratio' or 'C' instead. Use l1_ratio=0 instead of penalty='l2', l1_ratio=1 instead of penalty='l1', l1_ratio set to a float between 0 and 1 instead of penalty='elasticnet', and C=np.inf instead of penalty=None.
+  warnings.warn(
+/workspace/chats/ffd1b9706a6c05194c908434/.venv/lib/python3.12/site-packages/sklearn/linear_model/_logistic.py:1381: FutureWarning: 'penalty' was deprecated in version 1.8 and will be removed in 1.10. To avoid this warning, leave 'penalty' set to its default value and use 'l1_ratio' or 'C' instead. Use l1_ratio=0 instead of penalty='l2', l1_ratio=1 instead of penalty='l1', l1_ratio set to a float between 0 and 1 instead of penalty='elasticnet', and C=np.inf instead of penalty=None.
+  warnings.warn(
+/workspace/chats/ffd1b9706a6c05194c908434/.venv/lib/python3.12/site-packages/sklearn/linear_model/_logistic.py:1381: FutureWarning: 'penalty' was deprecated in version 1.8 and will be removed in 1.10. To avoid this warning, leave 'penalty' set to its default value and use 'l1_ratio' or 'C' instead. Use l1_ratio=0 instead of penalty='l2', l1_ratio=1 instead of penalty='l1', l1_ratio set to a float between 0 and 1 instead of penalty='elasticnet', and C=np.inf instead of penalty=None.
+  warnings.warn(
+2026-11-13 02:06:26,072 INFO moneyline OOF fold 75/88
+features:  40%|####      | 4/10
+/workspace/chats/ffd1b9706a6c05194c908434/.venv/lib/python3.12/site-packages/sklearn/linear_model/_logistic.py:1381: FutureWarning: 'penalty' was deprecated in version 1.8 and will be removed in 1.10. To avoid this warning, leave 'penalty' set to its default value and use 'l1_ratio' or 'C' instead. Use l1_ratio=0 instead of penalty='l2', l1_ratio=1 instead of penalty='l1', l1_ratio set to a float between 0 and 1 instead of penalty='elasticnet', and C=np.inf instead of penalty=None.
+  warnings.warn(
+/workspace/chats/ffd1b9706a6c05194c908434/.venv/lib/python3.12/site-packages/sklearn/linear_model/_logistic.py:1381: FutureWarning: 'penalty' was deprecated in version 1.8 and will be removed in 1.10. To avoid this warning, leave 'penalty' set to its default value and use 'l1_ratio' or 'C' instead. Use l1_ratio=0 instead of penalty='l2', l1_ratio=1 instead of penalty='l1', l1_ratio set to a float between 0 and 1 instead of penalty='elasticnet', and C=np.inf instead of penalty=None.
+  warnings.warn(
+/workspace/chats/ffd1b9706a6c05194c908434/.venv/lib/python3.12/site-packages/sklearn/linear_model/_logistic.py:1381: FutureWarning: 'penalty' was deprecated in version 1.8 and will be removed in 1.10. To avoid this warning, leave 'penalty' set to its default value and use 'l1_ratio' or 'C' instead. Use l1_ratio=0 instead of penalty='l2', l1_ratio=1 instead of penalty='l1', l1_ratio set to a float between 0 and 1 instead of penalty='elasticnet', and C=np.inf instead of penalty=None.
+  warnings.warn(
+/workspace/chats/ffd1b9706a6c05194c908434/.venv/lib/python3.12/site-packages/sklearn/linear_model/_logistic.py:1381: FutureWarning: 'penalty' was deprecated in version 1.8 and will be removed in 1.10. To avoid this warning, leave 'penalty' set to its default value and use 'l1_ratio' or 'C' instead. Use l1_ratio=0 instead of penalty='l2', l1_ratio=1 instead of penalty='l1', l1_ratio set to a float between 0 and 1 instead of penalty='elasticnet', and C=np.inf instead of penalty=None.
+  warnings.warn(
+/workspace/chats/ffd1b9706a6c05194c908434/.venv/lib/python3.12/site-packages/sklearn/linear_model/_logistic.py:1381: FutureWarning: 'penalty' was deprecated in version 1.8 and will be removed in 1.10. To avoid this warning, leave 'penalty' set to its default value and use 'l1_ratio' or 'C' instead. Use l1_ratio=0 instead of penalty='l2', l1_ratio=1 instead of penalty='l1', l1_ratio set to a float between 0 and 1 instead of penalty='elasticnet', and C=np.inf instead of penalty=None.
+  warnings.warn(
+/workspace/chats/ffd1b9706a6c05194c908434/.venv/lib/python3.12/site-packages/sklearn/linear_model/_logistic.py:1381: FutureWarning: 'penalty' was deprecated in version 1.8 and will be removed in 1.10. To avoid this warning, leave 'penalty' set to its default value and use 'l1_ratio' or 'C' instead. Use l1_ratio=0 instead of penalty='l2', l1_ratio=1 instead of penalty='l1', l1_ratio set to a float between 0 and 1 instead of penalty='elasticnet', and C=np.inf instead of penalty=None.
+  warnings.warn(
+/workspace/chats/ffd1b9706a6c05194c908434/.venv/lib/python3.12/site-packages/sklearn/linear_model/_logistic.py:1381: FutureWarning: 'penalty' was deprecated in version 1.8 and will be removed in 1.10. To avoid this warning, leave 'penalty' set to its default value and use 'l1_ratio' or 'C' instead. Use l1_ratio=0 instead of penalty='l2', l1_ratio=1 instead of penalty='l1', l1_ratio set to a float between 0 and 1 instead of penalty='elasticnet', and C=np.inf instead of penalty=None.
+  warnings.warn(
+/workspace/chats/ffd1b9706a6c05194c908434/.venv/lib/python3.12/site-packages/sklearn/linear_model/_logistic.py:1381: FutureWarning: 'penalty' was deprecated in version 1.8 and will be removed in 1.10. To avoid this warning, leave 'penalty' set to its default value and use 'l1_ratio' or 'C' instead. Use l1_ratio=0 instead of penalty='l2', l1_ratio=1 instead of penalty='l1', l1_ratio set to a float between 0 and 1 instead of penalty='elasticnet', and C=np.inf instead of penalty=None.
+  warnings.warn(
+/workspace/chats/ffd1b9706a6c05194c908434/.venv/lib/python3.12/site-packages/sklearn/linear_model/_logistic.py:1381: FutureWarning: 'penalty' was deprecated in version 1.8 and will be removed in 1.10. To avoid this warning, leave 'penalty' set to its default value and use 'l1_ratio' or 'C' instead. Use l1_ratio=0 instead of penalty='l2', l1_ratio=1 instead of penalty='l1', l1_ratio set to a float between 0 and 1 instead of penalty='elasticnet', and C=np.inf instead of penalty=None.
+  warnings.warn(
+/workspace/chats/ffd1b9706a6c05194c908434/.venv/lib/python3.12/site-packages/sklearn/linear_model/_logistic.py:1381: FutureWarning: 'penalty' was deprecated in version 1.8 and will be removed in 1.10. To avoid this warning, leave 'penalty' set to its default value and use 'l1_ratio' or 'C' instead. Use l1_ratio=0 instead of penalty='l2', l1_ratio=1 instead of penalty='l1', l1_ratio set to a float between 0 and 1 instead of penalty='elasticnet', and C=np.inf instead of penalty=None.
+  warnings.warn(
+/workspace/chats/ffd1b9706a6c05194c908434/.venv/lib/python3.12/site-packages/sklearn/linear_model/_logistic.py:1381: FutureWarning: 'penalty' was deprecated in version 1.8 and will be removed in 1.10. To avoid this warning, leave 'penalty' set to its default value and use 'l1_ratio' or 'C' instead. Use l1_ratio=0 instead of penalty='l2', l1_ratio=1 instead of penalty='l1', l1_ratio set to a float between 0 and 1 instead of penalty='elasticnet', and C=np.inf instead of penalty=None.
+  warnings.warn(
+/workspace/chats/ffd1b9706a6c05194c908434/.venv/lib/python3.12/site-packages/sklearn/linear_model/_logistic.py:1381: FutureWarning: 'penalty' was deprecated in version 1.8 and will be removed in 1.10. To avoid this warning, leave 'penalty' set to its default value and use 'l1_ratio' or 'C' instead. Use l1_ratio=0 instead of penalty='l2', l1_ratio=1 instead of penalty='l1', l1_ratio set to a float between 0 and 1 instead of penalty='elasticnet', and C=np.inf instead of penalty=None.
+  warnings.warn(
+/workspace/chats/ffd1b9706a6c05194c908434/.venv/lib/python3.12/site-packages/sklearn/linear_model/_logistic.py:1381: FutureWarning: 'penalty' was deprecated in version 1.8 and will be removed in 1.10. To avoid this warning, leave 'penalty' set to its default value and use 'l1_ratio' or 'C' instead. Use l1_ratio=0 instead of penalty='l2', l1_ratio=1 instead of penalty='l1', l1_ratio set to a float between 0 and 1 instead of penalty='elasticnet', and C=np.inf instead of penalty=None.
+  warnings.warn(
+2026-11-13 02:06:38,963 INFO Published blend: 3881 OOF rows — headline metrics grade the causal rolling blend; final weights {'elasticnet': '100.0%', 'lightgbm': '0.0%', 'xgboost': '0.0%'} replay only in p_ensemble_retrospective (NOT OOF)
+2026-11-13 02:06:39,022 INFO moneyline retrospective final-weight replay (NOT OOF): {'n': 3485, 'auc': 0.7468371042227315, 'logloss': 0.5903744294727767, 'brier': 0.20267439092330677, 'ece': 0.014722015635731351}
+2026-11-13 02:06:39,023 INFO final serving calibration gate: identity (gated_no_gain)
+2026-11-13 02:06:39,023 INFO final serving calibrator: identity map (no fitted correction)
+2026-11-13 02:07:17,868 INFO score-ensemble OOF fold 25/88
+2026-11-13 02:08:07,717 INFO score-ensemble OOF fold 50/88
+2026-11-13 02:09:02,721 INFO score-ensemble OOF fold 75/88
+2026-11-13 02:09:35,679 INFO score-ensemble serving weights (OOF-earned): {'elasticnet': 0.7546, 'lightgbm': 0.0013, 'xgboost': 0.2441}
+2026-11-13 02:09:35,700 INFO run-line fit check: home pearson 1.1833 dev 1.18903 (baseline 1.44511) | away pearson 1.2116 dev 1.21560 (baseline 1.49282)
+2026-11-13 02:09:35,733 INFO marketize (expand=False merge): 0.0s over 3881 rows
+2026-11-13 02:09:35,772 INFO causal_distribution_frame: 3881 rows over 88 origins (n_draws=50000)
+2026-11-13 02:09:36,202 INFO causal_distribution_frame: origin 0/88 (0.4s)
+2026-11-13 02:10:07,427 INFO causal_distribution_frame: origin 25/88 (31.7s)
+2026-11-13 02:11:09,091 INFO causal_distribution_frame: origin 50/88 (93.3s)
+2026-11-13 02:12:42,545 INFO causal_distribution_frame: origin 75/88 (186.8s)
+2026-11-13 02:13:48,102 INFO calibrate_market_frame: 252.4s over 3881 rows (88 origins)
+features:  40%|####      | 4/10
+/workspace/chats/ffd1b9706a6c05194c908434/nba-backend/backend/master_pipeline.py:186: DeprecationWarning: The 'generic' unit for NumPy timedelta is deprecated, and will raise an error in the future. This includes implicit conversion of bare integers (e.g. `+ 1`). Please use a specific unit instead.
+  - pd.Timedelta(days=dist_mod.HOLDOUT_DAYS))
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
   walk-forward
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-2026-11-12 22:25:57,569 INFO   phase 5/11  walk-forward  (17m33s)
+2026-11-13 02:13:48,131 INFO   phase 5/10  walk-forward  (8m07s)
   ✅ 3881 out-of-fold rows over 88 folds
-2026-11-12 22:26:05,361 INFO moneyline freeze: 4/4 slate games carry first-published pre-tip probabilities (0 live)
-2026-11-12 22:26:11,508 INFO weight tables: reusing the in-process walk-forward history (3511 games)
-2026-11-12 22:26:40,032 INFO markets freeze: 4/4 slate games carry first-published legs (886 columns)
+walk-forward:  50%|#####     | 5/10
+/workspace/chats/ffd1b9706a6c05194c908434/.venv/lib/python3.12/site-packages/sklearn/linear_model/_logistic.py:1381: FutureWarning: 'penalty' was deprecated in version 1.8 and will be removed in 1.10. To avoid this warning, leave 'penalty' set to its default value and use 'l1_ratio' or 'C' instead. Use l1_ratio=0 instead of penalty='l2', l1_ratio=1 instead of penalty='l1', l1_ratio set to a float between 0 and 1 instead of penalty='elasticnet', and C=np.inf instead of penalty=None.
+  warnings.warn(
+2026-11-13 02:13:52,188 INFO moneyline freeze: 13/13 slate games carry first-published pre-tip probabilities (0 live)
+2026-11-13 02:13:53,377 INFO markets freeze: 13/13 slate games carry first-published legs (886 columns)
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
   final fit
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-2026-11-12 22:26:41,652 INFO   phase 6/11  final fit  (44s)
-  ✅ 3 ensemble member(s), 4 upcoming game(s) scored
-2026-11-12 22:27:18,921 INFO DARKO history: 215556 rows for 524 player(s)
-2026-11-12 22:27:19,085 INFO DARKO rating: 100.0% of rows carry a DPM value
-2026-11-12 22:27:19,218 INFO DARKO expected minutes: 27.1% of rows carry x_minutes
-2026-11-12 22:27:30,838 INFO waterfall minutes redistribution (rating writer): 0 donor(s), 0.0 minute(s) absorbed, 0.0 vanished (0 no-survivor), 0 spill(s)
-2026-11-12 22:27:30,975 INFO projected lineups: 8258 team-game(s) (8 priced, 8250 pool-refusal mask rows), mean pool 17.2 / healthy 11.1 over priced rows
-2026-11-12 22:27:34,246 INFO   lineup_rapm_mean_diff            4/4129 rows  distinct 4
-2026-11-12 22:27:34,247 INFO   lineup_rapm_top3_diff            4/4129 rows  distinct 4
-2026-11-12 22:27:34,247 INFO   lineup_rapm_std_diff             4/4129 rows  distinct 4
-2026-11-12 22:27:34,248 INFO   lineup_rapm_rest_count_diff      4/4129 rows  distinct 1  CONSTANT
-2026-11-12 22:27:34,248 INFO   lineup_out_count_diff            4/4129 rows  distinct 4
-2026-11-12 22:27:34,249 INFO   lineup_healthy_frac_diff         4/4129 rows  distinct 4
-2026-11-12 22:27:34,249 INFO   lineup_rapm_concentration_diff   4/4129 rows  distinct 4
-2026-11-12 22:27:39,672 INFO NBA SHAP attributions written for 4 game(s)
-2026-11-12 22:27:39,673 INFO SHAP attributions written: 4
+2026-11-13 02:13:56,672 INFO   phase 6/10  final fit  (8s)
+  ✅ 3 ensemble member(s), 13 upcoming game(s) scored
+2026-11-13 02:14:22,398 INFO DARKO history: 198787 rows for 463 player(s)
+2026-11-13 02:14:22,520 INFO DARKO rating: 100.0% of rows carry a DPM value
+2026-11-13 02:14:22,611 INFO DARKO expected minutes: 58.7% of rows carry x_minutes
+2026-11-13 02:14:32,759 INFO waterfall minutes redistribution (rating writer): 0 donor(s), 0.0 minute(s) absorbed, 0.0 vanished (0 no-survivor), 0 spill(s)
+2026-11-13 02:14:32,861 INFO projected lineups: 9814 team-game(s) (18 priced, 9796 pool-refusal mask rows), mean pool 15.3 / healthy 12.3 over priced rows
+2026-11-13 02:14:36,049 INFO   lineup_rapm_mean_diff            9/4907 rows  distinct 9
+2026-11-13 02:14:36,050 INFO   lineup_rapm_top3_diff            9/4907 rows  distinct 9
+2026-11-13 02:14:36,050 INFO   lineup_rapm_std_diff             9/4907 rows  distinct 9
+2026-11-13 02:14:36,050 INFO   lineup_rapm_rest_count_diff      9/4907 rows  distinct 1  CONSTANT
+2026-11-13 02:14:36,051 INFO   lineup_out_count_diff            9/4907 rows  distinct 7
+2026-11-13 02:14:36,051 INFO   lineup_healthy_frac_diff         9/4907 rows  distinct 9
+2026-11-13 02:14:36,051 INFO   lineup_rapm_concentration_diff   9/4907 rows  distinct 9
+2026-11-13 02:14:36,134 WARNING shap not available - no NBA SHAP files written
+2026-11-13 02:14:36,134 INFO SHAP attributions written: 0
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
   serve
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-2026-11-12 22:27:39,674 INFO   phase 7/11  serve  (58s)
-  ✅ 13 artifact(s) written to /kaggle/working/sports_prediction_model/nba-backend/data_delivery
-2026-11-12 22:27:40,019 INFO feature importance weights are blend-weighted across 3 member(s) with shares {'xgboost': 0.0, 'lightgbm': 0.0, 'elasticnet': 1.0}; each member's own elo_diff importance {'xgboost': 5.2341, 'lightgbm': 2.5472, 'elasticnet': 9.4838} - a concentrated share means the MODEL WEIGHT column is that member's profile
-2026-11-12 22:27:40,204 INFO feature drift: 132 features, 132 evaluated, 0 INSUFFICIENT, 2 warning(s), 10 alert(s); statuses on noise-adjusted PSI with a location gate [alerts: is_playoffs, elo_home, win_pct_home, event_rim_rate_home, event_rim_rate_away, event_shot_distance_home, event_shot_distance_away, event_shooting_fouls_diff, projected_game_pace_total, turnovers_per_game_ewm_home; warnings: event_three_rate_home, ewm_tov_forced_home]
-2026-11-12 22:27:40,370 INFO run-engine drift/coverage view: DISTRIBUTION model - pooled per-side Poisson importances over 132 feature(s) summing to 100.0000%; 132 input(s) in the monitoring view
+2026-11-13 02:14:36,135 INFO   phase 7/10  serve  (39s)
+  ✅ 9 artifact(s) written to /workspace/chats/ffd1b9706a6c05194c908434/nba-backend/run_diagnostics/local_run
+2026-11-13 02:14:36,398 INFO feature importance weights are blend-weighted across 3 member(s) with shares {'xgboost': 0.0, 'lightgbm': 0.0, 'elasticnet': 1.0}; each member's own elo_diff importance {'xgboost': 4.945, 'lightgbm': 3.2802, 'elasticnet': 7.5288} - a concentrated share means the MODEL WEIGHT column is that member's profile
+2026-11-13 02:14:36,529 INFO feature drift: 132 features, 132 evaluated, 0 INSUFFICIENT, 2 warning(s), 10 alert(s); statuses on noise-adjusted PSI with a location gate [alerts: is_playoffs, elo_home, win_pct_home, event_rim_rate_home, event_rim_rate_away, event_shot_distance_home, event_shot_distance_away, event_shooting_fouls_diff, projected_game_pace_total, turnovers_per_game_ewm_home; warnings: event_three_rate_home, ewm_tov_forced_home]
+2026-11-13 02:14:36,650 INFO run-engine drift/coverage view: DISTRIBUTION model - pooled per-side Poisson importances over 132 feature(s) summing to 100.0000%; 132 input(s) in the monitoring view
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
   feature report
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-2026-11-12 22:27:40,371 INFO   phase 8/11  feature report  (0s)
+2026-11-13 02:14:36,651 INFO   phase 8/10  feature report  (0s)
   ✅ selection nba_feature_selection_20261112.json, 2 drift/coverage file(s)
-
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-  nba distribution engine
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-2026-11-12 22:27:40,440 INFO   phase 9/11  nba distribution engine  (0s)
-  ✅ nba_nb_hier_wprod_v1 fitted once on 4111 settled rows (498 point-in-time weight tables, walkforward_inprocess_blocks); the same bundle priced the slate, so it is reused, not refit
-2026-11-12 22:27:40,580 INFO feature drift: 98 features, 98 evaluated, 0 INSUFFICIENT, 1 warning(s), 9 alert(s); statuses on noise-adjusted PSI with a location gate [alerts: is_playoffs, elo_home, win_pct_home, event_rim_rate_home, event_rim_rate_away, event_shot_distance_home, event_shot_distance_away, event_shooting_fouls_diff, projected_game_pace_total; warnings: event_three_rate_home]
-2026-11-12 22:27:41,039 INFO run-line OOF:  {"n": 3881, "n_pushes": 0, "crps": 8.054423701454054, "auc": 0.49411004784689, "logloss": 0.6935124742356371, "logscore": 0.6935124742356371, "brier": 0.25018260658337793, "predicted_mean": 0.49981753530450795, "actual_win_rate": 0.515331100231899, "ece_cover": 0.01551356492739114, "reliability": [{"n": 1959, "predicted": 0.4918690313718322, "actual": 0.5222052067381318, "gap": -0.030336175366299567}, {"n": 1922, "predicted": 0.5079190541411945, "actual": 0.508324661810614, "gap": -0.0004056076694194388}], "calibration_in_the_large": -0.015513564927391033, "threshold_policy": "closest_half_point_to_model_50_percent"}
-2026-11-12 22:27:41,040 INFO totals OOF:    {"n": 3881, "n_pushes": 0, "crps": 10.579991469874713, "auc": 0.49371852218031825, "logloss": 0.6934154490726551, "logscore": 0.6934154490726551, "brier": 0.250134107840754, "predicted_mean": 0.49979796320417325, "actual_win_rate": 0.5140427724813192, "ece_cover": 0.01424480927714596, "reliability": [{"n": 1972, "predicted": 0.49390155031381067, "actual": 0.5182555780933062, "gap": -0.02435402777949558}, {"n": 1909, "predicted": 0.5058889669861507, "actual": 0.5096909376636982, "gap": -0.003801970677547506}], "calibration_in_the_large": -0.014244809277145998, "threshold_policy": "closest_half_point_to_model_50_percent"}
+2026-11-13 02:14:36,865 INFO feature drift: 98 features, 98 evaluated, 0 INSUFFICIENT, 1 warning(s), 9 alert(s); statuses on noise-adjusted PSI with a location gate [alerts: is_playoffs, elo_home, win_pct_home, event_rim_rate_home, event_rim_rate_away, event_shot_distance_home, event_shot_distance_away, event_shooting_fouls_diff, projected_game_pace_total; warnings: event_three_rate_home]
+2026-11-13 02:14:37,047 INFO run-line OOF:  {"n": 3881, "n_pushes": 0, "crps": 7.977855213950837, "auc": 0.50889630557601, "logloss": 0.693034749058806, "logscore": 0.693034749058806, "brier": 0.2499437859777377, "predicted_mean": 0.49993322854934297, "actual_win_rate": 0.5083741303787683, "ece_cover": 0.008440901829425371, "reliability": [{"n": 1949, "predicted": 0.4927426782965623, "actual": 0.4987172909184197, "gap": -0.005974612621857389}, {"n": 1932, "predicted": 0.5071870496894411, "actual": 0.5181159420289855, "gap": -0.010928892339544416}], "calibration_in_the_large": -0.008440901829425362, "threshold_policy": "closest_half_point_to_model_50_percent"}
+2026-11-13 02:14:37,047 INFO totals OOF:    {"n": 3881, "n_pushes": 0, "crps": 10.410349637941664, "auc": 0.5076654588679197, "logloss": 0.6930593828967625, "logscore": 0.6930593828967625, "brier": 0.24995610296366916, "predicted_mean": 0.4999604689513012, "actual_win_rate": 0.5009018294254058, "ece_cover": 0.002648291677402665, "reliability": [{"n": 1944, "predicted": 0.4945022119341564, "actual": 0.492798353909465, "gap": 0.0017038580246913626}, {"n": 1937, "predicted": 0.5054384512132164, "actual": 0.5090345895715023, "gap": -0.003596138358285872}], "calibration_in_the_large": -0.0009413604741046466, "threshold_policy": "closest_half_point_to_model_50_percent"}
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
   monitor
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-2026-11-12 22:27:41,655 INFO   phase 10/11  monitor  (1s)
-  ✅ rolling Brier: 0.2041 games-weighted over 614 day(s) (3881 game(s)); last day 2026-11-11 0.1653 over 10 game(s), 3 ensemble member(s)
-2026-11-12 22:27:41,992 INFO score-means stability vs prior delivery: {'status': 'ok', 'prior_file': 'nba_run_engine_markets_20261111.csv', 'n_common': 3871, 'mean_abs_dmu_home': 1.1663, 'mean_abs_dmu_away': 1.2388, 'derived_auc_new': 0.7346, 'derived_logloss_new': 0.60242, 'derived_auc_prior': 0.7407, 'derived_logloss_prior': 0.59652, 'derived_auc_delta_bps': -61.0, 'derived_logloss_delta_bps': 59.0}
-2026-11-12 22:27:42,032 INFO PIT designations: 43469 record(s) from the published archive
-2026-11-12 22:27:42,584 INFO designation archive published: 43469 record(s)
-2026-11-12 22:27:42,744 INFO event rollup archive published: 8222 team-game(s)
+2026-11-13 02:14:43,995 INFO   phase 9/10  monitor  (7s)
+  ✅ rolling Brier: 0.2044 games-weighted over 614 day(s) (3881 game(s)); last day 2026-11-11 0.1661 over 10 game(s), 3 ensemble member(s)
+2026-11-13 02:14:44,013 INFO score-means stability vs prior delivery: {'status': 'no_prior_delivery'}
+2026-11-13 02:14:44,054 INFO PIT designations: 43841 record(s) from the published archive
+2026-11-13 02:14:44,388 INFO designation archive published: 43841 record(s)
+2026-11-13 02:14:44,514 INFO event rollup archive published: 9758 team-game(s)
+monitor:  90%|######### | 9/10
+/workspace/chats/ffd1b9706a6c05194c908434/nba-backend/backend/master_pipeline.py:1443: DeprecationWarning: The 'generic' unit for NumPy timedelta is deprecated, and will raise an error in the future. This includes implicit conversion of bare integers (e.g. `+ 1`). Please use a specific unit instead.
+  dates = {(anchor - pd.Timedelta(days=i).to_pytimedelta()).strftime("%Y%m%d")
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
   publish
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-2026-11-12 22:27:42,975 INFO   phase 11/11  publish  (1s)
-  ✅ status ok, 5535.43s
-publish: 100%|##########| 11/11, total 1h35m
+2026-11-13 02:14:44,518 INFO   phase 10/10  publish  (0s)
+  ✅ status ok, 1135.29s
+publish: 100%|##########| 10/10, total 18m55s
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
   run delivery
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-  status ok, 5535.43s
-  artifacts — 357 file(s) committed to main at ce82bcedd1, remotely verified
+  status ok, 1135.29s
+  artifacts — not pushed: NBA_PUSH is set to '0'
   run log — this file, re-delivered after the sync so the run's final state ships with it
-  📝 Final run-log delivery — pushing the complete log (the sync staged a snapshot before sync finished)
+{
+ "status": "ok",
+ "errors": [],
+ "run_date": "20261112",
+ "artifacts": [
+  "nba_moneyline_v1_20261112.json",
+  "nba_player_leader_matchup_20261112.json",
+  "nba_calibration_20261112.json",
+  "nba_predictions_history_20261112.csv",
+  "nba_run_engine_markets_20261112.csv",
+  "nba_run_engine_markets_20261112.meta.json",
+  "nba_power_rankings_20261112.csv",
+  "nba_player_rapm_20261112.csv",
+  "nba_feature_v1_20261112.json",
+  "nba_feature_selection_20261112.json",
+  "nba_run_engine_feature_drift_20261112.csv",
+  "nba_run_engine_feature_coverage_20261112.csv",
+  "models/nba_ensemble_latest.joblib",
+  "nba_model_monitor_20261112.json",
+  "nba_run_engine_monitor_20261112.json",
+  "nba_production_cards_history.csv",
+  "nba_roster_history.parquet"
+ ],
+ "score_means_stability": {
+  "status": "no_prior_delivery"
+ },
+ "weights": {
+  "elasticnet": 1.0,
+  "lightgbm": 0.0,
+  "xgboost": 0.0
+ },
+ "folds": {
+  "n_folds": 88,
+  "partial_tail_folds": 1,
+  "first_val_start": "2023-11-25",
+  "last_val_end": "2026-11-11",
+  "min_train": 230,
+  "max_train": 4073,
+  "total_val_games": 3881,
+  "n_candidates": 88,
+  "dropped_windows": 0,
+  "dropped_games": 0,
+  "provisional_windows": 22,
+  "provisional_games": 369,
+  "postseason_windows": 21,
+  "min_val_fold_games": 40,
+  "oof_regular": {
+   "n": 3485,
+   "auc": 0.7461055184557628,
+   "logloss": 0.5912640801914587,
+   "brier": 0.20294581571030793,
+   "ece": 0.013864898759241307,
+   "sufficient": true
+  },
+  "oof_postseason": {
+   "n": 251,
+   "auc": 0.6434861434861434,
+   "logloss": 0.6558364267337673,
+   "brier": 0.22971015289311525,
+   "ece": 0.04983880340314791,
+   "sufficient": true
+  },
+  "oof_provisional": {
+   "n": 369,
+   "auc": 0.7018556701030928,
+   "logloss": 0.6263163254608268,
+   "brier": 0.2174398514339462,
+   "ece": 0.04511825293738199,
+   "sufficient": true
+  },
+  "oof_all": {
+   "n": 3881,
+   "auc": 0.7414480733787665,
+   "logloss": 0.5948803461705865,
+   "brier": 0.20441558365945456,
+   "ece": 0.013588851650650078,
+   "sufficient": true
+  },
+  "calibration_gate": {
+   "folds": [
+    {
+     "n_prior": 0,
+     "decision": "identity",
+     "reason": "insufficient_prior_evidence",
+     "raw_logloss": null,
+     "nested_holdout_logloss": null,
+     "fold_id": 0
+    },
+    {
+     "n_prior": 49,
+     "decision": "identity",
+     "reason": "insufficient_prior_evidence",
+     "raw_logloss": null,
+     "nested_holdout_logloss": null,
+     "fold_id": 1
+    },
+    {
+     "n_prior": 104,
+     "decision": "identity",
+     "reason": "insufficient_prior_evidence",
+     "raw_logloss": null,
+     "nested_holdout_logloss": null,
+     "fold_id": 2
+    },
+    {
+     "n_prior": 159,
+     "decision": "identity",
+     "reason": "insufficient_prior_evidence",
+     "raw_logloss": null,
+     "nested_holdout_logloss": null,
+     "fold_id": 3
+    },
+    {
+     "n_prior": 214,
+     "decision": "identity",
+     "reason": "insufficient_prior_evidence",
+     "raw_logloss": null,
+     "nested_holdout_logloss": null,
+     "fold_id": 4
+    },
+    {
+     "n_prior": 264,
+     "decision": "identity",
+     "reason": "insufficient_prior_evidence",
+     "raw_logloss": null,
+     "nested_holdout_logloss": null,
+     "fold_id": 5
+    },
+    {
+     "n_prior": 316,
+     "decision": "identity",
+     "reason": "insufficient_prior_evidence",
+     "raw_logloss": null,
+     "nested_holdout_logloss": null,
+     "fold_id": 6
+    },
+    {
+     "n_prior": 368,
+     "decision": "identity",
+     "reason": "insufficient_prior_evidence",
+     "raw_logloss": null,
+     "nested_holdout_logloss": null,
+     "fold_id": 7
+    },
+    {
+     "n_prior": 416,
+     "decision": "identity",
+     "reason": "insufficient_prior_evidence",
+     "raw_logloss": null,
+     "nested_holdout_logloss": null,
+     "fold_id": 8
+    },
+    {
+     "n_prior": 471,
+     "decision": "identity",
+     "reason": "insufficient_prior_evidence",
+     "raw_logloss": null,
+     "nested_holdout_logloss": null,
+     "fold_id": 9
+    },
+    {
+     "n_prior": 523,
+     "decision": "identity",
+     "reason": "gated_no_gain",
+     "raw_logloss": 0.5913981177272933,
+     "nested_holdout_logloss": 0.5914952998341326,
+     "fold_id": 10
+    },
+    {
+     "n_prior": 574,
+     "decision": "identity",
+     "reason": "gated_no_gain",
+     "raw_logloss": 0.6138992030957798,
+     "nested_holdout_logloss": 0.6166166137696014,
+     "fold_id": 11
+    },
+    {
+     "n_prior": 630,
+     "decision": "identity",
+     "reason": "gated_no_gain",
+     "raw_logloss": 0.6197164488901167,
+     "nested_holdout_logloss": 0.6224742401192829,
+     "fold_id": 12
+    },
+    {
+     "n_prior": 683,
+     "decision": "identity",
+     "reason": "gated_no_gain",
+     "raw_logloss": 0.5988308272970287,
+     "nested_holdout_logloss": 0.5989289291025406,
+     "fold_id": 13
+    },
+    {
+     "n_prior": 737,
+     "decision": "identity",
+     "reason": "gated_no_gain",
+     "raw_logloss": 0.6275461201879132,
+     "nested_holdout_logloss": 0.6302950096904303,
+     "fold_id": 14
+    },
+    {
+     "n_prior": 789,
+     "decision": "identity",
+     "reason": "gated_no_gain",
+     "raw_logloss": 0.6127946608064595,
+     "nested_holdout_logloss": 0.6135066587039776,
+     "fold_id": 15
+    },
+    {
+     "n_prior": 842,
+     "decision": "identity",
+     "reason": "gated_no_gain",
+     "raw_logloss": 0.5925276028962152,
+     "nested_holdout_logloss": 0.5916227095845432,
+     "fold_id": 16
+    },
+    {
+     "n_prior": 891,
+     "decision": "identity",
+     "reason": "gated_no_gain",
+     "raw_logloss": 0.6107567520940851,
+     "nested_holdout_logloss": 0.6109024769651822,
+     "fold_id": 17
+    },
+    {
+     "n_prior": 957,
+     "decision": "identity",
+     "reason": "gated_no_gain",
+     "raw_logloss": 0.5880168494117767,
+     "nested_holdout_logloss": 0.5874609480110939,
+     "fold_id": 18
+    },
+    {
+     "n_prior": 1000,
+     "decision": "identity",
+     "reason": "gated_no_gain",
+     "raw_logloss": 0.573907511500321,
+     "nested_holdout_logloss": 0.573571765913606,
+     "fold_id": 19
+    },
+    {
+     "n_prior": 1000,
+     "decision": "identity",
+     "reason": "gated_no_gain",
+     "raw_logloss": 0.573907511500321,
+     "nested_holdout_logloss": 0.573571765913606,
+     "fold_id": 20
+    },
+    {
+     "n_prior": 1000,
+     "decision": "identity",
+     "reason": "gated_no_gain",
+     "raw_logloss": 0.573907511500321,
+     "nested_holdout_logloss": 0.573571765913606,
+     "fold_id": 21
+    },
+    {
+     "n_prior": 1000,
+     "decision": "identity",
+     "reason": "gated_no_gain",
+     "raw_logloss": 0.573907511500321,
+     "nested_holdout_logloss": 0.573571765913606,
+     "fold_id": 22
+    },
+    {
+     "n_prior": 1000,
+     "decision": "identity",
+     "reason": "gated_no_gain",
+     "raw_logloss": 0.573907511500321,
+     "nested_holdout_logloss": 0.573571765913606,
+     "fold_id": 23
+    },
+    {
+     "n_prior": 1000,
+     "decision": "identity",
+     "reason": "gated_no_gain",
+     "raw_logloss": 0.573907511500321,
+     "nested_holdout_logloss": 0.573571765913606,
+     "fold_id": 24
+    },
+    {
+     "n_prior": 1000,
+     "decision": "identity",
+     "reason": "gated_no_gain",
+     "raw_logloss": 0.573907511500321,
+     "nested_holdout_logloss": 0.573571765913606,
+     "fold_id": 25
+    },
+    {
+     "n_prior": 1054,
+     "decision": "identity",
+     "reason": "gated_no_gain",
+     "raw_logloss": 0.5873266081273354,
+     "nested_holdout_logloss": 0.5869833199830958,
+     "fold_id": 26
+    },
+    {
+     "n_prior": 1118,
+     "decision": "identity",
+     "reason": "gated_no_gain",
+     "raw_logloss": 0.6097797462743421,
+     "nested_holdout_logloss": 0.6108834739971761,
+     "fold_id": 27
+    },
+    {
+     "n_prior": 1173,
+     "decision": "identity",
+     "reason": "gated_no_gain",
+     "raw_logloss": 0.6022792010673218,
+     "nested_holdout_logloss": 0.6028923908560027,
+     "fold_id": 28
+    },
+    {
+     "n_prior": 1223,
+     "decision": "identity",
+     "reason": "gated_no_gain",
+     "raw_logloss": 0.5927664148289836,
+     "nested_holdout_logloss": 0.5926788638593737,
+     "fold_id": 29
+    },
+    {
+     "n_prior": 1276,
+     "decision": "identity",
+     "reason": "gated_no_gain",
+     "raw_logloss": 0.6109787536397853,
+     "nested_holdout_logloss": 0.6121167322673918,
+     "fold_id": 30
+    },
+    {
+     "n_prior": 1330,
+     "decision": "identity",
+     "reason": "gated_no_gain",
+     "raw_logloss": 0.5988115081975716,
+     "nested_holdout_logloss": 0.5987358023641137,
+     "fold_id": 31
+    },
+    {
+     "n_prior": 1330,
+     "decision": "identity",
+     "reason": "gated_no_gain",
+     "raw_logloss": 0.5988115081975716,
+     "nested_holdout_logloss": 0.5987358023641137,
+     "fold_id": 32
+    },
+    {
+     "n_prior": 1381,
+     "decision": "identity",
+     "reason": "gated_no_gain",
+     "raw_logloss": 0.6020065192009558,
+     "nested_holdout_logloss": 0.602080089215826,
+     "fold_id": 33
+    },
+    {
+     "n_prior": 1435,
+     "decision": "identity",
+     "reason": "gated_no_gain",
+     "raw_logloss": 0.5997546462625614,
+     "nested_holdout_logloss": 0.5997117522051262,
+     "fold_id": 34
+    },
+    {
+     "n_prior": 1486,
+     "decision": "identity",
+     "reason": "gated_no_gain",
+     "raw_logloss": 0.6022475486530423,
+     "nested_holdout_logloss": 0.6023508150342232,
+     "fold_id": 35
+    },
+    {
+     "n_prior": 1537,
+     "decision": "identity",
+     "reason": "gated_no_gain",
+     "raw_logloss": 0.6056155920713279,
+     "nested_holdout_logloss": 0.6063406215129671,
+     "fold_id": 36
+    },
+    {
+     "n_prior": 1588,
+     "decision": "identity",
+     "reason": "gated_no_gain",
+     "raw_logloss": 0.6030021353095679,
+     "nested_holdout_logloss": 0.602945215598216,
+     "fold_id": 37
+    },
+    {
+     "n_prior": 1636,
+     "decision": "identity",
+     "reason": "gated_no_gain",
+     "raw_logloss": 0.6056435219756455,
+     "nested_holdout_logloss": 0.6057274367103753,
+     "fold_id": 38
+    },
+    {
+     "n_prior": 1689,
+     "decision": "identity",
+     "reason": "gated_no_gain",
+     "raw_logloss": 0.6101058453818204,
+     "nested_holdout_logloss": 0.6101690114549496,
+     "fold_id": 39
+    },
+    {
+     "n_prior": 1744,
+     "decision": "identity",
+     "reason": "gated_no_gain",
+     "raw_logloss": 0.615961574138085,
+     "nested_holdout_logloss": 0.6163196312118143,
+     "fold_id": 40
+    },
+    {
+     "n_prior": 1797,
+     "decision": "identity",
+     "reason": "gated_no_gain",
+     "raw_logloss": 0.6214583847047295,
+     "nested_holdout_logloss": 0.6225654356193036,
+     "fold_id": 41
+    },
+    {
+     "n_prior": 1851,
+     "decision": "identity",
+     "reason": "gated_no_gain",
+     "raw_logloss": 0.6133035929137438,
+     "nested_holdout_logloss": 0.6137110603624618,
+     "fold_id": 42
+    },
+    {
+     "n_prior": 1904,
+     "decision": "identity",
+     "reason": "gated_no_gain",
+     "raw_logloss": 0.6010944755629496,
+     "nested_holdout_logloss": 0.6009696040240381,
+     "fold_id": 43
+    },
+    {
+     "n_prior": 1960,
+     "decision": "identity",
+     "reason": "gated_no_gain",
+     "raw_logloss": 0.6014842345002527,
+     "nested_holdout_logloss": 0.6011796406560279,
+     "fold_id": 44
+    },
+    {
+     "n_prior": 2016,
+     "decision": "identity",
+     "reason": "gated_no_gain",
+     "raw_logloss": 0.5967340919473764,
+     "nested_holdout_logloss": 0.5963637527125604,
+     "fold_id": 45
+    },
+    {
+     "n_prior": 2066,
+     "decision": "identity",
+     "reason": "gated_no_gain",
+     "raw_logloss": 0.5872614847612673,
+     "nested_holdout_logloss": 0.5866387929287715,
+     "fold_id": 46
+    },
+    {
+     "n_prior": 2121,
+     "decision": "identity",
+     "reason": "gated_no_gain",
+     "raw_logloss": 0.5791255355603908,
+     "nested_holdout_logloss": 0.5781891920671615,
+     "fold_id": 47
+    },
+    {
+     "n_prior": 2179,
+     "decision": "identity",
+     "reason": "gated_no_gain",
+     "raw_logloss": 0.5718515187441958,
+     "nested_holdout_logloss": 0.5706450227457514,
+     "fold_id": 48
+    },
+    {
+     "n_prior": 2179,
+     "decision": "identity",
+     "reason": "gated_no_gain",
+     "raw_logloss": 0.5718515187441958,
+     "nested_holdout_logloss": 0.5706450227457514,
+     "fold_id": 49
+    },
+    {
+     "n_prior": 2179,
+     "decision": "identity",
+     "reason": "gated_no_gain",
+     "raw_logloss": 0.5718515187441958,
+     "nested_holdout_logloss": 0.5706450227457514,
+     "fold_id": 50
+    },
+    {
+     "n_prior": 2179,
+     "decision": "identity",
+     "reason": "gated_no_gain",
+     "raw_logloss": 0.5718515187441958,
+     "nested_holdout_logloss": 0.5706450227457514,
+     "fold_id": 51
+    },
+    {
+     "n_prior": 2179,
+     "decision": "identity",
+     "reason": "gated_no_gain",
+     "raw_logloss": 0.5718515187441958,
+     "nested_holdout_logloss": 0.5706450227457514,
+     "fold_id": 52
+    },
+    {
+     "n_prior": 2179,
+     "decision": "identity",
+     "reason": "gated_no_gain",
+     "raw_logloss": 0.5718515187441958,
+     "nested_holdout_logloss": 0.5706450227457514,
+     "fold_id": 53
+    },
+    {
+     "n_prior": 2179,
+     "decision": "identity",
+     "reason": "gated_no_gain",
+     "raw_logloss": 0.5718515187441958,
+     "nested_holdout_logloss": 0.5706450227457514,
+     "fold_id": 54
+    },
+    {
+     "n_prior": 2179,
+     "decision": "identity",
+     "reason": "gated_no_gain",
+     "raw_logloss": 0.5718515187441958,
+     "nested_holdout_logloss": 0.5706450227457514,
+     "fold_id": 55
+    },
+    {
+     "n_prior": 2235,
+     "decision": "identity",
+     "reason": "gated_no_gain",
+     "raw_logloss": 0.5765815298252218,
+     "nested_holdout_logloss": 0.5755822548097178,
+     "fold_id": 56
+    },
+    {
+     "n_prior": 2286,
+     "decision": "identity",
+     "reason": "gated_no_gain",
+     "raw_logloss": 0.5702933931552621,
+     "nested_holdout_logloss": 0.5694882626248434,
+     "fold_id": 57
+    },
+    {
+     "n_prior": 2339,
+     "decision": "identity",
+     "reason": "gated_no_gain",
+     "raw_logloss": 0.5668059595524496,
+     "nested_holdout_logloss": 0.5657348209156834,
+     "fold_id": 58
+    },
+    {
+     "n_prior": 2390,
+     "decision": "identity",
+     "reason": "gated_no_gain",
+     "raw_logloss": 0.5595317418116089,
+     "nested_holdout_logloss": 0.5585229932582547,
+     "fold_id": 59
+    },
+    {
+     "n_prior": 2440,
+     "decision": "identity",
+     "reason": "gated_no_gain",
+     "raw_logloss": 0.5627400208218133,
+     "nested_holdout_logloss": 0.5617362162275914,
+     "fold_id": 60
+    },
+    {
+     "n_prior": 2500,
+     "decision": "identity",
+     "reason": "gated_no_gain",
+     "raw_logloss": 0.569120371244821,
+     "nested_holdout_logloss": 0.5681765650214984,
+     "fold_id": 61
+    },
+    {
+     "n_prior": 2500,
+     "decision": "identity",
+     "reason": "gated_no_gain",
+     "raw_logloss": 0.569120371244821,
+     "nested_holdout_logloss": 0.5681765650214984,
+     "fold_id": 62
+    },
+    {
+     "n_prior": 2540,
+     "decision": "identity",
+     "reason": "gated_no_gain",
+     "raw_logloss": 0.5877092180219073,
+     "nested_holdout_logloss": 0.58755122343239,
+     "fold_id": 63
+    },
+    {
+     "n_prior": 2596,
+     "decision": "identity",
+     "reason": "gated_no_gain",
+     "raw_logloss": 0.5942044319012857,
+     "nested_holdout_logloss": 0.5943384306158717,
+     "fold_id": 64
+    },
+    {
+     "n_prior": 2650,
+     "decision": "identity",
+     "reason": "gated_no_gain",
+     "raw_logloss": 0.5994139357693171,
+     "nested_holdout_logloss": 0.5998784573828768,
+     "fold_id": 65
+    },
+    {
+     "n_prior": 2705,
+     "decision": "identity",
+     "reason": "gated_no_gain",
+     "raw_logloss": 0.6057768459653893,
+     "nested_holdout_logloss": 0.6064081779896139,
+     "fold_id": 66
+    },
+    {
+     "n_prior": 2756,
+     "decision": "identity",
+     "reason": "gated_no_gain",
+     "raw_logloss": 0.6152698575111275,
+     "nested_holdout_logloss": 0.61654726407945,
+     "fold_id": 67
+    },
+    {
+     "n_prior": 2810,
+     "decision": "identity",
+     "reason": "gated_no_gain",
+     "raw_logloss": 0.6212921997925441,
+     "nested_holdout_logloss": 0.6229129313499477,
+     "fold_id": 68
+    },
+    {
+     "n_prior": 2862,
+     "decision": "identity",
+     "reason": "gated_no_gain",
+     "raw_logloss": 0.6247501561910416,
+     "nested_holdout_logloss": 0.62688014289579,
+     "fold_id": 69
+    },
+    {
+     "n_prior": 2913,
+     "decision": "identity",
+     "reason": "gated_no_gain",
+     "raw_logloss": 0.6265421735724739,
+     "nested_holdout_logloss": 0.6285676046271788,
+     "fold_id": 70
+    },
+    {
+     "n_prior": 2968,
+     "decision": "identity",
+     "reason": "gated_no_gain",
+     "raw_logloss": 0.6262500279781598,
+     "nested_holdout_logloss": 0.6281949026795025,
+     "fold_id": 71
+    },
+    {
+     "n_prior": 3024,
+     "decision": "identity",
+     "reason": "gated_no_gain",
+     "raw_logloss": 0.6261397299142937,
+     "nested_holdout_logloss": 0.6280866917632332,
+     "fold_id": 72
+    },
+    {
+     "n_prior": 3074,
+     "decision": "identity",
+     "reason": "gated_no_gain",
+     "raw_logloss": 0.6181497838889918,
+     "nested_holdout_logloss": 0.6192937869397803,
+     "fold_id": 73
+    },
+    {
+     "n_prior": 3128,
+     "decision": "identity",
+     "reason": "gated_no_gain",
+     "raw_logloss": 0.6203366068146668,
+     "nested_holdout_logloss": 0.621953422565528,
+     "fold_id": 74
+    },
+    {
+     "n_prior": 3183,
+     "decision": "identity",
+     "reason": "gated_no_gain",
+     "raw_logloss": 0.6165909910110116,
+     "nested_holdout_logloss": 0.6184239771424627,
+     "fold_id": 75
+    },
+    {
+     "n_prior": 3233,
+     "decision": "identity",
+     "reason": "gated_no_gain",
+     "raw_logloss": 0.6111286390549477,
+     "nested_holdout_logloss": 0.6123540535996456,
+     "fold_id": 76
+    },
+    {
+     "n_prior": 3288,
+     "decision": "identity",
+     "reason": "gated_no_gain",
+     "raw_logloss": 0.6013705707072675,
+     "nested_holdout_logloss": 0.6020010367284288,
+     "fold_id": 77
+    },
+    {
+     "n_prior": 3339,
+     "decision": "identity",
+     "reason": "gated_no_gain",
+     "raw_logloss": 0.5825539443739415,
+     "nested_holdout_logloss": 0.5816629166247994,
+     "fold_id": 78
+    },
+    {
+     "n_prior": 3369,
+     "decision": "identity",
+     "reason": "gated_no_gain",
+     "raw_logloss": 0.5721616499083845,
+     "nested_holdout_logloss": 0.5709082802095632,
+     "fold_id": 79
+    },
+    {
+     "n_prior": 3369,
+     "decision": "identity",
+     "reason": "gated_no_gain",
+     "raw_logloss": 0.5721616499083845,
+     "nested_holdout_logloss": 0.5709082802095632,
+     "fold_id": 80
+    },
+    {
+     "n_prior": 3369,
+     "decision": "identity",
+     "reason": "gated_no_gain",
+     "raw_logloss": 0.5721616499083845,
+     "nested_holdout_logloss": 0.5709082802095632,
+     "fold_id": 81
+    },
+    {
+     "n_prior": 3369,
+     "decision": "identity",
+     "reason": "gated_no_gain",
+     "raw_logloss": 0.5721616499083845,
+     "nested_holdout_logloss": 0.5709082802095632,
+     "fold_id": 82
+    },
+    {
+     "n_prior": 3369,
+     "decision": "identity",
+     "reason": "gated_no_gain",
+     "raw_logloss": 0.5721616499083845,
+     "nested_holdout_logloss": 0.5709082802095632,
+     "fold_id": 83
+    },
+    {
+     "n_prior": 3369,
+     "decision": "identity",
+     "reason": "gated_no_gain",
+     "raw_logloss": 0.5721616499083845,
+     "nested_holdout_logloss": 0.5709082802095632,
+     "fold_id": 84
+    },
+    {
+     "n_prior": 3369,
+     "decision": "identity",
+     "reason": "gated_no_gain",
+     "raw_logloss": 0.5721616499083845,
+     "nested_holdout_logloss": 0.5709082802095632,
+     "fold_id": 85
+    },
+    {
+     "n_prior": 3424,
+     "decision": "identity",
+     "reason": "gated_no_gain",
+     "raw_logloss": 0.5712237640479242,
+     "nested_holdout_logloss": 0.570064965629403,
+     "fold_id": 86
+    },
+    {
+     "n_prior": 3485,
+     "decision": "identity",
+     "reason": "gated_no_gain",
+     "raw_logloss": 0.560264014149687,
+     "nested_holdout_logloss": 0.5591476931858989,
+     "fold_id": 87
+    }
+   ],
+   "final_serving": {
+    "n_prior": 3485,
+    "decision": "identity",
+    "reason": "gated_no_gain",
+    "raw_logloss": 0.560264014149687,
+    "nested_holdout_logloss": 0.5591476931858989
+   }
+  },
+  "moneyline_retrospective_not_oof": {
+   "n": 3485,
+   "auc": 0.7468371042227315,
+   "logloss": 0.5903744294727767,
+   "brier": 0.20267439092330677,
+   "ece": 0.014722015635731351
+  }
+ },
+ "n_settled": 4879,
+ "n_slate": 13,
+ "n_features": 98,
+ "features_empty": {
+  "frame": [],
+  "slate": []
+ },
+ "play_by_play": {
+  "actions": 2412704,
+  "event_rows": 9758,
+  "games_covered": 4879,
+  "cross_check": {
+   "fga": {
+    "compared": 9758,
+    "exact": 9758,
+    "max_abs_diff": 0.0,
+    "mean_abs_diff": 0.0
+   },
+   "fgm": {
+    "compared": 9758,
+    "exact": 9758,
+    "max_abs_diff": 0.0,
+    "mean_abs_diff": 0.0
+   },
+   "fg3a": {
+    "compared": 9758,
+    "exact": 9758,
+    "max_abs_diff": 0.0,
+    "mean_abs_diff": 0.0
+   },
+   "fg3m": {
+    "compared": 9758,
+    "exact": 9758,
+    "max_abs_diff": 0.0,
+    "mean_abs_diff": 0.0
+   },
+   "fta": {
+    "compared": 9758,
+    "exact": 9758,
+    "max_abs_diff": 0.0,
+    "mean_abs_diff": 0.0
+   },
+   "ftm": {
+    "compared": 9758,
+    "exact": 9758,
+    "max_abs_diff": 0.0,
+    "mean_abs_diff": 0.0
+   },
+   "oreb": {
+    "compared": 9758,
+    "exact": 9506,
+    "max_abs_diff": 5.0,
+    "mean_abs_diff": 0.0323,
+    "worst_offenders": [
+     {
+      "game_id": "401705312",
+      "team": "OKC",
+      "abs_diff": 5.0
+     },
+     {
+      "game_id": "401468954",
+      "team": "OKC",
+      "abs_diff": 3.0
+     },
+     {
+      "game_id": "401468914",
+      "team": "OKC",
+      "abs_diff": 3.0
+     }
+    ]
+   },
+   "dreb": {
+    "compared": 9758,
+    "exact": 9068,
+    "max_abs_diff": 10.0,
+    "mean_abs_diff": 0.187,
+    "worst_offenders": [
+     {
+      "game_id": "401705149",
+      "team": "OKC",
+      "abs_diff": 10.0
+     },
+     {
+      "game_id": "401705095",
+      "team": "OKC",
+      "abs_diff": 10.0
+     },
+     {
+      "game_id": "401705111",
+      "team": "OKC",
+      "abs_diff": 10.0
+     }
+    ]
+   },
+   "tov": {
+    "compared": 9758,
+    "exact": 9758,
+    "max_abs_diff": 0.0,
+    "mean_abs_diff": 0.0
+   },
+   "pf": {
+    "compared": 9758,
+    "exact": 8963,
+    "max_abs_diff": 3.0,
+    "mean_abs_diff": 0.0854,
+    "worst_offenders": [
+     {
+      "game_id": "401705661",
+      "team": "BKN",
+      "abs_diff": 3.0
+     },
+     {
+      "game_id": "401810968",
+      "team": "GSW",
+      "abs_diff": 3.0
+     },
+     {
+      "game_id": "401585089",
+      "team": "BKN",
+      "abs_diff": 2.0
+     }
+    ]
+   },
+   "assists": {
+    "compared": 9758,
+    "exact": 9401,
+    "max_abs_diff": 22.0,
+    "mean_abs_diff": 0.1493,
+    "worst_offenders": [
+     {
+      "game_id": "401705475",
+      "team": "DEN",
+      "abs_diff": 22.0
+     },
+     {
+      "game_id": "401704679",
+      "team": "DEN",
+      "abs_diff": 16.0
+     },
+     {
+      "game_id": "401704743",
+      "team": "DEN",
+      "abs_diff": 16.0
+     }
+    ]
+   },
+   "points": {
+    "compared": 9758,
+    "exact": 9758,
+    "max_abs_diff": 0.0,
+    "mean_abs_diff": 0.0
+   }
+  }
+ },
+ "elapsed_seconds": 1135.29,
+ "source_manifest": {
+  "source_id": "espn schedule + stats.nba.com LeagueGameLog + playbyplayv3",
+  "source_route": "espn schedule + stats.nba.com LeagueGameLog + playbyplayv3",
+  "frame_sources": {
+   "games": "espn scoreboard",
+   "team_stats": "stats.nba.com LeagueGameLog",
+   "player_stats": "stats.nba.com LeagueGameLog",
+   "play_by_play": "stats.nba.com playbyplayv3",
+   "team_events": "stats.nba.com playbyplayv3"
+  },
+  "window": [
+   "2023-01-01",
+   "2026-11-13"
+  ],
+  "seasons": [
+   "2022-23",
+   "2023-24",
+   "2024-25",
+   "2025-26",
+   "2026-27"
+  ],
+  "tables": {
+   "games": 4907,
+   "team_stats": 9758,
+   "player_stats": 104607,
+   "team_events": 9758,
+   "play_by_play": 2412704
+  },
+  "event_rollup": {
+   "sweep_team_games": 9758,
+   "archive_team_games": []
+  },
+  "play_by_play": {
+   "fga": {
+    "compared": 9758,
+    "exact": 9758,
+    "max_abs_diff": 0.0,
+    "mean_abs_diff": 0.0
+   },
+   "fgm": {
+    "compared": 9758,
+    "exact": 9758,
+    "max_abs_diff": 0.0,
+    "mean_abs_diff": 0.0
+   },
+   "fg3a": {
+    "compared": 9758,
+    "exact": 9758,
+    "max_abs_diff": 0.0,
+    "mean_abs_diff": 0.0
+   },
+   "fg3m": {
+    "compared": 9758,
+    "exact": 9758,
+    "max_abs_diff": 0.0,
+    "mean_abs_diff": 0.0
+   },
+   "fta": {
+    "compared": 9758,
+    "exact": 9758,
+    "max_abs_diff": 0.0,
+    "mean_abs_diff": 0.0
+   },
+   "ftm": {
+    "compared": 9758,
+    "exact": 9758,
+    "max_abs_diff": 0.0,
+    "mean_abs_diff": 0.0
+   },
+   "oreb": {
+    "compared": 9758,
+    "exact": 9506,
+    "max_abs_diff": 5.0,
+    "mean_abs_diff": 0.0323,
+    "worst_offenders": [
+     {
+      "game_id": "401705312",
+      "team": "OKC",
+      "abs_diff": 5.0
+     },
+     {
+      "game_id": "401468954",
+      "team": "OKC",
+      "abs_diff": 3.0
+     },
+     {
+      "game_id": "401468914",
+      "team": "OKC",
+      "abs_diff": 3.0
+     }
+    ]
+   },
+   "dreb": {
+    "compared": 9758,
+    "exact": 9068,
+    "max_abs_diff": 10.0,
+    "mean_abs_diff": 0.187,
+    "worst_offenders": [
+     {
+      "game_id": "401705149",
+      "team": "OKC",
+      "abs_diff": 10.0
+     },
+     {
+      "game_id": "401705095",
+      "team": "OKC",
+      "abs_diff": 10.0
+     },
+     {
+      "game_id": "401705111",
+      "team": "OKC",
+      "abs_diff": 10.0
+     }
+    ]
+   },
+   "tov": {
+    "compared": 9758,
+    "exact": 9758,
+    "max_abs_diff": 0.0,
+    "mean_abs_diff": 0.0
+   },
+   "pf": {
+    "compared": 9758,
+    "exact": 8963,
+    "max_abs_diff": 3.0,
+    "mean_abs_diff": 0.0854,
+    "worst_offenders": [
+     {
+      "game_id": "401705661",
+      "team": "BKN",
+      "abs_diff": 3.0
+     },
+     {
+      "game_id": "401810968",
+      "team": "GSW",
+      "abs_diff": 3.0
+     },
+     {
+      "game_id": "401585089",
+      "team": "BKN",
+      "abs_diff": 2.0
+     }
+    ]
+   },
+   "assists": {
+    "compared": 9758,
+    "exact": 9401,
+    "max_abs_diff": 22.0,
+    "mean_abs_diff": 0.1493,
+    "worst_offenders": [
+     {
+      "game_id": "401705475",
+      "team": "DEN",
+      "abs_diff": 22.0
+     },
+     {
+      "game_id": "401704679",
+      "team": "DEN",
+      "abs_diff": 16.0
+     },
+     {
+      "game_id": "401704743",
+      "team": "DEN",
+      "abs_diff": 16.0
+     }
+    ]
+   },
+   "points": {
+    "compared": 9758,
+    "exact": 9758,
+    "max_abs_diff": 0.0,
+    "mean_abs_diff": 0.0
+   }
+  },
+  "feature_set_version": "nba-prod-v3.5-opts"
+ },
+ "sync": {
+  "pushed": false,
+  "staged_files": [],
+  "delivery_scope": "nba-backend/data_delivery",
+  "skipped": "NBA_PUSH is set to '0'"
+ }
+}

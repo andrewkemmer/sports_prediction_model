@@ -1583,19 +1583,7 @@ class TestSealedChallengerHoldout:
         oof["total"] = oof.home_score + oof.away_score
         return oof
 
-    @staticmethod
-    def _family_only(monkeypatch):
-        """Exercise the split-skew walk, not the champion: no bundle means
-        no hier pricing, so the walk fits its maps instead of skipping
-        them (the family behavior under test here)."""
-        import nba_hier_mc as hier
-        import distributions as dist
-        monkeypatch.setattr(hier, "load_bundle", lambda *a, **k: None)
-        monkeypatch.setattr(dist, "_nba_hier_cdfs", lambda *a, **k: None)
-
-    def test_sealed_outcomes_do_not_change_issued_prices_or_fit_parameters(
-            self, monkeypatch):
-        self._family_only(monkeypatch)
+    def test_sealed_outcomes_do_not_change_issued_prices_or_fit_parameters(self):
         import distributions as dist
         frame = self._oof(n=300)
         priced, bundle = dist.causal_distribution_frame(frame)
@@ -1643,8 +1631,7 @@ class TestSealedChallengerHoldout:
                                                markets=priced, calibration=bundle)
         assert record["fit"]["holdout"] == bundle["holdout"]
         assert record["fit"]["monte_carlo"]["n_draws"] == dist.MC_DRAWS
-        served = (bundle.get("monte_carlo") or {}).get("model_id")
-        assert record["fit"]["family"] == (served or dist.family.FAMILY)
+        assert record["fit"]["family"] == dist.family.FAMILY
 
 
 class TestWinnerCardAucPopulation:
@@ -1983,17 +1970,7 @@ def test_crps_point_mass_matches_absolute_error_and_correct_cdf_orientation():
     np.testing.assert_allclose(dist.lattice_crps(cdf, support, [0., 1., -1.]), 0.)
 
 
-def _family_only_walk(monkeypatch):
-    """Exercise the split-skew walk, not the champion: no bundle means no
-    hier pricing, so the walk fits its maps instead of skipping them."""
-    import nba_hier_mc as hier
-    import distributions as dist
-    monkeypatch.setattr(hier, "load_bundle", lambda *a, **k: None)
-    monkeypatch.setattr(dist, "_nba_hier_cdfs", lambda *a, **k: None)
-
-
-def test_crps_full_pipeline_future_poisoning_and_row_order_invariance(monkeypatch):
-    _family_only_walk(monkeypatch)
+def test_crps_full_pipeline_future_poisoning_and_row_order_invariance():
     import distributions as dist
     import numpy as np
     frame = _crps_test_frame()
@@ -2022,10 +1999,7 @@ def test_crps_cdf_pushes_moneyline_fair_half_and_slate_agree():
     assert np.all(np.mod(priced.fair_total, 1.) == .5)
     assert np.all(np.mod(priced.fair_spread, 1.) == .5)
     last = bundle["origins"][-1]
-    # Keep the outcomes: the walk priced these rows as SETTLED, and a settled
-    # row may only be priced by a point-in-time path. Dropping the scores would
-    # turn the recompute into a slate call and compare two different regimes.
-    forecast = dist._distribution_price(frame.iloc[300:], last["maps"])
+    forecast = dist._distribution_price(frame.iloc[300:].drop(columns=["home_score", "away_score"]), last["maps"])
     cols = [c for c in forecast if c.startswith("p_")]
     np.testing.assert_allclose(priced.iloc[300:][cols], forecast[cols], atol=1e-12)
     for kind, (support, cdf) in dist._distribution_cdfs(frame, bundle["maps"]).items():
@@ -2073,28 +2047,3 @@ def test_gaussian_crps_analytic_gradient_and_hessian():
     numerical_h = (objective(y, prediction + eps)[0]
                    - objective(y, prediction - eps)[0]) / (2 * eps)
     np.testing.assert_allclose(hessian, numerical_h, atol=1e-8)
-
-
-@pytest.fixture(autouse=True)
-def _champion_bundle_carries_a_rule(monkeypatch):
-    """Mechanics-test adapter for the on-disk champion bundle's format.
-
-    The committed slim bundle predates the fitted OT rule: production
-    refits + saves every run so it always carries one, but these mechanics
-    tests (precision guard, seed repro, push extension, monitor scope)
-    load the stale file. Attach the documented no-labels rule at load so
-    they exercise the mechanics they pin, not the bundle format. The
-    format itself is pinned by the PIT suite: fresh bundles carry a fitted
-    rule, stale ones raise.
-    """
-    import nba_hier_mc as hier
-    real = hier.load_bundle
-
-    def _with_rule(*a, **k):
-        bundle = real(*a, **k)
-        if isinstance(bundle, dict) and "ot_rule" not in bundle:
-            bundle = {**bundle, "ot_rule": {"d_m1": 0.0, "d_p1": 0.0,
-                                            "w_lo": 1, "w_hi": 110}}
-        return bundle
-
-    monkeypatch.setattr(hier, "load_bundle", _with_rule)

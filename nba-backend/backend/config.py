@@ -1397,14 +1397,3 @@ COIN_FLIP_THRESHOLD = 0.02
 RFE_FORCE_ENV = "NBA_RFE_FORCE"
 RFE_ADDS_ENV = "NBA_RFE_ADDITION_MONEYLINE_LIST"
 RFE_REMOVES_ENV = "NBA_RFE_REMOVAL_MONEYLINE_LIST"
-
-# ------------------------------------------------------------------ NBA engine
-# NBA distribution engine selector. "hier_mc" serves the adopted NB challenger
-# (nba_nb_hier_wprod_v1: 4-step hierarchical NB Monte Carlo, identity
-# calibration, and two-layer count-shrunk margin weights refit point-in-time
-# inside every run - never read from or written to an artifact). "champion" is
-# the split-skew / lattice calibration family it replaces. The pricer degrades
-# to "champion" with a logged warning when the challenger bundle is absent, so
-# a missing model can never break a run.
-NBA_DISTRIBUTION_ENGINE = "hier_mc"
-NBA_HIER_MC_BUNDLE = MODELS_DIR / "nba_hier_mc_latest.joblib"

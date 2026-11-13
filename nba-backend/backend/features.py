@@ -478,18 +478,6 @@ def _attach_contract(df: pd.DataFrame, ladder: pd.DataFrame) -> pd.DataFrame:
         new[f"{stem}_home"] = _side(ladder, ids, ladder_col, True)
         new[f"{stem}_away"] = _side(ladder, ids, ladder_col, False)
     new["is_home"] = 1.0
-    # Game-level overtime flag from the game's OWN PBP rollup (raw per-side
-    # ot_points, unshifted -- this game's observed fact, not a trailing
-    # state). Fitting input for the champion's OT rule only: it is NOT a
-    # contract column (tree_view/linear_view select strictly from the active
-    # contract list), so it can never enter a feature matrix. NaN where
-    # either side's PBP is missing -- those rows are excluded from OT-rule
-    # estimation, never treated as regulation.
-    hot = _side(ladder, ids, "ot_points", True)
-    aot = _side(ladder, ids, "ot_points", False)
-    known = np.isfinite(hot) & np.isfinite(aot)
-    new["went_ot"] = np.where(known, ((hot > 0) | (aot > 0)).astype(float),
-                               np.nan)
     raw_type = out.get("game_type", pd.Series(config.GAME_TYPE_REG, index=out.index))
     type_num = pd.to_numeric(raw_type, errors="coerce")
     type_text = raw_type.astype("string").str.lower()

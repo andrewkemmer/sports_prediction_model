@@ -103,8 +103,7 @@ _log_path = None
 # calls in ``run`` already happen in, and adding a name changes no result.
 PHASES = ("ingest schedule", "ingest features", "ingest play-by-play",
           "features", "walk-forward", "final fit", "serve",
-          "feature report", "nba distribution engine", "monitor",
-          "publish")
+          "feature report", "monitor", "publish")
 
 
 def _ingest_phase_seconds(timing: dict[str, float]) -> dict[str, float | None]:
@@ -1916,7 +1915,7 @@ def run(run_date: str | None = None, out_dir: str | Path | None = None,
         _pl_attached = int(
             game_df[config.PLAYER_RAPM_POSITION_FEATURE_COLS[0]]
             .notna().sum())
-        logger.info("crossmatch features attached: %d/%d decided rows carry them",
+        logger.info("pl_dpm features attached: %d/%d decided rows carry them",
                     _pl_attached, len(game_df))
         _star_attached = int(
             game_df[config.STAR_OUT_FEATURE_COLS[0]].notna().sum())
@@ -1927,7 +1926,7 @@ def run(run_date: str | None = None, out_dir: str | Path | None = None,
         logger.info("o-pts features attached: %d/%d decided rows carry "
                     "them", _opts_attached, len(game_df))
         if _pl_attached < len(game_df):
-            # An unattached row is NaN on all eleven crossmatch columns, and
+            # An unattached row is NaN on all nine position columns, and
             # a bare fraction does not say WHY. The pool gates
             # (PLAYER_EPM_POOL_LOOKBACK_DAYS / RECENCY_DAYS / MIN_MINUTES)
             # have no in-season evidence at the start of a season - a
@@ -1953,7 +1952,7 @@ def run(run_date: str | None = None, out_dir: str | Path | None = None,
                           & (_gap_age < _recency)).sum())
             _n_rest = int(len(_gaps) - _n_look - _n_rec)
             logger.info(
-                "crossmatch coverage gap: %d/%d decided rows lack crossmatch "
+                "pl_dpm coverage gap: %d/%d decided rows lack position-rapm "
                 "features; by days into their season: %d within the "
                 "%d-day pool lookback, %d more within the %d-day "
                 "recency window, %d beyond it - early-season rows are "
@@ -2005,10 +2004,7 @@ def run(run_date: str | None = None, out_dir: str | Path | None = None,
     phase_error: Exception | None = None
     ml: dict | None = None
     ml_oof = platt = dist_oof = None
-    slate_markets = None
     oof_markets = market_calibration = None
-    hb = None  # champion serving bundle: fit once, reused for slate + saved
-    hb_path: str | None = None  # saved bundle, appended to artifacts in phase 9
     _fit_check: dict | None = None
     _mc_meta: dict = {}
     final_models: dict = {}
@@ -2091,8 +2087,9 @@ def run(run_date: str | None = None, out_dir: str | Path | None = None,
                     _fit_check["home"]["deviance_baseline"],
                     _fit_check["away"]["pearson"], _fit_check["away"]["deviance_model"],
                     _fit_check["away"]["deviance_baseline"])
-        # expand=False: champion_oof_markets writes every price column below
-        # from the per-fold origins, so pricing here is discarded work.
+        # Learn variance/skew and coherent calibration only from prior origins.
+        # expand=False: calibrate_market_frame reprices every row below,
+        # overwriting all price columns, so pricing here is discarded work.
         # Section timers (2026-10-22: the remote run spent ~35 min between
         # the run-line fit check and the phase-5 banner with zero log
         # output — marketize+calibrate must account for itself per run).
@@ -2102,19 +2099,8 @@ def run(run_date: str | None = None, out_dir: str | Path | None = None,
         logger.info("marketize (expand=False merge): %.1fs over %d rows",
                     time.time() - _mk0, len(oof_markets))
         _cal0 = time.time()
-        # Champion-only pricing (2026-11-12 guardrail): no fallback. A run
-        # that cannot price with NBA_CHAMPION may not ship the split-skew
-        # family's probabilities under a fresh date, so the failure
-        # propagates and the run ends failed with nothing new published.
-        import nba_hier_mc as hier
-        oof_markets, market_calibration = hier.champion_oof_markets(
-            game_df, fold_list, oof_markets, progress_every=500)
-        if (market_calibration or {}).get("method") != hier.CHAMPION_METHOD:
-            raise RuntimeError(
-                "NBA markets must be champion-priced: market_calibration.method "
-                f"is {(market_calibration or {}).get('method')!r}, expected "
-                f"{hier.CHAMPION_METHOD!r}")
-        logger.info("champion OOF pricing: %.1fs over %d rows (%d origins)",
+        oof_markets, market_calibration = dist_mod.calibrate_market_frame(oof_markets)
+        logger.info("calibrate_market_frame: %.1fs over %d rows (%d origins)",
                     time.time() - _cal0, len(oof_markets),
                     len((market_calibration or {}).get("origins", [])))
         # Delivery disclosure parity (NFL/NHL pipelines): the markets-meta
@@ -2123,14 +2109,7 @@ def run(run_date: str | None = None, out_dir: str | Path | None = None,
         # carry the transfer (the 2026-10-17 disclosure-strip recurrence).
         oof_markets.attrs["challenger_bundle"] = market_calibration
         _mc_meta = market_calibration["monte_carlo"]
-        # Never rely on attrs surviving the sealed-tail copy: the served
-        # meta's engine labels are re-stamped from the champion constants.
-        oof_markets.attrs["distribution_method"] = hier.CHAMPION_METHOD
-        oof_markets.attrs["distribution_objective"] = hier.CHAMPION_OBJECTIVE
         oof_markets = _stamp_sealed_tail(oof_markets)
-        oof_markets.attrs.setdefault("distribution_method", hier.CHAMPION_METHOD)
-        oof_markets.attrs.setdefault("distribution_objective",
-                                     hier.CHAMPION_OBJECTIVE)
         _step("walk-forward", f"{len(ml_oof)} out-of-fold rows over "
                               f"{len(fold_list)} folds")
 
@@ -2157,20 +2136,11 @@ def run(run_date: str | None = None, out_dir: str | Path | None = None,
             # can never re-price a live game mid-game.
             slate = _apply_moneyline_freeze(slate, out)
             slate["mu_h"], slate["mu_a"] = final_reg.predict(slate)
-            # expand=False: champion_slate_markets reprices every row
+            # expand=False: apply_market_calibration reprices every row
             # below, so pricing here is discarded work.
             slate_markets = _marketize(slate, slate, "slate", expand=False)
-            # Champion-only, like the OOF branch: a slate that cannot be
-            # priced by the champion fails the run instead of shipping
-            # split-skew probabilities beside champion OOF prices.
-            if hb is None:
-                hb = hier.fit_bundle(game_df)
-                # The artifacts ledger is built after this phase, so the
-                # published path is recorded here and appended by phase 9
-                # rather than reaching an undefined name.
-                hb_path = str(hier.save_bundle(
-                    hb, getattr(config, "NBA_HIER_MC_BUNDLE", None)))
-            slate_markets = hier.champion_slate_markets(slate_markets, hb)
+            slate_markets = dist_mod.apply_market_calibration(slate_markets,
+                                                               market_calibration)
             # First-published wins for the strip too (NFL parity): games this
             # slate date already published keep their locked legs, so an
             # evening re-run cannot wiggle a live game's fair total/spread.
@@ -2242,15 +2212,6 @@ def run(run_date: str | None = None, out_dir: str | Path | None = None,
         config.RUN_DIAGNOSTICS_DIR / "nba_fold_table.csv", index=False)
 
     if phase_error is None:
-        # Champion-only guardrail: the shipped CSV's engine labels come from
-        # these attrs, so anything else here would mislabel (or re-ship) the
-        # split-skew family under the champion's column contract.
-        if oof_markets.attrs.get("distribution_method") != hier.CHAMPION_METHOD:
-            raise RuntimeError(
-                "refusing to publish NBA markets priced by "
-                f"{oof_markets.attrs.get('distribution_method')!r}; the "
-                f"champion engine ({hier.CHAMPION_METHOD}) is the only "
-                "permitted source")
         p_markets = out / config.MARKETS_CSV.format(date=date_c)
         serving.write_markets_csv(p_markets,
                                   out / config.MARKETS_META_JSON.format(date=date_c),
@@ -2386,43 +2347,6 @@ def run(run_date: str | None = None, out_dir: str | Path | None = None,
         model_path = model_dir / "nba_ensemble_latest.joblib"
         joblib.dump(bundle, model_path)
         artifacts.append(str(model_path.relative_to(out)))
-        # NBA distribution engine artifact: the NB challenger's step-1/2/3
-        # models, fitted on the same settled frame. Only the models are
-        # written: the margin weight tables are runtime-only, refit in this
-        # process from strictly prior settled games, and never serialized.
-        # A failed fit must never replace a good served bundle, so the write
-        # is guarded like the ensemble above.
-        if hb is None:
-            try:
-                import nba_hier_mc as hier
-                hb = hier.fit_bundle(game_df)
-                hpath = hier.save_bundle(hb, getattr(config, "NBA_HIER_MC_BUNDLE", None))
-                try:
-                    artifacts.append(str(hpath.relative_to(out)))
-                except ValueError:
-                    artifacts.append(str(hpath))
-                _wt = hb.get("weight_tables") or {}
-                _step("nba distribution engine",
-                      f"{hier.MODEL_ID} fitted on {hb['fit_n']} settled rows "
-                      f"({_wt.get('n_table_dates', 0)} point-in-time weight "
-                      f"tables, {_wt.get('history_source')})")
-            except Exception as exc:  # noqa: BLE001 - keep yesterday's bundle
-                logger.warning(
-                    "NBA hier-MC bundle NOT rebuilt (%s: %s); the previously "
-                    "served bundle stays in place for the distribution engine",
-                    type(exc).__name__, exc)
-        else:
-            if hb_path:
-                try:
-                    artifacts.append(str(Path(hb_path).relative_to(out)))
-                except ValueError:
-                    artifacts.append(str(hb_path))
-            _wt = hb.get("weight_tables") or {}
-            _step("nba distribution engine",
-                  f"{hier.MODEL_ID} fitted once on {hb['fit_n']} settled rows "
-                  f"({_wt.get('n_table_dates', 0)} point-in-time weight tables, "
-                  f"{_wt.get('history_source')}); the same bundle priced the "
-                  f"slate, so it is reused, not refit")
     else:
         logger.warning("model bundle NOT rewritten: the previously served "
                        "ensemble stays in place for serving")
@@ -2493,17 +2417,9 @@ def run(run_date: str | None = None, out_dir: str | Path | None = None,
     artifacts.append(config.MARKETS_MONITOR_JSON.format(date=date_c))
 
     if len(slate):
-        # Served cards ride the champion: slate_markets already carries the
-        # champion's p_home_win/p_away_win (frozen rows restored by the
-        # markets freeze). Fall back to the pre-champion slate only when the
-        # champion left no priced frame, which the guardrail above forbids.
-        basis = (slate_markets if slate_markets is not None
-                 and len(slate_markets) else slate)
-        cards = basis.copy()
-        cards["p_home_win"] = pd.to_numeric(cards.get("p_home_win"),
-                                            errors="coerce")
-        cards["p_away_win"] = pd.to_numeric(
-            cards.get("p_away_win", 1 - cards.p_home_win), errors="coerce")
+        cards = slate.copy()
+        cards["p_home_win"] = pd.to_numeric(cards.get("p_ensemble_calibrated"), errors="coerce")
+        cards["p_away_win"] = 1 - cards.p_home_win
         serving.write_production_cards_history(
             out / "nba_production_cards_history.csv", cards)
         artifacts.append("nba_production_cards_history.csv")

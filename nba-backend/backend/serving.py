@@ -14,11 +14,9 @@ import pandas as pd
 try:
     from backend import config
     from backend import nba_sources as sources
-    from backend import nba_hier_mc as hier_mod
 except ImportError:
     import config
     import nba_sources as sources
-    import nba_hier_mc as hier_mod
 
 
 def _clean(value: Any) -> Any:
@@ -385,24 +383,13 @@ def write_markets_csv(path, meta_path, oof_rows, slate_rows, config_meta=None,
     # lineterminator: delivery artifacts are LF-pinned; never let a
     # platform/csv default rewrite every line ending.
     _atomic_to_csv(out, path, index=False, lineterminator="\n")
-    # The priced frame's attrs carry the ACTUAL pricing engine (champion
-    # bundle id + method): report that, never a hardcoded family name. The
-    # fallback below names the champion because nothing but the champion
-    # may price an NBA artifact anymore.
-    _mc_meta = oof_rows.attrs.get("mc_meta", {}) or {}
     meta = {
-        "distribution_method": oof_rows.attrs.get(
-            "distribution_method", hier_mod.CHAMPION_METHOD),
-        "distribution_objective": oof_rows.attrs.get(
-            "distribution_objective", hier_mod.CHAMPION_OBJECTIVE),
+        "distribution_method": "causal_split_skew_crps_mc",
+        "distribution_objective": "discrete_crps",
         "distribution_metrics": oof_rows.attrs.get("distribution_metrics", {}),
         # Integer-lattice fit disclosure: totals and margin corrections are
         # fit independently (magnitude + gate verdict; no delta vectors).
         "lattice": (oof_rows.attrs.get("challenger_bundle") or {}).get("lattice_summary", {}),
-        # Point-in-time disclosure: how many settled games carried no PIT mus
-        # (the pre-coverage head of history) and were therefore dropped from
-        # hier OOF pricing rather than priced from full-frame trees.
-        "pit_excluded": (oof_rows.attrs.get("challenger_bundle") or {}).get("pit_excluded", {}),
         "settlement": 'final_score_no_tie',
 
         "record": "nba_run_engine_markets", "written_utc": _now(),

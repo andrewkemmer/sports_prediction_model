@@ -449,7 +449,7 @@ def fair_spread_thresholds(decided: pd.DataFrame) -> np.ndarray:
 # ---------------------------------------------------------------------------
 
 
-def total_distribution(decided: pd.DataFrame, family=None) -> dict[str, Any]:
+def total_distribution(decided: pd.DataFrame) -> dict[str, Any]:
     """Observed totals versus the actual shipped challenger Monte Carlo PMF."""
     empty = {"ks": TOTAL_GRID, "observed": [], "modeled": [],
              "callouts": {}, "n_games": 0,
@@ -487,16 +487,15 @@ def total_distribution(decided: pd.DataFrame, family=None) -> dict[str, Any]:
                               "modeled": round(mod_lo, 4)},
             "P(total>=270)": {"observed": round(obs_hi, 4),
                               "modeled": round(mod_hi, 4)},
-            "note": ("Modeled line = mean shipped challenger Monte Carlo PMF "
-                     f"({family or 'split-skew Gaussian'}); no refit or smoothing "
-                     "from outcomes."),
+            "note": ("Modeled line = mean shipped calibrated split-skew "
+                     "Gaussian Monte Carlo PMF; no refit or smoothing from outcomes."),
         },
         "n_games": int(len(decided)),
         "warning": None,
     }
 
 
-def spread_distribution(decided: pd.DataFrame, family=None) -> dict[str, Any]:
+def spread_distribution(decided: pd.DataFrame) -> dict[str, Any]:
     """Observed margins (home − away) versus the shipped margin PMF.
 
     The modeled series is the per-game mean of the artifact's own margin
@@ -578,9 +577,9 @@ def spread_distribution(decided: pd.DataFrame, family=None) -> dict[str, Any]:
                               "modeled": _tail_ge},
             "P(|margin|>30)": {"observed": round(float((margin.abs() > 30).mean()), 4),
                                "modeled": None, "n": n_outside},
-            "note": ("Modeled line = mean shipped challenger Monte Carlo "
-                     f"margin PMF ({family or 'split-skew Gaussian'}) across its "
-                     "priced support (traded grid plus the push-only extension); "
+            "note": ("Modeled line = mean shipped calibrated split-skew "
+                     "Gaussian Monte Carlo margin PMF across its priced "
+                     "support (traded grid plus the push-only extension); "
                      "tail callouts are the exact shipped cover+push "
                      "composites over full support. No refit or smoothing "
                      "from outcomes."),
@@ -683,8 +682,7 @@ def gaussian_side_line(decided: pd.DataFrame, side: str, ks,
 
 def team_score_distribution(decided: pd.DataFrame, side: str = "home",
                             kmax: int = 15,
-                            variance: Optional[dict] = None,
-                            family: Optional[str] = None) -> dict[str, Any]:
+                            variance: Optional[dict] = None) -> dict[str, Any]:
     """Observed per-side scoring distribution — the home/away points law.
 
     Added 2026-10-16 for the Distribution view's Home / Away toggles
