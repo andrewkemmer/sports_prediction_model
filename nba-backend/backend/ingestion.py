@@ -2338,18 +2338,37 @@ def _attach_game_ids(games: pd.DataFrame, log: pd.DataFrame) -> pd.DataFrame:
         # matchup - the 2026-10-01 run logged "16" with no way to see
         # which 16.
         _unmatched = merged.loc[merged.nba_game_id.fillna("") == ""]
+        # A game that has not been played cannot have a season-log row, so
+        # counting it beside a settled game that is missing one made nine
+        # expected rows read as a join failure every night (2026-11-13 log).
+        if {"home_score", "away_score"}.issubset(_unmatched.columns):
+            _settled_mask = (_unmatched["home_score"].notna()
+                             & _unmatched["away_score"].notna())
+        else:
+            _settled_mask = pd.Series(False, index=_unmatched.index)
         _labeled = []
-        for _, row in _unmatched.iterrows():
+        for _, row in _unmatched[_settled_mask].iterrows():
             _day = pd.to_datetime(row.get("gameday"), errors="coerce")
             _when = _day.date().isoformat() if pd.notna(_day) else "?"
             _labeled.append(
                 f"{row.get('game_id', '?')} ({_when} "
                 f"{row.get('home_team', '?')}@{row.get('away_team', '?')})")
-        logger.warning("%d scheduled game(s) have no season-log match; they "
-                       "have no player lines and no play-by-play: %s",
-                       missing, ", ".join(_labeled[:25])
-                       + (f" (+{len(_labeled) - 25} more)"
-                          if len(_labeled) > 25 else ""))
+        if len(_labeled):
+            logger.warning("%d settled game(s) have no season-log match; they "
+                           "have no player lines and no play-by-play: %s",
+                           len(_labeled), ", ".join(_labeled[:25])
+                           + (f" (+{len(_labeled) - 25} more)"
+                              if len(_labeled) > 25 else ""))
+        _pending_rows = _unmatched[~_settled_mask]
+        if len(_pending_rows):
+            _days = pd.to_datetime(_pending_rows.get("gameday"),
+                                   errors="coerce").dropna()
+            logger.info("%d scheduled game(s) are not yet played, so they "
+                        "have no season-log row yet%s; that is a pending "
+                        "slate, not a join failure",
+                        len(_pending_rows),
+                        (f" (gamedays {_days.min().date()}.."
+                         f"{_days.max().date()})" if len(_days) else ""))
     known = set(merged.nba_game_id.dropna().astype(str)) - {""}
     orphaned = log_games[~log_games.nba_game_id.astype(str).isin(known)]
     if len(orphaned):
@@ -2491,6 +2510,81 @@ def trainable_games(games: pd.DataFrame) -> pd.DataFrame:
                 f"{pd.to_datetime(r.gameday):%Y-%m-%d} {r.away_team}@{r.home_team}"
                 for r in missing.head(6).itertuples()))
     return keep.sort_values(["gameday", "game_id"]).reset_index(drop=True)
+
+
+def _drop_lagging_finals(games, team_stats, player_stats, team_events,
+                         play_by_play, window_end, recent_days: int = 1):
+    """Hold out settled games whose box score has not caught up with the final.
+
+    ESPN's scoreboard and stats.nba.com's ``LeagueGameLog`` are different
+    systems and do not flip to FINAL at the same instant. A game that ended
+    minutes before the pull is 123-112 in the schedule and still 60-112 in
+    the box score. That is a timing artifact, not a join failure -- and it
+    used to end the whole run (2026-11-13 02:46, ``401909976`` PHI/TOR: the
+    only run of that day's slate died on it).
+
+    The exemption is narrow on purpose. A game is held out only when every
+    one of its two team rows is present, every one is STRICTLY short of the
+    schedule final, and it sits on one of the last ``recent_days`` gamedays.
+    A row over the final, or missing entirely, still reaches ``_validate``
+    and crashes the run with the game named, so this cannot excuse a
+    renamed-team join, a stale schedule row, or a duplicated team-game.
+
+    Returns ``(frames, report)``; ``report`` carries one entry per held-out
+    team-row, so the log and manifest can state exactly what was withheld.
+    """
+    frames = (games, team_stats, player_stats, team_events, play_by_play)
+    if games is None or games.empty or team_stats is None or team_stats.empty:
+        return frames, []
+    needed = {"home_score", "away_score", "gameday", "game_id",
+              "home_team", "away_team"}
+    if not needed.issubset(games.columns):
+        return frames, []
+    settled = games[games["home_score"].notna()
+                    & games["away_score"].notna()]
+    if settled.empty:
+        return frames, []
+    cutoff = (pd.Timestamp(window_end).normalize()
+              - pd.Timedelta(days=int(recent_days)))
+    gameday = pd.to_datetime(settled["gameday"], errors="coerce")
+    recent = settled[gameday >= cutoff]
+    if recent.empty:
+        return frames, []
+
+    expected = pd.concat([
+        recent[["game_id", "home_team", "home_score"]].rename(
+            columns={"home_team": "team", "home_score": "final"}),
+        recent[["game_id", "away_team", "away_score"]].rename(
+            columns={"away_team": "team", "away_score": "final"}),
+    ], ignore_index=True)
+    # one_to_many, not one_to_one: a duplicated team-game has to reach
+    # ``_validate`` and fail with its own message, not raise a MergeError here.
+    observed = expected.merge(
+        team_stats[["game_id", "team", "points_for"]],
+        on=["game_id", "team"], how="left", validate="one_to_many")
+    observed["short"] = (observed["points_for"].notna()
+                         & (observed["points_for"] < observed["final"]))
+    per_game = observed.groupby("game_id").agg(
+        rows=("team", "size"), shorts=("short", "sum"),
+        missing=("points_for", lambda s: int(s.isna().sum())))
+    lagging = per_game.index[(per_game["rows"] == 2)
+                             & (per_game["shorts"] == 2)
+                             & (per_game["missing"] == 0)]
+    if len(lagging) == 0:
+        return frames, []
+
+    detail = observed[observed["game_id"].isin(lagging)]
+    report = [{"game_id": str(row.game_id), "team": str(row.team),
+               "final": int(row.final), "box": int(row.points_for)}
+              for row in detail.itertuples()]
+    out = []
+    for frame in frames:
+        if frame is None or frame.empty or "game_id" not in frame.columns:
+            out.append(frame)
+        else:
+            out.append(frame[~frame["game_id"].isin(lagging)]
+                       .reset_index(drop=True))
+    return tuple(out), report
 
 
 def _validate(facts: NBAFacts) -> None:
@@ -2725,6 +2819,24 @@ def load_ingested(use_cache: bool = True, allow_download: bool = True,
                     "run's own sweep did not cover", len(archived))
     pbp_info["cross_check"] = pbp_report
 
+    # Before validation: a final the box score has not caught up with is a
+    # timing artifact, so hold that game out instead of losing the run.
+    (normalized_games, team_stats, player_stats, team_events,
+     normalized_pbp), pending_finals = _drop_lagging_finals(
+        normalized_games, team_stats, player_stats, team_events,
+        normalized_pbp, window_end)
+    if pending_finals:
+        _named = "; ".join(
+            f"{r['game_id']} {r['team']} (final {r['final']}, box {r['box']})"
+            for r in pending_finals[:6])
+        logger.warning(
+            "%d settled game(s) are still short of their final in the season "
+            "log; they are held out of this run as pending facts rather than "
+            "treated as a data defect, and the next run refreshes them: %s%s",
+            len({r["game_id"] for r in pending_finals}), _named,
+            (f" (+{len(pending_finals) - 6} more team-row(s))"
+             if len(pending_finals) > 6 else ""))
+
     facts = NBAFacts(
         games=normalized_games, team_stats=team_stats,
         player_stats=player_stats, team_events=team_events,
@@ -2756,6 +2868,9 @@ def load_ingested(use_cache: bool = True, allow_download: bool = True,
                 "archive_team_games": list(archived),
             },
             "play_by_play": pbp_report,
+            # Withheld for lag, not for error: named so an audit can tell them
+            # apart from games that simply have no season-log row at all.
+            "pending_finals": pending_finals,
             "feature_set_version": config.FEATURE_SET_VERSION,
         })
     _validate(facts)

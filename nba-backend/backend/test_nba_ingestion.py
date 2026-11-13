@@ -3642,3 +3642,61 @@ class TestGateCeilingNote:
         note = ing._gate_note(257, 1025, time.time() - 26.0, 0.1, "day")
         assert note != ""
         assert _ceiling_pct(note) <= 100.0, note
+
+
+class TestLaggingFinals:
+    """A box score still filling in is timing; a wrong one is a defect."""
+
+    @staticmethod
+    def _frames(gameday, home_pts, away_pts, final=(123.0, 112.0)):
+        games = pd.DataFrame([_schedule_row(
+            game_id="g1", gameday=gameday, home="PHI", away="TOR",
+            home_score=final[0], away_score=final[1])])
+        team = pd.DataFrame([
+            {"game_id": "g1", "team": "PHI", "points_for": home_pts,
+             "points_against": away_pts},
+            {"game_id": "g1", "team": "TOR", "points_for": away_pts,
+             "points_against": home_pts}])
+        return games, team
+
+    @staticmethod
+    def _run(games, team, window_end="2026-11-13"):
+        return ing._drop_lagging_finals(
+            games, team, pd.DataFrame(), pd.DataFrame(), pd.DataFrame(),
+            pd.Timestamp(window_end))
+
+    def test_a_short_recent_box_score_is_held_out_not_fatal(self):
+        frames, report = self._run(*self._frames("2026-11-12", 60.0, 60.0))
+        assert frames[0].empty and frames[1].empty
+        assert {r["team"] for r in report} == {"PHI", "TOR"}
+        assert report[0]["final"] == 123
+
+    def test_the_same_shortfall_on_an_old_date_reaches_the_validator(self):
+        frames, report = self._run(*self._frames("2026-11-12", 60.0, 60.0),
+                                   window_end="2026-11-20")
+        assert report == []
+        assert len(frames[0]) == 1
+
+    def test_a_box_score_over_the_final_is_not_excused(self):
+        frames, report = self._run(*self._frames("2026-11-12", 130.0, 112.0))
+        assert report == []
+        assert len(frames[1]) == 2
+
+    def test_a_missing_team_row_is_not_excused(self):
+        games, team = self._frames("2026-11-12", 60.0, 60.0)
+        frames, report = self._run(games, team.iloc[[0]])
+        assert report == []
+
+    def test_every_frame_loses_the_same_game(self):
+        games, team = self._frames("2026-11-12", 60.0, 60.0)
+        player = pd.DataFrame([{"game_id": "g1", "player_id": "1",
+                                "team": "PHI"},
+                               {"game_id": "g2", "player_id": "2",
+                                "team": "TOR"}])
+        events = pd.DataFrame([{"game_id": "g1", "team": "PHI"},
+                               {"game_id": "g2", "team": "TOR"}])
+        frames, _ = ing._drop_lagging_finals(
+            games, team, player, events, pd.DataFrame(),
+            pd.Timestamp("2026-11-13"))
+        assert set(frames[2].game_id) == {"g2"}
+        assert set(frames[3].game_id) == {"g2"}
