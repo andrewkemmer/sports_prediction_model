@@ -1,5 +1,5 @@
 {
- "created_utc": "2026-11-03T22:51:01.889830+00:00",
+ "created_utc": "2026-11-14T16:00:46.198188+00:00",
  "feature_set_version": "nhl-prod-v1.3-causal-evaluation",
  "manifest": {
   "elo_diff": {
@@ -161,6 +161,36 @@
    "point_in_time_rule": "function of the team's strictly-prior game date",
    "missing_value_policy": "NaN when either team has no prior game",
    "representation": "difference flag (all model families)",
+   "model_family_availability": [
+    "linear",
+    "tree"
+   ],
+   "feature_version": 1
+  },
+  "nhl_giveaways_pg_ewm_diff": {
+   "description": "Home minus away trailing giveaways per game (committed turnovers)",
+   "definition": "exponentially-weighted mean (halflife=3 games) of each team's per-game giveaways over strictly-prior games; home \u2212 away",
+   "source": "official NHL API boxscores (team giveaways)",
+   "lookback": "decaying (halflife=3 games)",
+   "aggregation": "per-team EWM of the per-game count",
+   "point_in_time_rule": "trailing EWM then shift(1) \u2014 strictly-prior games only",
+   "missing_value_policy": "NaN when the team has no prior games with boxscore data",
+   "representation": "difference (all model families)",
+   "model_family_availability": [
+    "linear",
+    "tree"
+   ],
+   "feature_version": 1
+  },
+  "nhl_takeaways_pg_ewm_diff": {
+   "description": "Home minus away trailing takeaways per game (forced turnovers)",
+   "definition": "exponentially-weighted mean (halflife=3 games) of each team's per-game takeaways over strictly-prior games; home \u2212 away",
+   "source": "official NHL API boxscores (team takeaways)",
+   "lookback": "decaying (halflife=3 games)",
+   "aggregation": "per-team EWM of the per-game count",
+   "point_in_time_rule": "trailing EWM then shift(1) \u2014 strictly-prior games only",
+   "missing_value_policy": "NaN when the team has no prior games with boxscore data",
+   "representation": "difference (all model families)",
    "model_family_availability": [
     "linear",
     "tree"
@@ -606,6 +636,62 @@
    ],
    "feature_version": 1
   },
+  "nhl_giveaways_pg_ewm_home": {
+   "description": "Home team's trailing giveaways per game",
+   "definition": "exponentially-weighted mean (halflife=3 games) of the home team's per-game giveaways over strictly-prior games (home side of nhl_giveaways_pg_ewm_diff)",
+   "source": "official NHL API boxscores (team giveaways)",
+   "lookback": "decaying (halflife=3 games)",
+   "aggregation": "per-team EWM of the per-game count",
+   "point_in_time_rule": "trailing EWM then shift(1) \u2014 strictly-prior games only",
+   "missing_value_policy": "NaN when the team has no prior games with boxscore data",
+   "representation": "raw home level (tree members)",
+   "model_family_availability": [
+    "tree"
+   ],
+   "feature_version": 1
+  },
+  "nhl_giveaways_pg_ewm_away": {
+   "description": "Away team's trailing giveaways per game",
+   "definition": "exponentially-weighted mean (halflife=3 games) of the away team's per-game giveaways over strictly-prior games (away side of nhl_giveaways_pg_ewm_diff)",
+   "source": "official NHL API boxscores (team giveaways)",
+   "lookback": "decaying (halflife=3 games)",
+   "aggregation": "per-team EWM of the per-game count",
+   "point_in_time_rule": "trailing EWM then shift(1) \u2014 strictly-prior games only",
+   "missing_value_policy": "NaN when the team has no prior games with boxscore data",
+   "representation": "raw away level (tree members)",
+   "model_family_availability": [
+    "tree"
+   ],
+   "feature_version": 1
+  },
+  "nhl_takeaways_pg_ewm_home": {
+   "description": "Home team's trailing takeaways per game",
+   "definition": "exponentially-weighted mean (halflife=3 games) of the home team's per-game takeaways over strictly-prior games (home side of nhl_takeaways_pg_ewm_diff)",
+   "source": "official NHL API boxscores (team takeaways)",
+   "lookback": "decaying (halflife=3 games)",
+   "aggregation": "per-team EWM of the per-game count",
+   "point_in_time_rule": "trailing EWM then shift(1) \u2014 strictly-prior games only",
+   "missing_value_policy": "NaN when the team has no prior games with boxscore data",
+   "representation": "raw home level (tree members)",
+   "model_family_availability": [
+    "tree"
+   ],
+   "feature_version": 1
+  },
+  "nhl_takeaways_pg_ewm_away": {
+   "description": "Away team's trailing takeaways per game",
+   "definition": "exponentially-weighted mean (halflife=3 games) of the away team's per-game takeaways over strictly-prior games (away side of nhl_takeaways_pg_ewm_diff)",
+   "source": "official NHL API boxscores (team takeaways)",
+   "lookback": "decaying (halflife=3 games)",
+   "aggregation": "per-team EWM of the per-game count",
+   "point_in_time_rule": "trailing EWM then shift(1) \u2014 strictly-prior games only",
+   "missing_value_policy": "NaN when the team has no prior games with boxscore data",
+   "representation": "raw away level (tree members)",
+   "model_family_availability": [
+    "tree"
+   ],
+   "feature_version": 1
+  },
   "goalie_starts_home": {
    "description": "Home team's expected-starter season starts",
    "definition": "season-to-date starts of the home team's expected starting goalie (home side of goalie_starts_diff) -- a workload/experience proxy for the SV%/GAA pair",
@@ -991,6 +1077,8 @@
   "pp_success_diff",
   "faceoff_win_diff",
   "back_to_back_diff",
+  "nhl_giveaways_pg_ewm_diff",
+  "nhl_takeaways_pg_ewm_diff",
   "goalie_sv_pct_diff",
   "goalie_gaa_diff",
   "goalie_starts_diff",
@@ -1017,6 +1105,10 @@
   "faceoff_win_away",
   "back_to_back_home",
   "back_to_back_away",
+  "nhl_giveaways_pg_ewm_home",
+  "nhl_giveaways_pg_ewm_away",
+  "nhl_takeaways_pg_ewm_home",
+  "nhl_takeaways_pg_ewm_away",
   "goalie_sv_pct_home",
   "goalie_sv_pct_away",
   "goalie_gaa_home",
@@ -1052,525 +1144,567 @@
  "coverage": [
   {
    "feature": "elo_diff",
-   "n_games": 4427,
+   "n_games": 4503,
    "coverage_pct": 100.0,
-   "mean": 0.5937525066770059,
-   "std": 62.15375234633988
+   "mean": 0.5035866648111972,
+   "std": 62.25013008236858
   },
   {
    "feature": "win_pct_diff",
-   "n_games": 4427,
-   "coverage_pct": 99.55,
-   "mean": -0.004369859900833351,
-   "std": 0.23316251938847535
+   "n_games": 4503,
+   "coverage_pct": 99.56,
+   "mean": -0.00455602035459274,
+   "std": 0.23310852235592794
   },
   {
    "feature": "rest_days_diff",
-   "n_games": 4427,
-   "coverage_pct": 99.55,
-   "mean": 0.2725209893351486,
-   "std": 13.147645302743866
+   "n_games": 4503,
+   "coverage_pct": 99.56,
+   "mean": 0.277715815302253,
+   "std": 13.03656721461496
   },
   {
    "feature": "ewm_net_goals_diff",
-   "n_games": 4427,
-   "coverage_pct": 99.55,
-   "mean": -0.024028384080445633,
-   "std": 1.4484548679491738
+   "n_games": 4503,
+   "coverage_pct": 99.56,
+   "mean": -0.024917548545153604,
+   "std": 1.4494783577443175
   },
   {
    "feature": "ewm_goal_share_diff",
-   "n_games": 4427,
-   "coverage_pct": 99.55,
-   "mean": -0.002113398427141817,
-   "std": 0.13233481934130645
+   "n_games": 4503,
+   "coverage_pct": 99.56,
+   "mean": -0.0021677296657689263,
+   "std": 0.13234460801768422
   },
   {
    "feature": "ga_per_game_diff",
-   "n_games": 4427,
-   "coverage_pct": 99.55,
-   "mean": 0.01805839195219727,
-   "std": 1.1827477530558996
+   "n_games": 4503,
+   "coverage_pct": 99.56,
+   "mean": 0.018599895903041116,
+   "std": 1.1835709235593872
   },
   {
    "feature": "shots_for_per_game_diff",
-   "n_games": 4427,
-   "coverage_pct": 99.55,
-   "mean": -0.11575901974132062,
-   "std": 5.0821035581239276
+   "n_games": 4503,
+   "coverage_pct": 99.56,
+   "mean": -0.12218380548739684,
+   "std": 5.063599787737455
   },
   {
    "feature": "shots_against_per_game_diff",
-   "n_games": 4427,
-   "coverage_pct": 99.55,
-   "mean": 0.07058089403222147,
-   "std": 4.945694601157204
+   "n_games": 4503,
+   "coverage_pct": 99.56,
+   "mean": 0.07299799241579302,
+   "std": 4.923685420894
   },
   {
    "feature": "pp_success_diff",
-   "n_games": 4427,
-   "coverage_pct": 99.55,
-   "mean": -0.0014849198705724168,
-   "std": 0.16150889754541609
+   "n_games": 4503,
+   "coverage_pct": 99.56,
+   "mean": -0.0016714020263966741,
+   "std": 0.1613746476657929
   },
   {
    "feature": "faceoff_win_diff",
-   "n_games": 4427,
-   "coverage_pct": 99.55,
-   "mean": 0.0003513450826212775,
-   "std": 0.060688579026901196
+   "n_games": 4503,
+   "coverage_pct": 99.56,
+   "mean": 0.00034102974414163017,
+   "std": 0.060726837636045285
   },
   {
    "feature": "back_to_back_diff",
-   "n_games": 4427,
-   "coverage_pct": 99.55,
-   "mean": -0.0943952802359882,
-   "std": 0.4315969047651543
+   "n_games": 4503,
+   "coverage_pct": 99.56,
+   "mean": -0.095471782288646,
+   "std": 0.43166140160543554
+  },
+  {
+   "feature": "nhl_giveaways_pg_ewm_diff",
+   "n_games": 4503,
+   "coverage_pct": 99.56,
+   "mean": 0.025240816133273197,
+   "std": 2.4245148117270148
+  },
+  {
+   "feature": "nhl_takeaways_pg_ewm_diff",
+   "n_games": 4503,
+   "coverage_pct": 99.56,
+   "mean": -0.0010333089081544836,
+   "std": 1.5688499221483037
   },
   {
    "feature": "goalie_sv_pct_diff",
-   "n_games": 4427,
-   "coverage_pct": 97.94,
-   "mean": 0.0016580057688235456,
-   "std": 0.04498190036730672
+   "n_games": 4503,
+   "coverage_pct": 98.0,
+   "mean": 0.0016828537769244451,
+   "std": 0.044949286155012425
   },
   {
    "feature": "goalie_gaa_diff",
-   "n_games": 4427,
-   "coverage_pct": 97.94,
-   "mean": -0.04805420285369152,
-   "std": 1.3463266228404098
+   "n_games": 4503,
+   "coverage_pct": 98.0,
+   "mean": -0.0478867000938262,
+   "std": 1.3454495151588728
   },
   {
    "feature": "goalie_starts_diff",
-   "n_games": 4427,
-   "coverage_pct": 97.94,
-   "mean": 0.815959409594096,
-   "std": 12.088343929752352
+   "n_games": 4503,
+   "coverage_pct": 98.0,
+   "mean": 0.790165420348969,
+   "std": 11.99357350185277
   },
   {
    "feature": "is_playoffs",
-   "n_games": 4427,
+   "n_games": 4503,
    "coverage_pct": 100.0,
-   "mean": 0.05782697086062796,
-   "std": 0.233442331347599
+   "mean": 0.056850988230068844,
+   "std": 0.23158338324880118
   },
   {
    "feature": "elo_home",
-   "n_games": 4427,
+   "n_games": 4503,
    "coverage_pct": 100.0,
-   "mean": 1503.8689726542736,
-   "std": 45.62099771700386
+   "mean": 1503.7715836484376,
+   "std": 45.59137543358328
   },
   {
    "feature": "elo_away",
-   "n_games": 4427,
+   "n_games": 4503,
    "coverage_pct": 100.0,
-   "mean": 1503.2752201475969,
-   "std": 45.23767915495628
+   "mean": 1503.2679969836263,
+   "std": 45.2636654587028
   },
   {
    "feature": "win_pct_home",
-   "n_games": 4427,
-   "coverage_pct": 99.59,
-   "mean": 0.4981190742928099,
-   "std": 0.16493346937874306
+   "n_games": 4503,
+   "coverage_pct": 99.6,
+   "mean": 0.49798372320111456,
+   "std": 0.1648813959488337
   },
   {
    "feature": "win_pct_away",
-   "n_games": 4427,
-   "coverage_pct": 99.66,
-   "mean": 0.5022208305696519,
-   "std": 0.16668028764140244
+   "n_games": 4503,
+   "coverage_pct": 99.67,
+   "mean": 0.5022760630882288,
+   "std": 0.1667022729830018
   },
   {
    "feature": "ewm_net_goals_home",
-   "n_games": 4427,
-   "coverage_pct": 99.59,
-   "mean": -0.010940562405570266,
-   "std": 1.0134777373185158
+   "n_games": 4503,
+   "coverage_pct": 99.6,
+   "mean": -0.011628237601352832,
+   "std": 1.01296135019565
   },
   {
    "feature": "ewm_net_goals_away",
-   "n_games": 4427,
-   "coverage_pct": 99.66,
-   "mean": 0.011558789725521696,
-   "std": 1.0202748700150954
+   "n_games": 4503,
+   "coverage_pct": 99.67,
+   "mean": 0.011785640766152692,
+   "std": 1.0215465468018132
   },
   {
    "feature": "ewm_goal_share_home",
-   "n_games": 4427,
-   "coverage_pct": 99.59,
-   "mean": 0.4990199123035659,
-   "std": 0.09233190224209918
+   "n_games": 4503,
+   "coverage_pct": 99.6,
+   "mean": 0.4989919554697127,
+   "std": 0.09225887379487391
   },
   {
    "feature": "ewm_goal_share_away",
-   "n_games": 4427,
-   "coverage_pct": 99.66,
-   "mean": 0.5010017905974566,
-   "std": 0.0937222980166357
+   "n_games": 4503,
+   "coverage_pct": 99.67,
+   "mean": 0.5010303503285307,
+   "std": 0.09378318802279191
   },
   {
    "feature": "rest_days_home",
-   "n_games": 4427,
-   "coverage_pct": 99.59,
-   "mean": 4.147198911317759,
-   "std": 16.34618308446046
+   "n_games": 4503,
+   "coverage_pct": 99.6,
+   "mean": 4.121739130434783,
+   "std": 16.208701933967646
   },
   {
    "feature": "rest_days_away",
-   "n_games": 4427,
-   "coverage_pct": 99.66,
-   "mean": 3.912511332728921,
-   "std": 16.351682403590267
+   "n_games": 4503,
+   "coverage_pct": 99.67,
+   "mean": 3.8812388591800357,
+   "std": 16.214654521197506
   },
   {
    "feature": "ga_per_game_home",
-   "n_games": 4427,
-   "coverage_pct": 99.59,
-   "mean": 3.097471081877977,
-   "std": 0.8343056747619374
+   "n_games": 4503,
+   "coverage_pct": 99.6,
+   "mean": 3.1013489409141584,
+   "std": 0.8350269594743975
   },
   {
    "feature": "ga_per_game_away",
-   "n_games": 4427,
-   "coverage_pct": 99.66,
-   "mean": 3.0801375037775762,
-   "std": 0.8455076774078958
+   "n_games": 4503,
+   "coverage_pct": 99.67,
+   "mean": 3.083459595959596,
+   "std": 0.845652854964514
   },
   {
    "feature": "shots_for_per_game_home",
-   "n_games": 4427,
-   "coverage_pct": 99.59,
-   "mean": 28.64795116050503,
-   "std": 3.6774607674099666
+   "n_games": 4503,
+   "coverage_pct": 99.6,
+   "mean": 28.623950204384986,
+   "std": 3.667781483945462
   },
   {
    "feature": "shots_for_per_game_away",
-   "n_games": 4427,
-   "coverage_pct": 99.66,
-   "mean": 28.76508763977032,
-   "std": 3.784073296128323
+   "n_games": 4503,
+   "coverage_pct": 99.67,
+   "mean": 28.747497029114676,
+   "std": 3.768472211434136
   },
   {
    "feature": "shots_against_per_game_home",
-   "n_games": 4427,
-   "coverage_pct": 99.59,
-   "mean": 28.743592651394874,
-   "std": 3.666005647779189
+   "n_games": 4503,
+   "coverage_pct": 99.6,
+   "mean": 28.720735785953178,
+   "std": 3.651253113646008
   },
   {
    "feature": "shots_against_per_game_away",
-   "n_games": 4427,
-   "coverage_pct": 99.66,
-   "mean": 28.679023118767,
-   "std": 3.6524306114821012
+   "n_games": 4503,
+   "coverage_pct": 99.67,
+   "mean": 28.65366532976827,
+   "std": 3.6428236370177753
   },
   {
    "feature": "pp_success_home",
-   "n_games": 4427,
-   "coverage_pct": 99.59,
-   "mean": 0.21090397312942374,
-   "std": 0.11431949678616961
+   "n_games": 4503,
+   "coverage_pct": 99.6,
+   "mean": 0.21136790093555935,
+   "std": 0.11426299032819219
   },
   {
    "feature": "pp_success_away",
-   "n_games": 4427,
-   "coverage_pct": 99.66,
-   "mean": 0.21224723728748718,
-   "std": 0.11200609683260342
+   "n_games": 4503,
+   "coverage_pct": 99.67,
+   "mean": 0.2128995281852655,
+   "std": 0.11221212128841157
   },
   {
    "feature": "faceoff_win_home",
-   "n_games": 4427,
-   "coverage_pct": 99.59,
-   "mean": 0.5001825248780016,
-   "std": 0.04188605564569133
+   "n_games": 4503,
+   "coverage_pct": 99.6,
+   "mean": 0.5001849301550235,
+   "std": 0.0420050070514399
   },
   {
    "feature": "faceoff_win_away",
-   "n_games": 4427,
-   "coverage_pct": 99.66,
-   "mean": 0.4998171363766918,
-   "std": 0.04204847531078653
+   "n_games": 4503,
+   "coverage_pct": 99.67,
+   "mean": 0.49983008170415794,
+   "std": 0.042093270161341005
   },
   {
    "feature": "back_to_back_home",
-   "n_games": 4427,
-   "coverage_pct": 99.59,
-   "mean": 0.09344522567475617,
-   "std": 0.2910883603563337
+   "n_games": 4503,
+   "coverage_pct": 99.6,
+   "mean": 0.09253065774804906,
+   "std": 0.2898059030214735
   },
   {
    "feature": "back_to_back_away",
-   "n_games": 4427,
-   "coverage_pct": 99.66,
-   "mean": 0.18766999093381687,
-   "std": 0.3904926718298844
+   "n_games": 4503,
+   "coverage_pct": 99.67,
+   "mean": 0.18783422459893048,
+   "std": 0.39062325513067664
+  },
+  {
+   "feature": "nhl_giveaways_pg_ewm_home",
+   "n_games": 4503,
+   "coverage_pct": 99.6,
+   "mean": 12.462067586419836,
+   "std": 3.872622373232232
+  },
+  {
+   "feature": "nhl_giveaways_pg_ewm_away",
+   "n_games": 4503,
+   "coverage_pct": 99.67,
+   "mean": 12.43191568174887,
+   "std": 3.8438002413863623
+  },
+  {
+   "feature": "nhl_takeaways_pg_ewm_home",
+   "n_games": 4503,
+   "coverage_pct": 99.6,
+   "mean": 5.39751193801916,
+   "std": 1.5457351529876537
+  },
+  {
+   "feature": "nhl_takeaways_pg_ewm_away",
+   "n_games": 4503,
+   "coverage_pct": 99.67,
+   "mean": 5.402539741942584,
+   "std": 1.560092161035069
   },
   {
    "feature": "goalie_sv_pct_home",
-   "n_games": 4427,
-   "coverage_pct": 98.33,
-   "mean": 0.8945727094955315,
-   "std": 0.03193562696125165
+   "n_games": 4503,
+   "coverage_pct": 98.38,
+   "mean": 0.8944184903952473,
+   "std": 0.03188981264402668
   },
   {
    "feature": "goalie_sv_pct_away",
-   "n_games": 4427,
-   "coverage_pct": 98.53,
-   "mean": 0.8928994166885175,
-   "std": 0.03153724990651252
+   "n_games": 4503,
+   "coverage_pct": 98.56,
+   "mean": 0.8927200616814392,
+   "std": 0.031558211214324255
   },
   {
    "feature": "goalie_gaa_home",
-   "n_games": 4427,
-   "coverage_pct": 98.33,
-   "mean": 2.9696491852241675,
-   "std": 0.9389202205090543
+   "n_games": 4503,
+   "coverage_pct": 98.38,
+   "mean": 2.9718639340163215,
+   "std": 0.9385404883212484
   },
   {
    "feature": "goalie_gaa_away",
-   "n_games": 4427,
-   "coverage_pct": 98.53,
-   "mean": 3.0198527107435167,
-   "std": 0.9618049034087854
+   "n_games": 4503,
+   "coverage_pct": 98.56,
+   "mean": 3.0218706787690075,
+   "std": 0.9596245045874614
   },
   {
    "feature": "goalie_starts_home",
-   "n_games": 4427,
-   "coverage_pct": 98.33,
-   "mean": 22.415116011945784,
-   "std": 16.61004472576504
+   "n_games": 4503,
+   "coverage_pct": 98.38,
+   "mean": 22.17742663656885,
+   "std": 16.56601116206151
   },
   {
    "feature": "goalie_starts_away",
-   "n_games": 4427,
-   "coverage_pct": 98.53,
-   "mean": 21.57244383310408,
-   "std": 16.381036735740018
+   "n_games": 4503,
+   "coverage_pct": 98.56,
+   "mean": 21.365029292474087,
+   "std": 16.323738074789173
   },
   {
    "feature": "is_home",
-   "n_games": 4427,
+   "n_games": 4503,
    "coverage_pct": 100.0,
    "mean": 1.0,
    "std": 0.0
   },
   {
    "feature": "pl_evo_c_away",
-   "n_games": 4427,
+   "n_games": 4503,
    "coverage_pct": 100.0,
-   "mean": 0.6827480530584243,
-   "std": 0.06874324206536898
+   "mean": 0.6829068827582102,
+   "std": 0.06880146248469642
   },
   {
    "feature": "pl_evo_c_home",
-   "n_games": 4427,
+   "n_games": 4503,
    "coverage_pct": 100.0,
-   "mean": 0.6833305847995519,
-   "std": 0.06852846186473319
+   "mean": 0.6831821924879766,
+   "std": 0.06841129387718953
   },
   {
    "feature": "pl_evo_c_diff",
-   "n_games": 4427,
+   "n_games": 4503,
    "coverage_pct": 100.0,
-   "mean": 0.000582531741127476,
-   "std": 0.09638373699561922
+   "mean": 0.0002753097297663583,
+   "std": 0.09623263346230833
   },
   {
    "feature": "pl_evo_l_away",
-   "n_games": 4427,
+   "n_games": 4503,
    "coverage_pct": 100.0,
-   "mean": 0.7539687568159074,
-   "std": 0.10647618664426799
+   "mean": 0.7539838465853838,
+   "std": 0.10629016188683449
   },
   {
    "feature": "pl_evo_l_home",
-   "n_games": 4427,
+   "n_games": 4503,
    "coverage_pct": 100.0,
-   "mean": 0.7522273434703967,
-   "std": 0.1035782233733988
+   "mean": 0.7520593857233534,
+   "std": 0.10337738130509702
   },
   {
    "feature": "pl_evo_l_diff",
-   "n_games": 4427,
+   "n_games": 4503,
    "coverage_pct": 100.0,
-   "mean": -0.0017414133455107782,
-   "std": 0.14796368860574755
+   "mean": -0.0019244608620302584,
+   "std": 0.14782472201256214
   },
   {
    "feature": "pl_evo_r_away",
-   "n_games": 4427,
+   "n_games": 4503,
    "coverage_pct": 100.0,
-   "mean": 0.7256845976144845,
-   "std": 0.10414569179403928
+   "mean": 0.72585283161931,
+   "std": 0.1039100456067348
   },
   {
    "feature": "pl_evo_r_home",
-   "n_games": 4427,
+   "n_games": 4503,
    "coverage_pct": 100.0,
-   "mean": 0.7244704184025991,
-   "std": 0.10242145628669917
+   "mean": 0.7244521021134729,
+   "std": 0.1022352286547102
   },
   {
    "feature": "pl_evo_r_diff",
-   "n_games": 4427,
+   "n_games": 4503,
    "coverage_pct": 100.0,
-   "mean": -0.001214179211885395,
-   "std": 0.1487366937847606
+   "mean": -0.001400729505837115,
+   "std": 0.14847284552912263
   },
   {
    "feature": "pl_evo_d_away",
-   "n_games": 4427,
+   "n_games": 4503,
    "coverage_pct": 100.0,
-   "mean": 0.17619270178374363,
-   "std": 0.02563462187290839
+   "mean": 0.17638621354757084,
+   "std": 0.02567641114049014
   },
   {
    "feature": "pl_evo_d_home",
-   "n_games": 4427,
+   "n_games": 4503,
    "coverage_pct": 100.0,
-   "mean": 0.17607511744187915,
-   "std": 0.025264218818243447
+   "mean": 0.17613587034502415,
+   "std": 0.02530063653911484
   },
   {
    "feature": "pl_evo_d_diff",
-   "n_games": 4427,
+   "n_games": 4503,
    "coverage_pct": 100.0,
-   "mean": -0.00011758434186452111,
-   "std": 0.035827915976782435
+   "mean": -0.0002503432025466839,
+   "std": 0.03588353288952011
   },
   {
    "feature": "pl_ppo_c_away",
-   "n_games": 4427,
+   "n_games": 4503,
    "coverage_pct": 100.0,
-   "mean": 1.6655904946641227,
-   "std": 0.4763370104563319
+   "mean": 1.6682039770386887,
+   "std": 0.476737846187888
   },
   {
    "feature": "pl_ppo_c_home",
-   "n_games": 4427,
+   "n_games": 4503,
    "coverage_pct": 100.0,
-   "mean": 1.6574906400898666,
-   "std": 0.47284748666649806
+   "mean": 1.6598037991674681,
+   "std": 0.47367902938455225
   },
   {
    "feature": "pl_ppo_c_diff",
-   "n_games": 4427,
+   "n_games": 4503,
    "coverage_pct": 100.0,
-   "mean": -0.008099854574256193,
-   "std": 0.6824109420561911
+   "mean": -0.008400177871220483,
+   "std": 0.6832630127876058
   },
   {
    "feature": "pl_ppo_l_away",
-   "n_games": 4427,
+   "n_games": 4503,
    "coverage_pct": 100.0,
-   "mean": 1.7269314143155818,
-   "std": 0.5719932141535545
+   "mean": 1.7283096608633988,
+   "std": 0.5700281279333056
   },
   {
    "feature": "pl_ppo_l_home",
-   "n_games": 4427,
+   "n_games": 4503,
    "coverage_pct": 100.0,
-   "mean": 1.7166844419110034,
-   "std": 0.571961094657037
+   "mean": 1.7170127599817349,
+   "std": 0.5699805832958342
   },
   {
    "feature": "pl_ppo_l_diff",
-   "n_games": 4427,
+   "n_games": 4503,
    "coverage_pct": 100.0,
-   "mean": -0.010246972404578093,
-   "std": 0.8020842017077139
+   "mean": -0.011296900881663928,
+   "std": 0.7984180780915078
   },
   {
    "feature": "pl_ppo_r_away",
-   "n_games": 4427,
+   "n_games": 4503,
    "coverage_pct": 100.0,
-   "mean": 1.604558940952087,
-   "std": 0.5254479495622528
+   "mean": 1.6060728837466107,
+   "std": 0.5235522974242027
   },
   {
    "feature": "pl_ppo_r_home",
-   "n_games": 4427,
+   "n_games": 4503,
    "coverage_pct": 100.0,
-   "mean": 1.6069528149356678,
-   "std": 0.5270234330984304
+   "mean": 1.6064072419472517,
+   "std": 0.5249845760942377
   },
   {
    "feature": "pl_ppo_r_diff",
-   "n_games": 4427,
+   "n_games": 4503,
    "coverage_pct": 100.0,
-   "mean": 0.002393873983580841,
-   "std": 0.7569554337982876
+   "mean": 0.00033435820064103963,
+   "std": 0.7546997205417945
   },
   {
    "feature": "pl_ppo_d_away",
-   "n_games": 4427,
+   "n_games": 4503,
    "coverage_pct": 100.0,
-   "mean": 0.6526517479093059,
-   "std": 0.23966791858242542
+   "mean": 0.6532991782872624,
+   "std": 0.238874403678911
   },
   {
    "feature": "pl_ppo_d_home",
-   "n_games": 4427,
+   "n_games": 4503,
    "coverage_pct": 100.0,
-   "mean": 0.6504744214234328,
-   "std": 0.240567917844134
+   "mean": 0.6510855109449801,
+   "std": 0.23946671221449703
   },
   {
    "feature": "pl_ppo_d_diff",
-   "n_games": 4427,
+   "n_games": 4503,
    "coverage_pct": 100.0,
-   "mean": -0.0021773264858731688,
-   "std": 0.3399791526344179
+   "mean": -0.0022136673422822706,
+   "std": 0.33871640715652923
   }
  ],
  "fold_geometry": {
-  "n_folds": 96,
+  "n_folds": 98,
   "first_val_start": "2023-11-09",
-  "last_val_end": "2026-11-02",
+  "last_val_end": "2026-11-13",
   "min_train": 192,
-  "max_train": 4379,
-  "total_val_games": 4235,
-  "n_candidates": 96,
+  "max_train": 4477,
+  "total_val_games": 4311,
+  "n_candidates": 98,
   "dropped_windows": 0,
   "dropped_games": 0,
-  "provisional_windows": 22,
-  "provisional_games": 331,
+  "provisional_windows": 23,
+  "provisional_games": 357,
   "postseason_windows": 22,
   "min_val_fold_games": 40,
   "oof_regular": {
-   "n": 3895,
-   "auc": 0.6119908979140788,
-   "logloss": 0.6694599439834852,
-   "brier": 0.2384024711230999,
-   "ece": 0.010341183756030697,
+   "n": 3945,
+   "auc": 0.6131595517263717,
+   "logloss": 0.6691026825894307,
+   "brier": 0.2381851506570457,
+   "ece": 0.005181648420624836,
    "sufficient": true
   },
   "oof_postseason": {
    "n": 256,
-   "auc": 0.6235711229292744,
-   "logloss": 0.6692271640056404,
-   "brier": 0.23826367273679616,
-   "ece": 0.02708133889759488,
+   "auc": 0.6225319396051102,
+   "logloss": 0.6692325790852417,
+   "brier": 0.2382756056728993,
+   "ece": 0.034119679344638956,
    "sufficient": true
   },
   "oof_provisional": {
-   "n": 331,
-   "auc": 0.5832602339181285,
-   "logloss": 0.7096477812871163,
-   "brier": 0.24989969374961313,
-   "ece": 0.03350582694813006,
+   "n": 357,
+   "auc": 0.584928755257046,
+   "logloss": 0.7119855532060986,
+   "brier": 0.2520745361117335,
+   "ece": 0.044775857173757025,
    "sufficient": true
   },
   "oof_all": {
-   "n": 4235,
-   "auc": 0.6101170778567523,
-   "logloss": 0.6724171936479968,
-   "brier": 0.23921280004185144,
-   "ece": 0.009857840061152692,
+   "n": 4311,
+   "auc": 0.611102610339058,
+   "logloss": 0.6724736350813304,
+   "brier": 0.23924877610868883,
+   "ece": 0.006913026025391001,
    "sufficient": true
   }
  },
@@ -1624,6 +1758,8 @@
     "pp_success_diff",
     "faceoff_win_diff",
     "back_to_back_diff",
+    "nhl_giveaways_pg_ewm_diff",
+    "nhl_takeaways_pg_ewm_diff",
     "goalie_sv_pct_diff",
     "goalie_gaa_diff",
     "goalie_starts_diff",
@@ -1650,6 +1786,10 @@
     "faceoff_win_away",
     "back_to_back_home",
     "back_to_back_away",
+    "nhl_giveaways_pg_ewm_home",
+    "nhl_giveaways_pg_ewm_away",
+    "nhl_takeaways_pg_ewm_home",
+    "nhl_takeaways_pg_ewm_away",
     "goalie_sv_pct_home",
     "goalie_sv_pct_away",
     "goalie_gaa_home",
@@ -1691,104 +1831,106 @@
    "training_population": "grades_pooled",
    "retrospective_column": "p_ensemble_retrospective",
    "retrospective_is_oof": false,
-   "final_xgb_rounds": 143,
+   "final_xgb_rounds": 151,
    "xgb_best_rounds": [
-    2,
+    19,
     76,
-    1,
-    134,
-    1,
-    1,
-    260,
-    232,
-    232,
-    714,
-    260,
-    13,
-    204,
-    176,
-    136,
-    324,
-    462,
-    346,
-    134,
-    116,
-    269,
-    751,
-    874,
-    348,
-    253,
-    9,
-    93,
-    46,
-    30,
-    1,
-    649,
-    649,
-    142,
-    329,
-    262,
-    49,
-    65,
-    145,
-    218,
-    428,
-    4,
-    67,
-    344,
-    220,
-    71,
-    303,
-    125,
-    145,
-    601,
-    210,
-    368,
-    130,
-    94,
-    95,
-    165,
-    25,
-    175,
-    202,
-    1,
-    15,
-    237,
-    242,
-    77,
-    13,
-    59,
     11,
-    124,
-    308,
-    93,
-    71,
-    381,
-    16,
+    177,
+    86,
+    5,
+    173,
+    307,
+    66,
+    649,
+    272,
     1,
-    67,
-    56,
-    55,
-    242,
-    494,
-    100,
-    40,
-    332,
-    189,
-    305,
-    242,
-    57,
-    108,
-    116,
+    81,
+    103,
+    151,
+    288,
+    289,
+    531,
+    267,
+    95,
+    154,
+    556,
     508,
-    36,
-    21,
-    290,
-    318,
-    278,
-    361,
-    59,
-    579
+    322,
+    152,
+    113,
+    107,
+    188,
+    7,
+    5,
+    686,
+    291,
+    206,
+    201,
+    178,
+    13,
+    69,
+    254,
+    174,
+    518,
+    67,
+    61,
+    303,
+    195,
+    100,
+    222,
+    113,
+    103,
+    376,
+    211,
+    414,
+    239,
+    11,
+    100,
+    271,
+    189,
+    352,
+    137,
+    2,
+    82,
+    173,
+    690,
+    86,
+    16,
+    45,
+    46,
+    267,
+    87,
+    61,
+    164,
+    395,
+    6,
+    7,
+    115,
+    62,
+    109,
+    252,
+    395,
+    78,
+    40,
+    160,
+    132,
+    128,
+    129,
+    43,
+    279,
+    87,
+    600,
+    46,
+    2,
+    235,
+    209,
+    490,
+    398,
+    41,
+    627,
+    298,
+    110
    ],
    "xgb_round_policy": "median_prior_probe_rounds"
   }
