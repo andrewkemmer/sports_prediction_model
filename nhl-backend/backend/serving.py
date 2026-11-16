@@ -251,12 +251,6 @@ def write_moneyline_json(path, slate_df: pd.DataFrame, p_home: np.ndarray,
                 pg = prior_by_id.get(str(g.get("game_id") or ""))
                 if not pg or str(pg.get("game_date") or "") != str(g.get("game_date") or ""):
                     continue
-                if str(pg.get("model_arm") or "") != "market_offset":
-                    # A prior row from another arm — or an untagged legacy
-                    # board, which is what every pre-2026-11-16 board is — may
-                    # never stand in for an offset price. Keep THIS run's
-                    # value: the offset probability, or NaN when unpriced.
-                    continue
                 try:
                     shown = float(pg["home_win_prob_model"])
                 except (KeyError, TypeError, ValueError):
@@ -268,10 +262,23 @@ def write_moneyline_json(path, slate_df: pd.DataFrame, p_home: np.ndarray,
                     fresh_ok = fresh is not None and float(fresh) == float(fresh)
                 except (TypeError, ValueError):
                     fresh_ok = False
+                locked = _kickoff_passed(g, pg, _now_ts)
+                if not locked and str(pg.get("model_arm") or "") != "market_offset":
+                    # PRE-GAME ONLY: a number from another arm — or from an
+                    # untagged legacy board (every pre-2026-11-16 board) — may
+                    # never stand in for a live offset price. Publish this
+                    # run's value: the offset probability, or NaN.
+                    #
+                    # A STARTED game is different. Its published number is the
+                    # frozen record of what the board said before puck drop, so
+                    # it is preserved below whatever arm produced it — re-
+                    # blanking settled history is not the goal, never pricing
+                    # arm A on a live card is.
+                    continue
                 # Keep this run's price while the game is pre-game; fall back
                 # to the locked row once it has started, or when this run has
                 # no usable probability of its own.
-                if not fresh_ok or _kickoff_passed(g, pg, _now_ts):
+                if not fresh_ok or locked:
                     g["home_win_prob_model"] = shown
                     g["away_win_prob_model"] = 1.0 - shown
                     g["model_pick"] = (g.get("home_team") if shown >= 0.5
