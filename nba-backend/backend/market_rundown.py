@@ -105,6 +105,30 @@ def fetch_slate(date: str, tag: str) -> str:
     return out
 
 
+def de_vig(home_odds, away_odds):
+    """Proportional de-vig. Returns (p_home, p_away, overround).
+
+    Ported from ``nhl-backend/backend/market_offset.de_vig`` so the two
+    sports cannot drift: the same [MIN_OVERROUND, MAX_OVERROUND] gate rejects
+    a placeholder pair on either side, and an unusable quote yields NaN for
+    both probabilities while the overround is still reported.
+    """
+    import numpy as np
+
+    h = np.asarray(home_odds, dtype=float)
+    a = np.asarray(away_odds, dtype=float)
+    with np.errstate(divide="ignore", invalid="ignore"):
+        ih, ia = 1.0 / h, 1.0 / a
+        ov = ih + ia
+    ok = (np.isfinite(ih) & np.isfinite(ia) & (h > 1.0) & (a > 1.0)
+          & (ov >= MIN_OVERROUND) & (ov <= MAX_OVERROUND))
+    ph = np.where(ok, ih / ov, np.nan)
+    pa = np.where(ok, ia / ov, np.nan)
+    if np.ndim(home_odds) == 0:
+        return float(ph), float(pa), float(ov)
+    return ph, pa, ov
+
+
 def implied(x: float) -> float:
     x = float(x)
     return 100.0 / (x + 100.0) if x > 0 else -x / (-x + 100.0)
@@ -180,12 +204,10 @@ def attach_market(frame: "pd.DataFrame", si_path: str) -> "pd.DataFrame":
                      .dt.normalize().dt.tz_localize(None))
     si = si[si.home_odds_dec.notna() & si.away_odds_dec.notna()
             & si.home_odds_dec.gt(1) & si.away_odds_dec.gt(1)].copy()
-    inv_h, inv_a = 1.0 / si.home_odds_dec, 1.0 / si.away_odds_dec
-    overround = inv_h + inv_a
-    clean = overround.between(MIN_OVERROUND, MAX_OVERROUND) & si.et_date.notna()
-    si = si[clean].copy()
-    si["p_home"] = (1.0 / si.home_odds_dec) / (1.0 / si.home_odds_dec
-                                               + 1.0 / si.away_odds_dec)
+    p_home, _, overround = de_vig(si.home_odds_dec, si.away_odds_dec)
+    si["p_home"] = p_home
+    si = si[pd.Series(overround, index=si.index).notna()
+            & si.et_date.notna()].copy()
     # NHL parity: the newest quote per match is the closing line, because
     # Stats Insider keeps serving the last pre-game price after kickoff. The
     # most recent book stamp wins; the capture time breaks a tie.
@@ -230,8 +252,155 @@ def attach_market(frame: "pd.DataFrame", si_path: str) -> "pd.DataFrame":
         # reads as a large positive number.
         tip = pd.to_datetime(out["market_tipoff_utc"], errors="coerce", utc=True)
         stamp = pd.to_datetime(out["price_utc"], errors="coerce", utc=True)
-        out["stale_minutes"] = ((tip - stamp).dt.total_seconds() / 60.0)
+        out["pregame_minutes"] = ((tip - stamp).dt.total_seconds() / 60.0)
     return out
+
+
+SI_BASE = "https://levy-edge.statsinsider.com.au"
+SI_LIVE = SI_BASE + "/pre/{mid}?best_bets=true&bookmakers=novig,tab"
+HEADERS = {"User-Agent": "Mozilla/5.0", "Accept": "application/json"}
+
+#: Everything ``attach_live`` owns on the slate. Dropped before attaching so a
+#: stale archived price can never survive a serve-time refresh.
+LIVE_COLS = ["market_p_home", "market_logit", "overround", "price_utc",
+             "fetched_utc", "stale_minutes", "pregame_minutes",
+             "market_home_odds", "market_away_odds", "market_book",
+             "market_tipoff_utc"]
+
+
+def _book_blob(payload: dict, name: str) -> dict:
+    """One book's block from a /pre payload, whatever shape it arrives in."""
+    import json
+
+    bd = payload.get("BettingData") or {}
+    b = bd.get(name) if isinstance(bd, dict) else None
+    if isinstance(b, str):
+        try:
+            b = json.loads(b.replace("'", '"'))
+        except Exception:  # noqa: BLE001
+            return {}
+    return b if isinstance(b, dict) else {}
+
+
+def fetch_live(match_ids, workers: int = 8, timeout: float = 20.0):
+    """Serve-time pull: one GET per match, de-vigged TAB price.
+
+    Mirrors ``nhl-backend/backend/market_offset.fetch_live``: TAB is the
+    OFFSET book (every training price is TAB, so the served offset has to be
+    the same series), and the no-vig pair is carried only for display.
+    """
+    import numpy as np
+    import pandas as pd
+    import requests
+    from concurrent.futures import ThreadPoolExecutor
+
+    now = pd.Timestamp.now(tz="UTC")
+
+    def one(mid: str) -> dict:
+        rec = {"match_id": mid, "market_p_home": np.nan,
+               "market_logit": np.nan, "overround": np.nan,
+               "price_utc": None, "fetched_utc": now, "stale_minutes": np.nan,
+               "pregame_minutes": np.nan, "market_home_odds": np.nan,
+               "market_away_odds": np.nan, "market_book": None,
+               "market_tipoff_utc": None, "error": None}
+        try:
+            r = requests.get(SI_LIVE.format(mid=mid), headers=HEADERS,
+                             timeout=timeout)
+            r.raise_for_status()
+            j = r.json()
+            md = j.get("MatchData") or {}
+            tab, nov = _book_blob(j, "tab"), _book_blob(j, "novig")
+            p, _, ov = de_vig(tab.get("HomeOdds"), tab.get("AwayOdds"))
+            rec["market_p_home"] = float(p)
+            rec["overround"] = float(ov)
+            if np.isfinite(p):
+                q = min(max(float(p), 1e-6), 1.0 - 1e-6)
+                rec["market_logit"] = float(np.log(q / (1.0 - q)))
+            tip = md.get("Date")
+            rec["market_tipoff_utc"] = tip
+            stamp = tab.get("LastUpdated")
+            rec["price_utc"] = stamp
+            if stamp:
+                t = pd.Timestamp(stamp).tz_convert("UTC")
+                rec["stale_minutes"] = (now - t).total_seconds() / 60.0
+                if tip:
+                    rec["pregame_minutes"] = (
+                        pd.Timestamp(tip).tz_convert("UTC")
+                        - t).total_seconds() / 60.0
+            if nov.get("HomeOdds") and nov.get("AwayOdds"):
+                rec["market_home_odds"] = float(nov["HomeOdds"])
+                rec["market_away_odds"] = float(nov["AwayOdds"])
+                rec["market_book"] = "novig"
+            elif tab.get("HomeOdds") and tab.get("AwayOdds"):
+                rec["market_home_odds"] = float(tab["HomeOdds"])
+                rec["market_away_odds"] = float(tab["AwayOdds"])
+                rec["market_book"] = "tab"
+        except Exception as exc:  # noqa: BLE001
+            rec["error"] = str(exc)[:120]
+        return rec
+
+    ids = [str(m) for m in match_ids]
+    if not ids:
+        return pd.DataFrame(columns=list(LIVE_COLS))
+    with ThreadPoolExecutor(max_workers=workers) as ex:
+        return pd.DataFrame(list(ex.map(one, ids)))
+
+
+def attach_live(slate_df, lookback_days: int = 4, path: str | None = None,
+                fetcher=None, workers: int = 8):
+    """Attach the CURRENT TAB price to a slate, fetched at serve time.
+
+    The NBA twin of ``nhl-backend/backend/market_offset.attach_live``, with one
+    difference that matters: NBA rows carry the tip-off instant, so the match
+    id is looked up on (away, home, ET tip date) first and only falls back to
+    the pair when the slate has no date - a pair alone cannot tell tonight's
+    meeting from the one three weeks ago.
+
+    Prices come from ``fetch_live`` (never the archive), so the served offset
+    is the number at publish time. A game the feed cannot price keeps NaN,
+    which the caller must read as "no offset", never as 50%.
+    """
+    import pandas as pd
+    from zoneinfo import ZoneInfo
+
+    out = slate_df.copy()
+    out = out.drop(columns=[c for c in LIVE_COLS if c in out.columns])
+    src = path or f"{DIAG}/si_nba_all_seasons.csv"
+    try:
+        hist = pd.read_csv(src)
+    except Exception as exc:  # noqa: BLE001
+        print(f"market_rundown.attach_live: history unavailable ({exc})")
+        return out
+    hist["_tip"] = pd.to_datetime(hist.tipoff_utc, errors="coerce", utc=True)
+    hist = hist.dropna(subset=["_tip", "sim_match_id"])
+    hist["_et"] = (hist._tip.dt.tz_convert(ZoneInfo("America/New_York"))
+                   .dt.normalize().dt.tz_localize(None))
+    now = pd.Timestamp.now(tz="UTC")
+    recent = (hist[hist._tip >= now - pd.Timedelta(days=lookback_days)]
+              .sort_values("_tip"))
+    by_day, by_pair = {}, {}
+    # ``itertuples`` renames underscore columns, so iterate the values.
+    for a, h, d, mid in zip(recent["away_abv"], recent["home_abv"],
+                            recent["_et"], recent["sim_match_id"]):
+        by_day[(a, h, d)] = mid
+        by_pair[(a, h)] = mid
+    days = (pd.to_datetime(out.gameday).dt.normalize() if "gameday" in out.columns
+            else pd.Series([pd.NaT] * len(out), index=out.index))
+    want = [by_day.get((a, h, d)) or by_pair.get((a, h))
+            for a, h, d in zip(out.away_team, out.home_team, days)]
+    targets = sorted({m for m in want if isinstance(m, str)})
+    if not targets:
+        print("market_rundown.attach_live: no match ids for this slate")
+        return out
+    if fetcher is not None:
+        live = fetcher(targets)
+    else:
+        live = fetch_live(targets, workers=workers)
+    live = live[live["market_p_home"].notna()].drop_duplicates("match_id")
+    keep = ["match_id"] + [c for c in LIVE_COLS if c in live.columns]
+    out["_mid"] = want
+    out = out.merge(live[keep], left_on="_mid", right_on="match_id", how="left")
+    return out.drop(columns=[c for c in ("_mid", "match_id") if c in out.columns])
 
 
 def compare(oof_path: str, pred_path: str, open_path: str, close_path: str,

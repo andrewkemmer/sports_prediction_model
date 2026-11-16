@@ -393,6 +393,86 @@ class TestMarketArms:
         assert list(out.columns) == ["n", "auc", "logloss", "brier", "ece"]
 
 
+class TestMarketLive:
+    """Serve-time prices onto a slate (NHL parity, 2026-11-16).
+
+    ``attach_live`` must price from the CURRENT quote, never the archive, and
+    must key on (away, home, Eastern tip date) so tonight's meeting cannot
+    borrow last month's number.
+    """
+
+    def _slate(self, rows):
+        return pd.DataFrame(rows)
+
+    def _hist(self, tmp_path, rows):
+        path = tmp_path / "hist.csv"
+        pd.DataFrame(rows).to_csv(path, index=False)
+        return str(path)
+
+    @staticmethod
+    def _live(mid, p=0.62):
+        return pd.DataFrame([{"match_id": mid, "market_p_home": p,
+                              "market_logit": float(np.log(p / (1 - p))),
+                              "overround": 1.05, "price_utc": "2026-11-16T12:00:00Z",
+                              "stale_minutes": 30.0, "pregame_minutes": 120.0,
+                              "market_home_odds": 1.9, "market_away_odds": 1.9,
+                              "market_book": "novig"}])
+
+    def test_live_attach_prices_from_the_fetched_quote(self, tmp_path):
+        from backend import market_rundown as mr
+        hist = self._hist(tmp_path, [dict(sim_match_id="s1", away_abv="NYK",
+                                          home_abv="BOS",
+                                          tipoff_utc="2026-01-04T00:30:00Z")])
+        slate = self._slate([dict(game_id="g1", gameday=pd.Timestamp("2026-01-03"),
+                                  away_team="NYK", home_team="BOS")])
+        seen = []
+
+        def fetch(ids):
+            seen.extend(ids)
+            return self._live(ids[0], 0.62)
+
+        out = mr.attach_live(slate, path=hist, fetcher=fetch, lookback_days=3650)
+        assert seen == ["s1"]
+        assert np.isclose(out.market_p_home.iloc[0], 0.62)
+        assert np.isclose(out.stale_minutes.iloc[0], 30.0)
+
+    def test_live_attach_discards_a_price_already_on_the_slate(self, tmp_path):
+        from backend import market_rundown as mr
+        hist = self._hist(tmp_path, [dict(sim_match_id="s1", away_abv="NYK",
+                                          home_abv="BOS",
+                                          tipoff_utc="2026-01-04T00:30:00Z")])
+        slate = self._slate([dict(game_id="g1", gameday=pd.Timestamp("2026-01-03"),
+                                  away_team="NYK", home_team="BOS",
+                                  market_p_home=0.90, stale_minutes=999.0)])
+        out = mr.attach_live(slate, path=hist,
+                             fetcher=lambda ids: self._live(ids[0], 0.55),
+                             lookback_days=3650)
+        assert np.isclose(out.market_p_home.iloc[0], 0.55)
+        assert np.isclose(out.stale_minutes.iloc[0], 30.0)
+
+    def test_a_game_the_feed_cannot_price_stays_nan(self, tmp_path):
+        from backend import market_rundown as mr
+        hist = self._hist(tmp_path, [dict(sim_match_id="s1", away_abv="NYK",
+                                          home_abv="BOS",
+                                          tipoff_utc="2026-01-04T00:30:00Z")])
+        slate = self._slate([dict(game_id="g1", gameday=pd.Timestamp("2026-01-03"),
+                                  away_team="NYK", home_team="BOS"),
+                             dict(game_id="g2", gameday=pd.Timestamp("2026-01-03"),
+                                  away_team="LAL", home_team="DEN")])
+        out = mr.attach_live(slate, path=hist,
+                             fetcher=lambda ids: self._live(ids[0], 0.62),
+                             lookback_days=3650)
+        assert np.isclose(out.market_p_home.iloc[0], 0.62)
+        assert pd.isna(out.market_p_home.iloc[1])
+
+    def test_de_vig_rejects_a_placeholder_pair(self):
+        from backend import market_rundown as mr
+        p, _, ov = mr.de_vig(1.001, 1.001)
+        assert np.isnan(p) and ov > mr.MAX_OVERROUND
+        p, a, ov = mr.de_vig(1.9, 1.9)
+        assert np.isclose(p, 0.5) and np.isclose(a, 0.5)
+
+
 class TestMarketAttach:
     """Stats Insider prices onto the decided frame (2026-11-16).
 
@@ -495,7 +575,7 @@ class TestMarketAttach:
         out = mr.attach_market(self._frame("2026-01-03"),
                                self._si(tmp_path, [row]))
         # tip-off 2026-01-04T00:30Z minus a 22:00Z stamp = 150 minutes.
-        assert np.isclose(out.stale_minutes.iloc[0], 150.0)
+        assert np.isclose(out.pregame_minutes.iloc[0], 150.0)
 
     def test_an_odds_file_without_tipoff_is_rejected(self, tmp_path):
         from backend import market_rundown as mr

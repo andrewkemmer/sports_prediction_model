@@ -179,7 +179,8 @@ def fetch_match(match_id: str, book: str = "tab", attempts: int = 3):
 
 
 def scrape_season(season: int, book: str = "tab",
-                  resume: bool = False, workers: int = 20) -> pd.DataFrame:
+                  resume: bool = False, workers: int = 20,
+                  recent_days: float | None = None) -> pd.DataFrame:
     print(f"--- season {season}: scanning rounds 1..{MAX_ROUND} ({book})"
           + (" [resume]" if resume else "") + " ---", flush=True)
     # One pass, kept in round order: the round list IS the id list, so asking
@@ -208,6 +209,22 @@ def scrape_season(season: int, book: str = "tab",
         mids = [m for m in mids if str(m) not in done]
         print(f"season {season}: resuming, {before - len(mids)} already "
               f"on disk, {len(mids)} to fetch", flush=True)
+    if recent_days is not None:
+        # NHL ``plan_fetch`` parity: ids still in flight get re-fetched so the
+        # row walks to its closing line; everything already settled keeps the
+        # quote it has. A game with no stored tip-off is fetched, because an
+        # unknown age must never be assumed settled.
+        tips = (pd.to_datetime(prior.set_index("sim_match_id")["tipoff_utc"],
+                               errors="coerce", utc=True)
+                if len(prior) and "tipoff_utc" in prior.columns
+                else pd.Series(dtype="datetime64[ns, UTC]"))
+        cutoff = pd.Timestamp.now(tz="UTC") - pd.Timedelta(days=recent_days)
+        before = len(mids)
+        mids = [m for m in mids
+                if pd.isna(tips.get(str(m), pd.NaT))
+                or tips.get(str(m)) >= cutoff]
+        print(f"season {season}: recent window {recent_days}d, "
+              f"{len(mids)}/{before} to re-fetch", flush=True)
     print(f"season {season}: fetching {len(mids)} matches", flush=True)
     rows = []
     with ThreadPoolExecutor(max_workers=workers) as ex:
@@ -270,6 +287,11 @@ def main(argv=None):
                     help="Stats Insider bookmaker key (tab, fanduel, ...)")
     ap.add_argument("--resume", action="store_true",
                     help="keep rows already on disk and fetch only missing ids")
+    ap.add_argument("--recent", type=float, default=None, metavar="DAYS",
+                    help="re-fetch only ids whose tip-off is within DAYS "
+                         "(plus any id with no stored tip), so rows still "
+                         "in flight move toward the close (NHL plan_fetch "
+                         "parity)")
     ap.add_argument("--refresh", action="store_true",
                     help="re-fetch every id and keep the NEWEST quote per "
                          "match, so rows move toward the closing line "
@@ -280,7 +302,8 @@ def main(argv=None):
     a = ap.parse_args(argv)
     frames = []
     for s in a.seasons:
-        df = scrape_season(s, a.book, a.resume and not a.refresh, a.workers)
+        df = scrape_season(s, a.book, a.resume and not a.refresh, a.workers,
+                           recent_days=None if a.refresh else a.recent)
         if len(df):
             frames.append(df)
     if frames:
