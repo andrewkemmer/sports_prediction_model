@@ -170,6 +170,15 @@ def attach_live(slate_df: pd.DataFrame, lookback_days: int = 4,
     Match ids come from the stored history's recent rows (the slate itself
     carries no Stats Insider id), then the price is pulled live — never the
     archived snapshot — so the served offset is the number at publish time.
+
+    Ids are keyed on (home, away, Eastern game date) FIRST. Keying on the pair
+    alone is not unique: a club meets the same opponent twice inside the
+    lookback window routinely (124 consecutive NHL meetings sit 4 days or less
+    apart), and the pair's most recent stored row can be the EARLIER game while
+    tonight's row has not been scraped yet — the pair key then serves the wrong
+    meeting's price with no NaN to show for it. With a slate date a price must
+    come from that very date; the pair is only used when the slate carries no
+    date to check (2026-11-16).
     """
     out = slate_df.copy()
     for c in ("market_p_home", "market_logit", "price_utc", "stale_minutes"):
@@ -181,27 +190,41 @@ def attach_live(slate_df: pd.DataFrame, lookback_days: int = 4,
         print(f"market_offset.attach_live: history unavailable ({exc})")
         return out
     hist["_d"] = pd.to_datetime(hist["date"], utc=True)
+    hist["_gd"] = (hist["_d"].dt.tz_convert("America/New_York")
+                   .dt.normalize().dt.tz_localize(None))
     cutoff = pd.Timestamp.now(tz="UTC") - pd.Timedelta(days=lookback_days)
     recent = hist[hist["_d"] >= cutoff].copy()
     recent["home"] = recent["home"].replace(FROM_SI)
     recent["away"] = recent["away"].replace(FROM_SI)
-    ids = (recent.dropna(subset=["match_id"])
-           .drop_duplicates(subset=["home", "away"], keep="last")
-           .set_index(["home", "away"])["match_id"].to_dict())
-    pairs = list(out[["home_team", "away_team"]].itertuples(index=False, name=None))
-    want = [ids[p] for p in pairs if p in ids]
-    if not want:
+    recent = recent.dropna(subset=["match_id"]).sort_values("_d")
+    by_day: dict = {}
+    by_pair: dict = {}
+    for h_, a_, d_, mid in zip(recent["home"], recent["away"],
+                               recent["_gd"], recent["match_id"]):
+        by_day[(h_, a_, d_)] = mid
+        by_pair[(h_, a_)] = mid
+    days = (pd.to_datetime(out["gameday"]).dt.normalize()
+            if "gameday" in out.columns
+            else pd.Series([pd.NaT] * len(out), index=out.index))
+    want = []
+    for a_, h_, d_ in zip(out["away_team"], out["home_team"], days):
+        if pd.notna(d_):
+            want.append(by_day.get((h_, a_, d_)))
+        else:
+            want.append(by_pair.get((h_, a_)))
+    targets = sorted({m for m in want if isinstance(m, str)})
+    if not targets:
         print("market_offset.attach_live: no match ids for this slate")
         return out
-    live = fetch_live(sorted(set(want)))
-    live = live[live["market_p_home"].notna()].drop_duplicates(
-        subset=["home", "away"], keep="last")
-    keep = ["home", "away", "market_p_home", "market_logit",
-            "price_utc", "stale_minutes", "market_home_odds",
-            "market_away_odds", "market_book", "market_price_utc"]
-    return out.merge(live[keep].rename(columns={"home": "home_team",
-                                                "away": "away_team"}),
-                     on=["home_team", "away_team"], how="left")
+    live = fetch_live(targets)
+    live = live[live["market_p_home"].notna()].drop_duplicates("match_id")
+    keep = ["match_id", "market_p_home", "market_logit", "price_utc",
+            "stale_minutes", "market_home_odds", "market_away_odds",
+            "market_book", "market_price_utc"]
+    out["_mid"] = want
+    out = out.merge(live[keep].rename(columns={"match_id": "_live_mid"}),
+                    left_on="_mid", right_on="_live_mid", how="left")
+    return out.drop(columns=[c for c in ("_mid", "_live_mid") if c in out.columns])
 
 
 def fetch_live(match_ids, timeout: float = 20.0) -> pd.DataFrame:
@@ -213,7 +236,11 @@ def fetch_live(match_ids, timeout: float = 20.0) -> pd.DataFrame:
     now = datetime.now(timezone.utc)
     rows = []
     for mid in match_ids:
-        rec = {"match_id": mid, "market_p_home": np.nan,
+        # home/away are seeded: a failed GET used to return a row WITHOUT
+        # them, and attach_live's column selection then raised KeyError
+        # instead of leaving the game unpriced (2026-11-16).
+        rec = {"match_id": mid, "home": None, "away": None,
+               "market_p_home": np.nan,
                "market_logit": np.nan, "overround": np.nan,
                "price_utc": None, "fetched_utc": now, "stale_minutes": np.nan,
                # Display pair for the card: no-vig when that book prices the
