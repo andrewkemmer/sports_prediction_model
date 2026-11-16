@@ -5683,3 +5683,64 @@ def _crps_test_frame():
         frame["gameday"] = pd.date_range("2025-01-01", periods=n)
         frame["fold_id"] = np.arange(n) // 60
     return frame
+
+
+
+def _offset_games(n_days: int = 60) -> pd.DataFrame:
+    """Synthetic feature frame carrying a deterministic, finite market_logit."""
+    games = feat_mod.build_game_features(_synth_games(n_days=n_days)).copy()
+    z = pd.to_numeric(games["elo_diff"], errors="coerce").to_numpy(float)
+    sd = float(np.nanstd(z)) or 1.0
+    games["market_logit"] = 0.9 * np.tanh(z / sd)
+    return games
+
+
+def test_offset_fold_predictions_ignore_their_own_labels():
+    """The offset arm's coefficients must never see the scored fold's labels.
+
+    Flipping the target fold's OWN outcomes must leave every p_*_off value
+    bit-identical: each member is fitted on strictly prior rows, so the fold
+    is a pure prediction target. The arm-A test only pins the geometry; this
+    pins the offset arm's actual output.
+    """
+    games = _offset_games()
+    folds = folds_mod.make_folds(games, date_col="gameday")
+    assert folds, "fixture produced no folds"
+    target = folds[min(2, len(folds) - 1)]
+
+    poisoned = games.copy()
+    flip = poisoned.index.isin(target.val_idx)
+    poisoned.loc[flip, "home_win"] = 1.0 - poisoned.loc[flip, "home_win"].astype(float)
+
+    base = ml_mod.walk_forward_oof(games, fold_list=[target],
+                                   offset_col="market_logit")["oof"]
+    pois = ml_mod.walk_forward_oof(poisoned, fold_list=[target],
+                                   offset_col="market_logit")["oof"]
+    for c in ("p_elasticnet_off", "p_lightgbm_off", "p_xgboost_off",
+              "p_ensemble_off_earned"):
+        np.testing.assert_array_equal(
+            base[c].to_numpy(float), pois[c].to_numpy(float),
+            err_msg=f"{c} moved when the scored fold's own labels were flipped")
+
+
+def test_offset_fold_predictions_depend_on_the_held_out_price():
+    """Non-vacuity guard: the held-out row's own PRE-GAME price is an input at
+    score time, so moving it must move the prediction. Leak-free fitting, not
+    price-blindness."""
+    games = _offset_games()
+    folds = folds_mod.make_folds(games, date_col="gameday")
+    assert folds, "fixture produced no folds"
+    target = folds[min(2, len(folds) - 1)]
+
+    moved = games.copy()
+    sel = moved.index.isin(target.val_idx)
+    moved.loc[sel, "market_logit"] = (
+        moved.loc[sel, "market_logit"].astype(float) + 0.75)
+
+    a = ml_mod.walk_forward_oof(games, fold_list=[target],
+                                offset_col="market_logit")["oof"]
+    b = ml_mod.walk_forward_oof(moved, fold_list=[target],
+                                offset_col="market_logit")["oof"]
+    d = float(np.nanmax(np.abs(b["p_ensemble_off_earned"].to_numpy(float)
+                               - a["p_ensemble_off_earned"].to_numpy(float))))
+    assert d > 0.05, f"held-out price never reached the prediction (max {d})"
