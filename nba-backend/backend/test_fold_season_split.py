@@ -391,3 +391,79 @@ class TestMarketArms:
         out = eval_mod.arm_metrics({"incumbent": a, "market": b}).set_index("arm")
         assert set(out["n"]) == {3}, "the extra game must not grade either arm"
         assert list(out.columns) == ["n", "auc", "logloss", "brier", "ece"]
+
+
+class TestMarketAttach:
+    """Stats Insider prices onto the decided frame (2026-11-16).
+
+    The feed dates a game by when the line was POSTED, sometimes has no
+    parseable date at all, and its final score can be a point or two off the
+    box score. What must never happen is the same price grading two games.
+    """
+
+    def _frame(self):
+        return pd.DataFrame({
+            "game_id": ["g1", "g2", "g3"],
+            "gameday": pd.to_datetime(["2026-01-05", "2026-01-07", "2026-02-10"]),
+            "season": [2025, 2025, 2025],
+            "home_team": ["BOS", "BOS", "BOS"],
+            "away_team": ["NYK", "NYK", "NYK"],
+            "home_score": [110.0, 100.0, 120.0],
+            "away_score": [105.0, 99.0, 118.0],
+        })
+
+    def _si(self, tmp_path, rows):
+        si = pd.DataFrame(rows)
+        path = tmp_path / "si.csv"
+        si.to_csv(path, index=False)
+        return str(path)
+
+    def test_prices_attach_on_date_or_score_and_eliminate_the_rest(self, tmp_path):
+        from backend import market_rundown as mr
+        rows = [
+            # g1: exact date and score
+            dict(sim_match_id="s1", season=2025, away_abv="NYK", home_abv="BOS",
+                 date_utc="2026-01-04T12:00:00+00:00",
+                 home_odds_dec=1.8, away_odds_dec=2.0,
+                 final_home_score=110.0, final_away_score=105.0),
+            # g2: NO date, score confirms within the 2-point tolerance
+            dict(sim_match_id="s2", season=2025, away_abv="NYK", home_abv="BOS",
+                 date_utc=None, home_odds_dec=1.9, away_odds_dec=1.9,
+                 final_home_score=100.0, final_away_score=99.0),
+            # g3: neither date nor score agrees; only elimination can place it
+            dict(sim_match_id="s3", season=2025, away_abv="NYK", home_abv="BOS",
+                 date_utc="2026-01-06T12:00:00+00:00",
+                 home_odds_dec=2.0, away_odds_dec=1.8,
+                 final_home_score=130.0, final_away_score=128.0),
+        ]
+        out = mr.attach_market(self._frame(), self._si(tmp_path, rows))
+        priced = out.set_index("game_id").market_p_home
+        assert priced.notna().all(), "every game had exactly one unclaimed price"
+        assert np.isclose(priced["g1"], 1/1.8 / (1/1.8 + 1/2.0))
+        assert np.isclose(priced["g2"], 0.5)
+        assert np.isclose(priced["g3"], (1/2.0) / (1/2.0 + 1/1.8))
+
+    def test_one_price_cannot_grade_two_games(self, tmp_path):
+        from backend import market_rundown as mr
+        frame = self._frame()
+        frame = frame[frame.game_id != "g3"].reset_index(drop=True)
+        frame["home_score"] = [90.0, 91.0]
+        frame["away_score"] = [80.0, 81.0]
+        rows = [dict(sim_match_id="only", season=2025, away_abv="NYK",
+                     home_abv="BOS", date_utc="2026-01-04T12:00:00+00:00",
+                     home_odds_dec=1.8, away_odds_dec=2.0,
+                     final_home_score=111.0, final_away_score=109.0)]
+        out = mr.attach_market(frame, self._si(tmp_path, rows))
+        assert int(out.market_p_home.notna().sum()) == 1, \
+            "a single line must not be attached to both meetings"
+        assert out.market_p_home.dropna().is_unique
+
+    def test_a_different_season_is_never_offered_as_a_candidate(self, tmp_path):
+        from backend import market_rundown as mr
+        frame = self._frame().iloc[[0]].copy()
+        rows = [dict(sim_match_id="x", season=2024, away_abv="NYK",
+                     home_abv="BOS", date_utc="2025-01-04T12:00:00+00:00",
+                     home_odds_dec=1.8, away_odds_dec=2.0,
+                     final_home_score=110.0, final_away_score=105.0)]
+        out = mr.attach_market(frame, self._si(tmp_path, rows))
+        assert out.market_p_home.isna().all()

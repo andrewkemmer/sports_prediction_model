@@ -126,6 +126,86 @@ def consensus(path: str) -> dict:
     return out
 
 
+def attach_market(frame: "pd.DataFrame", si_path: str) -> "pd.DataFrame":
+    """One de-vigged Stats Insider price per decided game, or NaN.
+
+    The feed dates a game by when the line was POSTED (median one day either
+    side of tip-off), some rows carry no parseable date at all, and its final
+    score can differ from the box score by a point or two. A club pair meets
+    three or four times a season, so a pair-only join offers every meeting as
+    a candidate and the wrong ones are the majority.
+
+    So: club pair plus SEASON narrows the candidates; a final score within
+    two points settles them; a posted date within two days is the fallback.
+    Whatever is left is resolved by elimination - a game with one unclaimed
+    price, or a price with one unclaimed game - until nothing changes. Every
+    price is used at most once, so two games can never share one line.
+
+    Returns the frame with ``market_p_home`` (proportional de-vig) appended.
+    """
+    import numpy as np
+    import pandas as pd
+
+    si = pd.read_csv(si_path)
+    si["d_si"] = pd.to_datetime(si.date_utc, errors="coerce", utc=True) \
+        .dt.tz_localize(None).dt.normalize()
+    si = si[si.home_odds_dec.notna() & si.away_odds_dec.notna()
+            & si.home_odds_dec.gt(1) & si.away_odds_dec.gt(1)].copy()
+    si["p_home"] = (1 / si.home_odds_dec) / (1 / si.home_odds_dec
+                                             + 1 / si.away_odds_dec)
+    si["season"] = pd.to_numeric(si.season, errors="coerce")
+    g = frame.copy()
+    g["_d"] = pd.to_datetime(g.gameday).dt.normalize()
+    cand = g[["game_id", "season", "_d", "home_team", "away_team",
+              "home_score", "away_score"]].merge(
+        si[["sim_match_id", "season", "away_abv", "home_abv", "d_si",
+            "p_home", "final_home_score", "final_away_score"]],
+        left_on=["away_team", "home_team", "season"],
+        right_on=["away_abv", "home_abv", "season"], how="inner")
+    if not len(cand):
+        return g.assign(market_p_home=np.nan).drop(columns=["_d"])
+    cand["agap"] = (cand["_d"] - cand.d_si).dt.days.abs().fillna(9999)
+    cand["score_ok"] = ((cand.home_score - cand.final_home_score).abs().le(2)
+                        & (cand.away_score - cand.final_away_score).abs().le(2))
+    cand = cand.sort_values(["score_ok", "agap"], ascending=[False, True])
+    assigned: dict = {}
+    used: set = set()
+    for r in cand.itertuples(index=False):
+        if r.game_id in assigned or r.sim_match_id in used:
+            continue
+        if r.score_ok or r.agap <= 2:
+            assigned[r.game_id] = r.sim_match_id
+            used.add(r.sim_match_id)
+    left = cand[~cand.game_id.isin(assigned) & ~cand.sim_match_id.isin(used)]
+    while len(left):
+        by_game = left.groupby("game_id").sim_match_id.nunique()
+        by_si = left.groupby("sim_match_id").game_id.nunique()
+        lone = set(by_game[by_game == 1].index) | set(by_si[by_si == 1].index)
+        if not lone:
+            break
+        changed = 0
+        for r in left[left.game_id.isin(lone)
+                      | left.sim_match_id.isin(lone)].itertuples(index=False):
+            if r.game_id in assigned or r.sim_match_id in used:
+                continue
+            assigned[r.game_id] = r.sim_match_id
+            used.add(r.sim_match_id)
+            changed += 1
+        left = left[~left.game_id.isin(assigned) & ~left.sim_match_id.isin(used)]
+        if not changed:
+            break
+    # Keep the rows that are EXACTLY the assignment. Deduplicating on
+    # ``sim_match_id`` first would let another game's candidate row stand in
+    # for the assigned one and then delete the game's price downstream.
+    pairs = cand[["game_id", "sim_match_id", "p_home"]].copy()
+    pairs["_keep"] = [assigned.get(g) == sid
+                      for g, sid in zip(pairs.game_id, pairs.sim_match_id)]
+    price = (pairs[pairs._keep][["game_id", "p_home"]]
+             .drop_duplicates("game_id"))
+    out = g.merge(price, on="game_id", how="left").drop(columns=["_d"])
+    return out.rename(columns={"p_home": "market_p_home"})
+
+
 def compare(oof_path: str, pred_path: str, open_path: str, close_path: str,
             out_path: str | None = None):
     import numpy as np
