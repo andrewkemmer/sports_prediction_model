@@ -133,6 +133,18 @@ def consensus(path: str) -> dict:
     return out
 
 
+# Closing-line policy (validated 2026-11-16, NBA parity with
+# ``nhl-backend/backend/odds_history``): Stats Insider keeps serving the LAST
+# PRE-GAME quote after tip-off. Across all 5,502 captured prices the book's
+# own ``LastUpdated`` stamp sits a median 4 minutes AFTER the scheduled start
+# (p10 -9.5, p90 -0.9; 90% at or past the tip, 2% more than 6 hours before),
+# i.e. the feed freezes the line at kickoff and the numbers do not move
+# in-play. A differing quote is therefore always a LATER PRE-GAME line, never
+# an in-play one, so the newest stamp wins for every match, past or present.
+# ``MatchData.UTCDate`` is NOT that stamp -- it is a fixture artefact, absent
+# on 67% of rows -- and must never be read as the price's vintage.
+
+
 def attach_market(frame: "pd.DataFrame", si_path: str) -> "pd.DataFrame":
     """One de-vigged Stats Insider price per decided game, or NaN.
 
@@ -174,12 +186,23 @@ def attach_market(frame: "pd.DataFrame", si_path: str) -> "pd.DataFrame":
     si = si[clean].copy()
     si["p_home"] = (1.0 / si.home_odds_dec) / (1.0 / si.home_odds_dec
                                                + 1.0 / si.away_odds_dec)
+    # NHL parity: the newest quote per match is the closing line, because
+    # Stats Insider keeps serving the last pre-game price after kickoff. The
+    # most recent book stamp wins; the capture time breaks a tie.
+    si["_lu"] = pd.to_datetime(si.get("book_last_updated"), errors="coerce",
+                               utc=True)
+    si["_fu"] = pd.to_datetime(si.get("fetched_utc"), errors="coerce", utc=True)
+    si = si.sort_values(["_lu", "_fu"]).drop_duplicates("sim_match_id",
+                                                        keep="last")
 
     g = frame.copy()
     g["_d"] = pd.to_datetime(g.gameday).dt.normalize()
     key = ["away_team", "home_team", "_d"]
-    right = si[["away_abv", "home_abv", "et_date", "p_home"]].dropna(
-        subset=["et_date"])
+    right = (si[["away_abv", "home_abv", "et_date", "p_home", "_lu",
+                 "tipoff_utc"]]
+             .dropna(subset=["et_date"])
+             .rename(columns={"_lu": "price_utc",
+                              "tipoff_utc": "market_tipoff_utc"}))
     cand = g[key + ["game_id"]].merge(
         right, left_on=key, right_on=["away_abv", "home_abv", "et_date"],
         how="inner")
@@ -194,10 +217,21 @@ def attach_market(frame: "pd.DataFrame", si_path: str) -> "pd.DataFrame":
     cand = cand[[not m for m in mask_key]]
     # ``reindex`` rather than a column select: an empty candidate set after
     # the filters must still yield an empty price table, not a KeyError.
-    price = (cand.reindex(columns=["game_id", "p_home"])
+    price = (cand.reindex(columns=["game_id", "p_home", "price_utc",
+                                   "market_tipoff_utc"])
              .dropna(subset=["game_id"]).drop_duplicates("game_id"))
     out = g.merge(price, on="game_id", how="left").drop(columns=["_d"])
-    return out.rename(columns={"p_home": "market_p_home"})
+    out = out.rename(columns={"p_home": "market_p_home"})
+    if "price_utc" in out.columns:
+        # Staleness is visible, never inferred: minutes between this game's
+        # tip-off and the book's own stamp. Stats Insider stamps the closing
+        # quote AT kickoff and never moves it in-play, so the close reads
+        # ~-5 min (stamped just after the start) and a genuinely old price
+        # reads as a large positive number.
+        tip = pd.to_datetime(out["market_tipoff_utc"], errors="coerce", utc=True)
+        stamp = pd.to_datetime(out["price_utc"], errors="coerce", utc=True)
+        out["stale_minutes"] = ((tip - stamp).dt.total_seconds() / 60.0)
+    return out
 
 
 def compare(oof_path: str, pred_path: str, open_path: str, close_path: str,

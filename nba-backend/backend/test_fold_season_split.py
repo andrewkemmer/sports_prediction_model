@@ -471,6 +471,32 @@ class TestMarketAttach:
         assert out.market_p_home.isna().all(), \
             "a matching score must not rescue an unmatched date"
 
+    def test_the_newest_quote_for_a_match_wins(self, tmp_path):
+        # NHL parity: Stats Insider keeps serving the last pre-game quote, so
+        # the newest book stamp IS the closing line and must supersede an
+        # earlier capture of the same match.
+        from backend import market_rundown as mr
+        rows = [
+            self._row(sim_match_id="s1", home_odds_dec=1.8, away_odds_dec=2.0,
+                      book_last_updated="2025-10-29T12:00:00Z",
+                      fetched_utc="2026-11-16T00:00:00+00:00"),
+            self._row(sim_match_id="s1", home_odds_dec=2.0, away_odds_dec=1.8,
+                      book_last_updated="2026-01-03T23:05:00Z",
+                      fetched_utc="2026-11-16T00:05:00+00:00"),
+        ]
+        out = mr.attach_market(self._frame("2026-01-03"),
+                               self._si(tmp_path, rows))
+        assert np.isclose(out.market_p_home.iloc[0],
+                          (1/2.0) / (1/2.0 + 1/1.8))
+
+    def test_staleness_is_measured_against_this_games_tipoff(self, tmp_path):
+        from backend import market_rundown as mr
+        row = self._row(book_last_updated="2026-01-03T22:00:00Z")
+        out = mr.attach_market(self._frame("2026-01-03"),
+                               self._si(tmp_path, [row]))
+        # tip-off 2026-01-04T00:30Z minus a 22:00Z stamp = 150 minutes.
+        assert np.isclose(out.stale_minutes.iloc[0], 150.0)
+
     def test_an_odds_file_without_tipoff_is_rejected(self, tmp_path):
         from backend import market_rundown as mr
         row = self._row()

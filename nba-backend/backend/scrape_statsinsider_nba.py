@@ -16,8 +16,19 @@ the same payload's FanDuel H2H, spread and total. Only the names the
 upstream actually publishes come back, so a wrong book is an empty
 ``BettingData`` rather than a silent substitution.
 
-Odds are ONE snapshot per game (decimal). There is no open/close split in
-this payload -- treat as the stored (effectively close) line. De-vig + join
+Odds are ONE quote per game (decimal): the feed's LAST PRE-GAME line, kept
+after tip-off and never moved in-play, so it is the close. Two stamps prove
+it and are stored per row:
+
+  * ``book_last_updated`` -- ``BettingData.tab.LastUpdated``, when the book
+    last moved the quote. Across 5,502 collected prices this sits a median
+    4 minutes after the scheduled tip (p10 -9.5, p90 -0.9; 90% at or past
+    the start), i.e. the line is frozen at kickoff.
+  * ``fetched_utc`` -- when this scraper captured the row.
+
+``--refresh`` re-fetches every id and merges keep-newest on those stamps, so
+a re-capture walks each game toward its close and a failed fetch keeps the
+row already on disk. ``--resume`` skips ids already present. De-vig + join
 to the OOF frame happens in market_rundown.compare (or a follow-up step);
 preseason/non-real games are filtered at join time against the graded game
 list, not here.
@@ -117,8 +128,14 @@ def fetch_match(match_id: str, book: str = "tab", attempts: int = 3):
         if home_name is None or away_name is None:
             return None  # not a real game (same rule as the user's script)
 
+        # The book's OWN stamp for this quote, and when we captured it. NHL
+        # parity: Stats Insider keeps serving the LAST PRE-GAME quote after
+        # tip-off, so the newest stamp is the closing line and a later capture
+        # always supersedes an earlier one (2026-11-16).
         return {
             "sim_match_id": md.get("SIMatchID"),
+            "book_last_updated": bd.get("LastUpdated"),
+            "fetched_utc": pd.Timestamp.now(tz="UTC").isoformat(),
             "season": md.get("Season"),
             "round": md.get("RoundNumber"),
             # UTCDate is when the line was PUBLISHED, not when the game
@@ -176,16 +193,21 @@ def scrape_season(season: int, book: str = "tab",
     print(f"season {season}: {len(valid)} valid rounds", flush=True)
     mids = [m for ids in per_round for m in ids]
     mids = list(dict.fromkeys(mids))
+    # The prior file is the BASE STATE of the merge, so it is read on every
+    # path. ``resume`` only decides which ids get fetched: with it off a
+    # re-capture updates rows in place, and a failed fetch keeps the row it
+    # already had instead of deleting it (2026-11-16: --refresh dropped 8
+    # games this way).
     prior = pd.DataFrame()
-    if resume:
-        path = f"{DIAG}/{_stem(book, season)}.csv"
-        if os.path.exists(path):
-            prior = pd.read_csv(path)
-            done = set(prior["sim_match_id"].astype(str))
-            before = len(mids)
-            mids = [m for m in mids if str(m) not in done]
-            print(f"season {season}: resuming, {before - len(mids)} already "
-                  f"on disk, {len(mids)} to fetch", flush=True)
+    path = f"{DIAG}/{_stem(book, season)}.csv"
+    if os.path.exists(path):
+        prior = pd.read_csv(path)
+    if resume and len(prior):
+        done = set(prior["sim_match_id"].astype(str))
+        before = len(mids)
+        mids = [m for m in mids if str(m) not in done]
+        print(f"season {season}: resuming, {before - len(mids)} already "
+              f"on disk, {len(mids)} to fetch", flush=True)
     print(f"season {season}: fetching {len(mids)} matches", flush=True)
     rows = []
     with ThreadPoolExecutor(max_workers=workers) as ex:
@@ -201,11 +223,38 @@ def scrape_season(season: int, book: str = "tab",
     df = pd.DataFrame(rows)
     os.makedirs(DIAG, exist_ok=True)
     if len(prior):
-        df = pd.concat([prior, df], ignore_index=True)
-        df = df.drop_duplicates("sim_match_id", keep="last")
+        df = _merge_keep_newest(prior, df)
     df.to_csv(f"{DIAG}/{_stem(book, season)}.csv", index=False)
     print(f"season {season}: saved {len(df)} rows", flush=True)
     return df
+
+
+def _merge_keep_newest(prior: pd.DataFrame, new: pd.DataFrame) -> pd.DataFrame:
+    """Overlay ``new`` on ``prior``, one row per match, newest quote wins.
+
+    "Newest" is the BOOK's stamp first (``book_last_updated``) and our capture
+    time second, so a replayed run from a stale clone cannot regress a row that
+    already holds the closing line. Mirrors
+    ``nhl-backend/backend/odds_history.merge_keep_newest``.
+    """
+    if not len(prior):
+        return new.reset_index(drop=True)
+    key = "sim_match_id"
+    frames = []
+    for frame in (prior, new):
+        f = frame.copy()
+        for col in ("book_last_updated", "fetched_utc"):
+            if col not in f.columns:
+                f[col] = pd.NaT
+        f["_lu"] = pd.to_datetime(f["book_last_updated"], errors="coerce",
+                                  utc=True)
+        f["_fu"] = pd.to_datetime(f["fetched_utc"], errors="coerce", utc=True)
+        frames.append(f)
+    p, n = frames
+    n = (n.sort_values(["_lu", "_fu"]).drop_duplicates(key, keep="last"))
+    p = (p.sort_values(["_lu", "_fu"]).drop_duplicates(key, keep="last"))
+    merged = pd.concat([p[~p[key].isin(n[key])], n], ignore_index=True)
+    return merged.drop(columns=["_lu", "_fu"])
 
 
 def _stem(book: str, season: int | None = None) -> str:
@@ -221,13 +270,17 @@ def main(argv=None):
                     help="Stats Insider bookmaker key (tab, fanduel, ...)")
     ap.add_argument("--resume", action="store_true",
                     help="keep rows already on disk and fetch only missing ids")
+    ap.add_argument("--refresh", action="store_true",
+                    help="re-fetch every id and keep the NEWEST quote per "
+                         "match, so rows move toward the closing line "
+                         "(NHL parity)")
     ap.add_argument("--workers", type=int, default=20,
                     help="match fetches in flight (lower it when the host "
                          "starts refusing connections)")
     a = ap.parse_args(argv)
     frames = []
     for s in a.seasons:
-        df = scrape_season(s, a.book, a.resume, a.workers)
+        df = scrape_season(s, a.book, a.resume and not a.refresh, a.workers)
         if len(df):
             frames.append(df)
     if frames:
