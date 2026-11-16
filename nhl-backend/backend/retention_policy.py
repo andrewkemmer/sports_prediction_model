@@ -114,9 +114,19 @@ EXACT_MASTER_NAMES = frozenset({
 # -- reset rolling history.                                                --
 SERIES_PREFIXES = (
     "models/",
-    # The markets page folds ALL dated monitors into the rolling per-card
-    # series (fold_slate_history). Never reset it.
-    "nhl_run_engine_monitor_",
+    # 2026-11-16: ``nhl_run_engine_monitor_`` LEFT this list.
+    #
+    # MLB's monitor producer rebuilds each run's ``slate_history`` by globbing
+    # every dated monitor, so pruning one member would destroy accumulated
+    # history — that is the whole reason MLB's family is NEVER DELETE. The NHL
+    # producer does not do that: ``monitoring.write_run_engine_monitor`` starts
+    # an empty list and appends the run's own three cards (verified against all
+    # 53 published files 20260924-20261115 — each carries exactly 3 points, its
+    # own date only). The series is reconstructed by the frontend's
+    # ``fold_slate_history`` from whatever dated files exist, and the markets
+    # page renders ``series[-10:]``, so a 10-day window (11 dates) still fills
+    # the table it feeds. This family now ages out with
+    # ``nhl_run_engine_markets_``, the board it is read alongside.
 )
 
 
@@ -170,8 +180,13 @@ FAMILY_POLICY: tuple[FamilyPolicy, ...] = (
                        "of the window forever. MLB's board family is "
                        "allowlisted and not board-backed for the same reason"),
     FamilyPolicy("markets_monitor", "nhl_run_engine_monitor_",
-                 retention_days=None, allowlisted=False,
-                 notes="SERIES - fold_slate_history folds ALL dated monitors"),
+                 retention_days=10, allowlisted=True,
+                 notes="newest-per-date (markets page monitor section); each "
+                       "file carries only ITS date's points, so the rolling "
+                       "table (series[-10:]) is filled by the 11 dates this "
+                       "window keeps. Not board-backed for the same reason "
+                       "the markets family is not: a board-backed family "
+                       "rescues itself out of the window forever"),
     FamilyPolicy("goalie_matchup", "nhl_goalie_matchup_", retention_days=10,
                  allowlisted=True,
                  notes="newest-only (board goalie boxes); 10-day window"),
