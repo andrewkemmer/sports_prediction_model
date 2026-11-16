@@ -1113,13 +1113,21 @@ def main(argv: list[str] | None = None) -> int:
         if _rfe_path:
             artifacts.append(Path(_rfe_path).name)
     if len(slate):
-        p = out_dir / config.MONEYLINE_JSON.format(date=date_c)
+        # Board files are stamped with the BOARD date, not the run date: the
+        # date the frontend looks a board up by is the night its games are on.
+        # They diverge whenever a run starts after that evening's puck drop
+        # (the 2026-11-16 04:49Z Kaggle start = 23:49 ET on 11-15), and
+        # writing the next night into the run-dated file left the date rail
+        # without it - Today's Games showed no slate at all.
+        _board = serve_mod.board_date(slate, run_date)
+        _board_c = _board.replace("-", "") if _board else date_c
+        p = out_dir / config.MONEYLINE_JSON.format(date=_board_c)
         serve_mod.write_moneyline_json(p, slate, p_home, p_home_cal,
                                        _team_names(), config_meta,
                                        run_date=run_date)
         artifacts.append(p.name)
 
-        p = out_dir / config.GOALIE_MATCHUP_JSON.format(date=date_c)
+        p = out_dir / config.GOALIE_MATCHUP_JSON.format(date=_board_c)
         serve_mod.write_goalie_matchup_json(p, goalie_df, slate,
                                              run_date=run_date)
         artifacts.append(p.name)

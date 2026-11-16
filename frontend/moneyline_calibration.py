@@ -164,8 +164,15 @@ def calibrated_bucket_stats(hist: Optional[pd.DataFrame],
     ok = raw.notna() & cal.notna() & won.notna()
     if not ok.any():
         return {}
-    cal_fav = pd.Series(np.where(raw[ok] >= 0.5, cal[ok], 1.0 - cal[ok]),
-                        index=raw[ok].index)
+    # EVERY series must sit on the SAME surviving index before the bucket mask
+    # is built: ``mask`` is a Series, so pandas aligns it against whatever it
+    # indexes and raises ``IndexingError: Unalignable boolean Series`` when
+    # ``won`` still carries the unfiltered rows. The 2026-11-16 reliability
+    # table crashed exactly there — the history had gained rows with a null
+    # ``correct`` / calibrated cell, so ``ok`` dropped rows while ``won``
+    # stayed full-length and every bucket lookup compared two indexes.
+    raw, cal, won = raw[ok], cal[ok], won[ok]
+    cal_fav = pd.Series(np.where(raw >= 0.5, cal, 1.0 - cal), index=raw.index)
     out: dict = {}
     for label in labels:
         bounds = _bucket_bounds(label)

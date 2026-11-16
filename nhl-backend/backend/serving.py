@@ -83,6 +83,68 @@ def _date_compact(run_date: str) -> str:
 
 
 # ---------------------------------------------------------------------------
+# Board date — which night a dated board file publishes
+# ---------------------------------------------------------------------------
+def _kickoff_instant(g):
+    """The row's kickoff as a tz-aware UTC Timestamp, or None when unknown.
+
+    Missing/unparseable starts stay None rather than being guessed: an absent
+    kickoff is not evidence that a game has begun.
+    """
+    # Accepts a dict OR a DataFrame row (iterrows yields a Series).
+    raw = str((g.get("start_time_utc", "") if hasattr(g, "get") else "") or "").strip()
+    if not raw or ("T" not in raw and " " not in raw):
+        return None
+    try:
+        ts = pd.Timestamp(raw)
+    except (TypeError, ValueError, OverflowError):
+        return None
+    if ts.tzinfo is None:
+        return ts.tz_localize("UTC")
+    return ts.tz_convert("UTC")
+
+
+def board_date(slate_df, run_date: str = "") -> str:
+    """The ONE game date a dated board file publishes (YYYY-MM-DD, "" if none).
+
+    Board rule: the FIRST game date at or after ``run_date`` (the run's own
+    Eastern date) that still has a game to bet — a night whose games have ALL
+    started is no longer a board. Falling back to the earliest upcoming date
+    when every such night is closed, and to the slate's earliest date when the
+    whole slate is carry-over.
+
+    Why the pre-game test matters: the 2026-11-16 04:49Z Kaggle start is 23:49
+    ET on 11-15, i.e. AFTER that evening's puck drops. ``>= run_date`` alone
+    therefore picked the finished 11-15 night, published its last pre-game
+    numbers as the live board, and dropped the three 11-16 games the run had
+    just priced — the dashboard showed no Nov 16 slate while the prices sat in
+    the markets artifact. A genuinely pre-game run is unaffected: its own
+    night is still open, so it wins exactly as before.
+    """
+    if slate_df is None or not len(slate_df) or "gameday" not in slate_df.columns:
+        return ""
+    dates: list[str] = []
+    kicks: list = []
+    for _, g in slate_df.iterrows():
+        dates.append(_date_str(g.get("gameday")))
+        kicks.append(_kickoff_instant(g))
+    run_iso = str(run_date or "").strip()
+    if not (len(run_iso) == 10 and run_iso[4] == "-"):
+        return min((d for d in dates if d), default="")
+    upcoming = [d for d in dates if d and d >= run_iso]
+    if not upcoming:
+        return min((d for d in dates if d), default="")
+    now = pd.Timestamp.now(tz="UTC")
+    for day in sorted(set(upcoming)):
+        for d, k in zip(dates, kicks):
+            if d != day:
+                continue
+            if k is None or k > now:      # unknown kickoff is not proof of start
+                return day
+    return min(upcoming)
+
+
+# ---------------------------------------------------------------------------
 # Moneyline JSON — the games[] card contract
 # ---------------------------------------------------------------------------
 def write_moneyline_json(path, slate_df: pd.DataFrame, p_home: np.ndarray,
@@ -101,25 +163,21 @@ def write_moneyline_json(path, slate_df: pd.DataFrame, p_home: np.ndarray,
     rail, and Today's Games showed no Oct 7 board at all.
 
     Board rule (reporting/serving only — pricing and markets are untouched):
-    the board is the FIRST game date at or after ``run_date`` (the run's own
-    Eastern date; a lookahead slate's first night), falling back to the slate's
-    earliest date when the whole slate is carry-over.  Only that date's games
-    publish; later-dated preview games publish with their own day's run.
+    see ``board_date`` — the FIRST game date at or after ``run_date`` (the
+    run's own Eastern date; a lookahead slate's first night) that still has a
+    pre-game game, falling back to the slate's earliest date when the whole
+    slate is carry-over.  Only that date's games publish; later-dated preview
+    games publish with their own day's run.
     Same-date preservation then keeps prior rows ONLY for this board date, so
     a same-day re-run can never re-introduce another date's rows.
     """
     # Align the probability arrays to whatever rows survive the board filter.
     slate_df = slate_df if slate_df is not None else pd.DataFrame()
-    board_date = ""
+    board = ""
     if len(slate_df):
         dates = [_date_str(v) for v in slate_df["gameday"]]
-        run_iso = str(run_date or "").strip()
-        if len(run_iso) == 10 and run_iso[4] == "-":
-            upcoming = [d for d in dates if d and d >= run_iso]
-            board_date = min(upcoming) if upcoming else min(d for d in dates if d)
-        else:
-            board_date = min((d for d in dates if d), default="")
-        keep = np.array([bool(d) and d == board_date for d in dates])
+        board = board_date(slate_df, run_date)
+        keep = np.array([bool(d) and d == board for d in dates])
         slate_df = slate_df[keep]
         p_home = np.asarray(p_home)[keep]
         p_home_cal = np.asarray(p_home_cal)[keep]
@@ -183,7 +241,7 @@ def write_moneyline_json(path, slate_df: pd.DataFrame, p_home: np.ndarray,
             for g in games:
                 if not isinstance(g, dict):
                     continue
-                if board_date and str(g.get("game_date") or "") != board_date:
+                if board and str(g.get("game_date") or "") != board:
                     continue
                 pg = prior_by_id.get(str(g.get("game_id") or ""))
                 if not pg or str(pg.get("game_date") or "") != str(g.get("game_date") or ""):
@@ -210,8 +268,8 @@ def write_moneyline_json(path, slate_df: pd.DataFrame, p_home: np.ndarray,
             preserved = [g for g in (prior.get("games") or [])
                          if isinstance(g, dict)
                          and str(g.get("game_id") or "") not in new_ids
-                         and (not board_date
-                              or str(g.get("game_date") or "") == board_date)]
+                         and (not board
+                              or str(g.get("game_date") or "") == board)]
             if preserved:
                 games = preserved + games
     except Exception:
@@ -660,14 +718,8 @@ def write_goalie_matchup_json(path, goalie_df: pd.DataFrame,
     slate_df = slate_df if slate_df is not None else pd.DataFrame()
     if len(slate_df) and "gameday" in slate_df.columns:
         dates = [_date_str(v) for v in slate_df["gameday"]]
-        run_iso = str(run_date or "").strip()
-        if len(run_iso) == 10 and run_iso[4] == "-":
-            upcoming = [d for d in dates if d and d >= run_iso]
-            board_date = (min(upcoming) if upcoming
-                          else min((d for d in dates if d), default=""))
-        else:
-            board_date = min((d for d in dates if d), default="")
-        keep = np.array([bool(d) and d == board_date for d in dates])
+        board = board_date(slate_df, run_date)
+        keep = np.array([bool(d) and d == board for d in dates])
         slate_df = slate_df[keep]
         if isinstance(goalie_df, pd.DataFrame) and len(goalie_df) == len(keep):
             goalie_df = goalie_df[keep]
