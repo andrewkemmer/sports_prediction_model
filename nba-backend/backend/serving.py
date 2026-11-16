@@ -360,6 +360,12 @@ def markets_columns() -> list[str]:
         "distribution_fit_n", "distribution_fit_end",
         "distribution_mean_total", "distribution_mean_margin",
         "distribution_sd_total", "distribution_sd_margin",
+        # Serving market odds (2026-11-16): the live TAB offset price behind
+        # the board, with its book stamp and the no-vig pair for display.
+        "market_p_home", "market_logit", "overround", "price_utc",
+        "fetched_utc", "stale_minutes", "pregame_minutes",
+        "market_home_odds", "market_away_odds", "market_book",
+        "market_tipoff_utc",
     ]
     return list(dict.fromkeys(base + _grid_columns()))
 

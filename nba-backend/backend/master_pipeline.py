@@ -37,8 +37,8 @@ try:
                         distributions as dist_mod, evaluation,
                         feature_selection, feature_workbook, features as feat_mod,
                         folds as folds_mod, ingestion, monitoring,
-                        moneyline as ml_mod, player_enrichment, progress,
-                        retention_policy, serving)
+                        market_rundown, moneyline as ml_mod, player_enrichment,
+                        progress, retention_policy, serving)
 except ImportError:
     import config
     import distributions as dist_mod
@@ -48,6 +48,7 @@ except ImportError:
     import features as feat_mod
     import folds as folds_mod
     import ingestion
+    import market_rundown
     import monitoring
     import moneyline as ml_mod
     import player_enrichment
@@ -2161,6 +2162,21 @@ def run(run_date: str | None = None, out_dir: str | Path | None = None,
             # expand=False: apply_market_calibration reprices every row
             # below, so pricing here is discarded work.
             slate_markets = _marketize(slate, slate, "slate", expand=False)
+            # Serving market odds (NHL parity, 2026-11-16): the feed's CURRENT
+            # quote, fetched now rather than read from the archive, so the
+            # published board carries the number a bettor can actually take.
+            # Attached BEFORE the freeze so a republished game keeps the price
+            # it first went out with. A feed outage prices nothing and must
+            # never fail the run - every market column stays NaN.
+            try:
+                _live = market_rundown.attach_live(slate_markets)
+                slate_markets = _live
+                logger.info("slate market odds: %d/%d game(s) priced live",
+                            int(pd.to_numeric(_live.get("market_p_home"),
+                                              errors="coerce").notna().sum()),
+                            len(_live))
+            except Exception as exc:  # noqa: BLE001
+                logger.warning("slate market odds unavailable: %s", exc)
             slate_markets = dist_mod.apply_market_calibration(slate_markets,
                                                                market_calibration)
             # First-published wins for the strip too (NFL parity): games this
