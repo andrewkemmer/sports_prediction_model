@@ -144,6 +144,12 @@ def write_moneyline_json(path, slate_df: pd.DataFrame, p_home: np.ndarray,
             "game_status": "pre",
             "home_score": None,
             "away_score": None,
+            # The market the model priced against, for the card caption:
+            # no-vig price when that book quotes the match, else TAB.
+            "market_home_odds": _clean(g.get("market_home_odds")),
+            "market_away_odds": _clean(g.get("market_away_odds")),
+            "market_book": g.get("market_book") or None,
+            "market_price_utc": g.get("market_price_utc") or None,
             "home_win_prob_model": phc if phc is not None else ph,
             "away_win_prob_model": (1.0 - phc) if phc is not None else ((1.0 - ph) if ph is not None else None),
             "model_pick": pick,
@@ -164,10 +170,16 @@ def write_moneyline_json(path, slate_df: pd.DataFrame, p_home: np.ndarray,
             prior_by_id = {str(g.get("game_id") or ""): g
                            for g in (prior.get("games") or [])
                            if isinstance(g, dict)}
-            # First-published wins (NFL parity, 2026-10-31): ids this run
-            # re-prices keep their locked pre-game probabilities, so an
-            # evening re-run can never re-price a live game mid-game.
-            # First publication of the date (no prior row) prices fresh.
+            # LATEST PRE-GAME PRICE WINS (2026-11-16). The models are fitted
+            # on CLOSING lines, so a same-day re-run must move the card
+            # toward the close instead of freezing the first publication:
+            # the offset is priced live at Phase 11, and a stale card would
+            # serve a probability the training data never targets. The lock
+            # now keys on the kickoff instant rather than on "a prior row
+            # exists" — a game that has started keeps its last pre-game row
+            # (repricing a live game is the failure the old rule guarded
+            # against), while a game still pre-game takes this run's price.
+            _now_ts = pd.Timestamp.now(tz="UTC")
             for g in games:
                 if not isinstance(g, dict):
                     continue
@@ -182,10 +194,19 @@ def write_moneyline_json(path, slate_df: pd.DataFrame, p_home: np.ndarray,
                     continue
                 if shown != shown:
                     continue
-                g["home_win_prob_model"] = shown
-                g["away_win_prob_model"] = 1.0 - shown
-                g["model_pick"] = (g.get("home_team") if shown >= 0.5
-                                    else g.get("away_team"))
+                fresh = g.get("home_win_prob_model")
+                try:
+                    fresh_ok = fresh is not None and float(fresh) == float(fresh)
+                except (TypeError, ValueError):
+                    fresh_ok = False
+                # Keep this run's price while the game is pre-game; fall back
+                # to the locked row once it has started, or when this run has
+                # no usable probability of its own.
+                if not fresh_ok or _kickoff_passed(g, pg, _now_ts):
+                    g["home_win_prob_model"] = shown
+                    g["away_win_prob_model"] = 1.0 - shown
+                    g["model_pick"] = (g.get("home_team") if shown >= 0.5
+                                        else g.get("away_team"))
             preserved = [g for g in (prior.get("games") or [])
                          if isinstance(g, dict)
                          and str(g.get("game_id") or "") not in new_ids
@@ -204,6 +225,33 @@ def write_moneyline_json(path, slate_df: pd.DataFrame, p_home: np.ndarray,
     }
     _dump_json(path, record)
     return record
+
+
+def _kickoff_passed(row, prior, now) -> bool:
+    """True when the game's kickoff is known and has already passed.
+
+    Drives the card re-pricing rule: a pre-game card takes the newest price,
+    a started card is frozen at its last pre-game value. A missing or
+    unparseable instant counts as STARTED — without a kickoff we cannot prove
+    the game is still pre-game, and repricing a live game is the failure this
+    guard exists to prevent.
+    """
+    for src in (row, prior):
+        if not isinstance(src, dict):
+            continue
+        raw = str(src.get("start_time_utc") or "").strip()
+        if not raw:
+            continue
+        try:
+            ts = pd.Timestamp(raw)
+        except (TypeError, ValueError, OverflowError):
+            continue
+        if ts.tzinfo is None:
+            ts = ts.tz_localize("UTC")
+        else:
+            ts = ts.tz_convert("UTC")
+        return bool(ts <= now)
+    return True
 
 
 def _start_time_utc(g) -> str | None:

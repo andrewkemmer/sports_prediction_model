@@ -3957,6 +3957,10 @@ def feature_weight_pct(row: dict) -> str:
 
 NHL_CARD_COLUMNS = [
     "game_id", "home_team", "away_team", "home_win_prob_model",
+    # The market the model priced against (card caption). ``market_book`` is
+    # "novig" when that near-zero-margin book quoted the match, else "tab".
+    "market_home_odds", "market_away_odds", "market_book",
+    "market_price_utc",
     "away_win_prob_model", "home_record", "away_record", "edge_home",
     "edge_away", "start_time_utc", "venue", "model_pick", "home_score",
     "away_score", "game_status", "game_date", "home_team_name",
@@ -4042,6 +4046,12 @@ def nhl_moneyline_to_frame(data) -> pd.DataFrame:
             or r.get("home_team_name") or "",
             "away_team_name": NHL_TEAM_NAMES.get(away)
             or r.get("away_team_name") or "",
+            # Market caption fields: the price the card probabilities were
+            # priced against, published by serving.write_moneyline_json.
+            "market_home_odds": _nl(r.get("market_home_odds")),
+            "market_away_odds": _nl(r.get("market_away_odds")),
+            "market_book": r.get("market_book") or None,
+            "market_price_utc": r.get("market_price_utc") or None,
         }
         # Starting-goal enrichment (serving.write_goalie_matchup_json contract
         # — flat g_<side>_<field> columns; enrichment only, never fabricated).

@@ -333,9 +333,38 @@ def _nhl_mirror_card_html(g: pd.Series, goalie_row=None, re_html: str = "") -> s
     away_row = _row(away_name, away_team, g.get("away_record", ""),
                     p_away, picked=(pick == away_team), is_home=False)
 
-    pregame = (f'<div class="fb-pregame">Pre-game: {away_team} '
-               f'{_fmt(p_away, ".0%")} vs {home_team} '
-               f'{_fmt(p_home, ".0%")}</div>')
+    # The team rows above already state both model probabilities, so
+    # repeating them here said nothing. This slot now carries the MARKET the
+    # model priced against — the no-vig price when that book quotes the match
+    # (tightest margin, best line a bettor can take), else TAB. With no price
+    # the caption is omitted rather than duplicated.
+    def _odds(v):
+        try:
+            f = float(v)
+        except (TypeError, ValueError):
+            return None
+        return f if f == f and f > 1.0 else None
+
+    _mh, _ma = _odds(g.get("market_home_odds")), _odds(g.get("market_away_odds"))
+    if _mh is not None and _ma is not None:
+        _book = str(g.get("market_book") or "").strip().lower()
+        _ih, _ia = 1.0 / _mh, 1.0 / _ma
+        if _book == "novig":
+            # The no-vig book: strip its ~1% margin so the pair states the
+            # market's actual view and sums to 100%.
+            _tot = _ih + _ia
+            _ph, _pa = _ih / _tot, _ia / _tot
+        else:
+            # TAB carries a ~4% margin, so show the RAW implied percentage —
+            # the pair sums to ~104% and the vig stays visible. Normalising
+            # here would report a de-vigged number under a "Tab" label,
+            # i.e. claim a margin-free price the bettor cannot get.
+            _ph, _pa = _ih, _ia
+        _label = {"novig": " NoVig", "tab": " Tab"}.get(_book, "")
+        pregame = (f'<div class="fb-pregame">Market{_label}: {away_team} '
+                   f'{_pa:.0%} &middot; {home_team} {_ph:.0%}</div>')
+    else:
+        pregame = ""
 
     goalie_block = _goalie_matchup_html(goalie_row)
     start_et = _start_time_et(start_iso)

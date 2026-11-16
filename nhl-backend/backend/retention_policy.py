@@ -41,6 +41,14 @@ from typing import Optional
 # -- Masters (exact-name): dateless cumulative / maintained files cleanup   --
 # -- never touches.                                                        --
 EXACT_MASTER_NAMES = frozenset({
+    # TAB price history — the market-offset TRAINING INPUT. Cumulative state:
+    # deleting it would silently strip the offset from every future run, and
+    # its name carries no date token so the stale-dateless branch would
+    # otherwise prune it (2026-11-16 adoption).
+    "nhl_odds_history.csv",
+    # Round cursor for the incremental refresh — same reasoning: dateless,
+    # cumulative, and losing it would send the next run back to round 1.
+    "nhl_odds_rounds.json",
     # The frozen first-publication card store (append-only).
     "nhl_production_cards_history.csv",
     "nhl_production_cards_history.meta.json",

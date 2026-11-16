@@ -101,8 +101,11 @@ POSITIONS: tuple[str, ...] = ("C", "L", "R", "D")
 # ---------------------------------------------------------------------------
 # Rating metric
 # ---------------------------------------------------------------------------
-# xg (SHIPPED default): individual expected goals per 60 — offense only.
-# xpm (GATED — NOT adopted for now; selectable via NHL_PLAYER_METRIC=xpm):
+# xpm (SHIPPED default, adopted 2026-11-15 with scenario C — the same
+# contract feeds the binary moneyline AND the distribution models, so the
+# two stay aligned):
+# xg (legacy; selectable via NHL_PLAYER_METRIC=xg): individual expected goals
+# per 60 — offense only.
 # expected plus-minus per 60 = (OnIce_F_xGoals - OnIce_A_xGoals) per 60 —
 # the two-way analogue that flips negative when a player is out-chanced on
 # his shifts. Same 24 pl_* columns, same pool machinery; the OOF/logloss
@@ -111,7 +114,7 @@ POSITIONS: tuple[str, ...] = ("C", "L", "R", "D")
 METRIC_XG = "xg"
 METRIC_XPM = "xpm"
 METRICS: tuple[str, ...] = (METRIC_XG, METRIC_XPM)
-NHL_PLAYER_METRIC = os.getenv("NHL_PLAYER_METRIC", "xg").strip().lower() or "xg"
+NHL_PLAYER_METRIC = os.getenv("NHL_PLAYER_METRIC", METRIC_XPM).strip().lower() or METRIC_XPM
 
 _POSITION_ALIASES = {
     "c": "C", "l": "L", "r": "R", "d": "D",

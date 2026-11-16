@@ -208,6 +208,34 @@ def _library_stack() -> dict[str, str]:
     return stack
 
 
+def _assert_offset_coverage(priced: int, total: int) -> None:
+    """Fail the run when the production market-offset arm cannot be built.
+
+    2026-11-16: the offset is the shipped arm, so thin coverage is not a
+    thinner model — it is a different one. With no prices attached every row
+    carries NaN ``market_logit``, ``binary_metrics`` drops every row, and the
+    summary still reports ``status ok`` with ``n: 0``. That is a hollow run
+    that looks healthy, so it must stop here rather than reach Phase 12.
+
+    ``NHL_MARKET_OFFSET=0`` never calls this (arm A has no offset).
+    ``NHL_MARKET_OFFSET_MIN_COVERAGE`` relaxes the floor for a deliberate
+    scoped run.
+    """
+    coverage = priced / max(total, 1)
+    floor = float(os.environ.get("NHL_MARKET_OFFSET_MIN_COVERAGE", "0.90"))
+    if coverage >= floor:
+        return
+    raise RuntimeError(
+        f"market offset coverage {priced}/{total} games "
+        f"({100.0 * coverage:.1f}%) is below the {100.0 * floor:.0f}% floor: "
+        "the production arm cannot be built. Check that "
+        "market_offset.DEFAULT_HISTORY exists and is complete, point "
+        "NHL_ODDS_HISTORY at the real file, or set "
+        f"NHL_MARKET_OFFSET_MIN_COVERAGE below {100.0 * coverage:.1f} to "
+        "accept the shortfall. NHL_MARKET_OFFSET=0 runs arm A instead."
+    )
+
+
 def main(argv: list[str] | None = None) -> int:
     # Run-log tee (2026-10-02, MLB/NFL parity — run_log_tee.py):
     # capture the whole Kaggle run into ONE rolling master file in
@@ -357,6 +385,33 @@ def main(argv: list[str] | None = None) -> int:
                            & schedule["away_score"].notna()].copy()
     core = decided_all[pd.to_numeric(decided_all["season"]) >= config.OOF_FIRST_SEASON]
     logger.info("decided games: core (OOF population) %d", len(core))
+
+    # ── 2b. Market price history (Option A, 2026-11-16) ───────────────────
+    # The offset's training input is maintained by the run itself: no separate
+    # scraper job. The refresh merges onto the committed CSV (a Kaggle clone
+    # has no per-match cache), adds ids missing from the file and re-prices
+    # only the games still inside their pre-game window. It never raises —
+    # a run with a one-run-stale history is late, not broken.
+    if args.skip_pull:
+        logger.info("odds history: skipped (--skip-pull: no network)")
+    elif os.environ.get("NHL_ODDS_REFRESH", "1").strip().lower() in (
+            "0", "false", "no", "off"):
+        logger.info("odds history: skipped (NHL_ODDS_REFRESH=0)")
+    else:
+        try:
+            import odds_history as _odds_hist
+            _oh = _odds_hist.refresh()
+            if _oh.get("ok"):
+                logger.info("odds history: %d rows (+%d new, %d moved) "
+                            "from %d price request(s) in %.1fs",
+                            _oh["rows"], _oh["added"], _oh["updated"],
+                            _oh["fetched"], _oh["elapsed"])
+            else:
+                logger.warning("odds history: refresh no-op (%s)",
+                               _oh.get("skipped") or "unknown")
+        except Exception as _oh_exc:  # noqa: BLE001
+            logger.warning("odds history: refresh failed, continuing with the "
+                           "committed file: %s", _oh_exc)
 
     # ── 3. Point-in-time features ─────────────────────────────────────────
     _banner("PHASE 3", "point-in-time feature engine")
@@ -607,9 +662,56 @@ def main(argv: list[str] | None = None) -> int:
 
     # ── 5. Moneyline OOF ──────────────────────────────────────────────────
     _banner("PHASE 5", "moneyline walk-forward OOF")
-    ml = ml_mod.walk_forward_oof(game_df, fold_list=fold_list)
+    # Arm E (2026-11-15): de-vigged TAB market probability as the training
+    # baseline. Same folds/features/members; only the fit baseline changes.
+    # ADOPTED as the production default: the offset arm is what serves.
+    # NHL_MARKET_OFFSET=0 restores arm A for a controlled comparison.
+    _offset_col = None
+    _offset_env = os.environ.get("NHL_MARKET_OFFSET", "1").strip().lower()
+    if _offset_env not in ("0", "false", "no", "off"):
+        import market_offset as _market
+        game_df = _market.attach(game_df)
+        _priced = int(game_df["market_p_home"].notna().sum())
+        logger.info("market offset: TAB price attached to %d/%d games (%.1f%%)",
+                    _priced, len(game_df),
+                    100.0 * _priced / max(len(game_df), 1))
+        # Coverage is a reporting signal, never a substitution: thin price
+        # coverage leaves the unpriced games at NaN (the same contract a
+        # single missing price follows) instead of silently swapping in the
+        # no-offset arm, which would publish a different model under the same
+        # name. The arm stays on for the games that do carry a price.
+        _offset_col = "market_logit"
+        # Gate, not a warning (2026-11-16): the offset is what serves, so a
+        # run whose prices did not attach must fail loudly here instead of
+        # publishing an all-NaN arm that reports n=0 and status ok.
+        _assert_offset_coverage(_priced, len(game_df))
+    if os.environ.get("NHL_DUMP_FEATURES"):
+        _dump = config.RUN_DIAGNOSTICS_DIR / "nhl_feature_frame.parquet"
+        game_df.to_parquet(_dump, index=False)
+        logger.info("feature frame dumped: %s (%d rows, %d cols)",
+                    _dump, len(game_df), game_df.shape[1])
+    ml = ml_mod.walk_forward_oof(game_df, fold_list=fold_list,
+                                 offset_col=_offset_col)
     oof_ml = ml["oof"]
     weights = ml["member_weights"]
+    # Adopted serving arm (2026-11-15): the offset blend IS production. Swap
+    # the shipped series so calibration, headline metrics, daily rows,
+    # monitoring and the markets artifact all describe the model that serves;
+    # arm A is preserved beside it as *_nomarket for the controlled contrast.
+    if _offset_col:
+        _swap = ([("p_ensemble", "p_ensemble_off_earned")]
+                 + [(f"p_{n}", f"p_{n}_off") for n in config.ENSEMBLE_MEMBERS]
+                 + [(f"weight_{n}", f"weight_off_{n}")
+                    for n in config.ENSEMBLE_MEMBERS])
+        for _dst, _src in _swap:
+            if _src in oof_ml.columns:
+                if f"{_dst}_nomarket" not in oof_ml.columns:
+                    oof_ml[f"{_dst}_nomarket"] = oof_ml[_dst]
+                oof_ml[_dst] = oof_ml[_src]
+        weights = ml.get("offset_member_weights") or weights
+        logger.info("serving arm: market offset (weights %s; arm A kept as "
+                    "*_nomarket)", json.dumps({k: round(v, 3)
+                                               for k, v in weights.items()}))
     # Phase 4's geometry table cannot contain budgets/weights until the walk
     # has earned them. Enrich the SAME diagnostic file after Phase 5.
     learned_cols = [c for c in ml["fold_table"].columns
@@ -859,6 +961,16 @@ def main(argv: list[str] | None = None) -> int:
     _banner("PHASE 10", "final full-history refit")
     final_models, _ = ml_mod.fit_final_models(game_df,
                                              xgb_best_rounds=ml["xgb_best_rounds"])
+    # Arm E serving (2026-11-15): a second final fit whose members start from
+    # the de-vigged TAB logit, so the offset arm can reach a slate at all.
+    final_models_off = None
+    if _offset_col and "market_logit" in game_df.columns:
+        final_models_off, _ = ml_mod.fit_final_models(
+            game_df, xgb_best_rounds=ml["xgb_best_rounds"],
+            offset_col=_offset_col)
+        logger.info("final refit (arm E): %d member(s) fitted with a market "
+                    "offset on %d decided games", len(final_models_off),
+                    len(game_df))
     # Serving score means come from the ensemble, fitted on the full frame
     # and blended with the walk's OOF-earned weights — never equal priors,
     # never an in-sample optimum (moneyline fit_final_models convention).
@@ -887,6 +999,36 @@ def main(argv: list[str] | None = None) -> int:
     if len(slate):
         slate = slate.sort_values("gameday").reset_index(drop=True)
         p_home = ml_mod.predict_slate(final_models, slate, weights)
+        if final_models_off is not None:
+            _sl = _market.attach_live(slate)
+            _bm = _sl["market_logit"].to_numpy(dtype=float) if "market_logit" in _sl else None
+            # Arm 3 (2026-11-15): serve the offset models with the weights
+            # earned on the offset members, not arm A's allocation.
+            _off_weights = ml.get("offset_member_weights") or weights
+            p_home_off = ml_mod.predict_slate(final_models_off, slate,
+                                              _off_weights, base_margin=_bm)
+            slate["p_home_win_off"] = p_home_off
+            slate["market_p_home_off"] = _sl["market_p_home"].to_numpy(dtype=float) if "market_p_home" in _sl else np.nan
+            # Card caption source (2026-11-16): the price the model priced
+            # against, carried onto the slate so write_moneyline_json can
+            # publish it beside the probability instead of repeating it.
+            for _mc in ("market_home_odds", "market_away_odds", "market_book",
+                        "market_price_utc"):
+                if _mc in _sl.columns:
+                    slate[_mc] = _sl[_mc].to_numpy()
+            if _bm is not None:
+                logger.info("arm E slate: %d/%d game(s) priced live; mean p_home %.4f",
+                            int(np.isfinite(_bm).sum()), len(slate),
+                            float(np.nanmean(p_home_off)) if np.isfinite(p_home_off).any() else float("nan"))
+            if os.environ.get("NHL_DUMP_FEATURES"):
+                slate[["gameday", "home_team", "away_team", "market_p_home_off",
+                       "p_home_win_off"]].to_csv(
+                    config.RUN_DIAGNOSTICS_DIR / "nhl_slate_arm_e.csv", index=False)
+        # Serving arm (2026-11-15): the offset models are production, and
+        # platt above was fitted on the swapped (offset) OOF series, so the
+        # same map applies to the offset slate prediction.
+        if final_models_off is not None and np.isfinite(p_home_off).any():
+            p_home = p_home_off
         p_home_cal = (ml_mod.moneyline_apply(p_home, platt)
                       if np.isfinite(p_home).any() else p_home)
         slate["mu_h"], slate["mu_a"] = final_reg.predict(slate)
