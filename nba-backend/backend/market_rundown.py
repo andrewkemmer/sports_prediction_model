@@ -36,6 +36,13 @@ BOOKS = {"19": "DraftKings", "22": "BetMGM", "23": "FanDuel"}
 BOOK_IDS = ",".join(BOOKS)
 DIAG = "nba-backend/run_diagnostics"
 
+# A plausible two-way price sits close to fair. Stats Insider has published a
+# placeholder 1.001/1.001 (overround 1.998) and TAB has emitted malformed
+# quotes well above fair; neither may reach the model. Same gate as the NHL
+# matcher (nhl-backend/backend/market_offset.py).
+MIN_OVERROUND = 1.000
+MAX_OVERROUND = 1.100
+
 
 def _key() -> str:
     k = os.environ.get("THERUNDOWN_API_KEY", "").strip()
@@ -129,79 +136,66 @@ def consensus(path: str) -> dict:
 def attach_market(frame: "pd.DataFrame", si_path: str) -> "pd.DataFrame":
     """One de-vigged Stats Insider price per decided game, or NaN.
 
-    The feed dates a game by when the line was POSTED (median one day either
-    side of tip-off), some rows carry no parseable date at all, and its final
-    score can differ from the box score by a point or two. A club pair meets
-    three or four times a season, so a pair-only join offers every meeting as
-    a candidate and the wrong ones are the majority.
+    A DIRECT join, on the tip-off instant. The feed's ``UTCDate`` is when the
+    line was PUBLISHED (median a day either side of tip-off) and its final
+    score can differ from the box score by a point, so joining on either of
+    those needs a tolerance or a tiebreak - an inferred match. ``tipoff_utc``
+    is the scheduled start, converted to the Eastern date the schedule uses,
+    and the pair carries the rest. No tolerance, no score, no elimination:
+    a game either has exactly one price or it is unpriced.
 
-    So: club pair plus SEASON narrows the candidates; a final score within
-    two points settles them; a posted date within two days is the fallback.
-    Whatever is left is resolved by elimination - a game with one unclaimed
-    price, or a price with one unclaimed game - until nothing changes. Every
-    price is used at most once, so two games can never share one line.
+    Two guards keep the number honest rather than convenient:
+    * an ambiguous candidate (two prices for one game, or one price claiming
+      two games) is DROPPED, not resolved by a tiebreak;
+    * a quote whose overround falls outside [MIN_OVERROUND, MAX_OVERROUND] is
+      rejected the way the NHL matcher rejects it - a placeholder pair must
+      never reach the model.
 
     Returns the frame with ``market_p_home`` (proportional de-vig) appended.
     """
     import numpy as np
     import pandas as pd
+    from zoneinfo import ZoneInfo
 
     si = pd.read_csv(si_path)
-    si["d_si"] = pd.to_datetime(si.date_utc, errors="coerce", utc=True) \
-        .dt.tz_localize(None).dt.normalize()
+    if "tipoff_utc" not in si.columns:
+        raise ValueError(
+            "odds file has no 'tipoff_utc' column - it predates tip-off "
+            "capture, so it can only be joined by inference; re-run "
+            "scrape_statsinsider_nba.py")
+    tip = pd.to_datetime(si.tipoff_utc, errors="coerce", utc=True)
+    si["et_date"] = (tip.dt.tz_convert(ZoneInfo("America/New_York"))
+                     .dt.normalize().dt.tz_localize(None))
     si = si[si.home_odds_dec.notna() & si.away_odds_dec.notna()
             & si.home_odds_dec.gt(1) & si.away_odds_dec.gt(1)].copy()
-    si["p_home"] = (1 / si.home_odds_dec) / (1 / si.home_odds_dec
-                                             + 1 / si.away_odds_dec)
-    si["season"] = pd.to_numeric(si.season, errors="coerce")
+    inv_h, inv_a = 1.0 / si.home_odds_dec, 1.0 / si.away_odds_dec
+    overround = inv_h + inv_a
+    clean = overround.between(MIN_OVERROUND, MAX_OVERROUND) & si.et_date.notna()
+    si = si[clean].copy()
+    si["p_home"] = (1.0 / si.home_odds_dec) / (1.0 / si.home_odds_dec
+                                               + 1.0 / si.away_odds_dec)
+
     g = frame.copy()
     g["_d"] = pd.to_datetime(g.gameday).dt.normalize()
-    cand = g[["game_id", "season", "_d", "home_team", "away_team",
-              "home_score", "away_score"]].merge(
-        si[["sim_match_id", "season", "away_abv", "home_abv", "d_si",
-            "p_home", "final_home_score", "final_away_score"]],
-        left_on=["away_team", "home_team", "season"],
-        right_on=["away_abv", "home_abv", "season"], how="inner")
-    if not len(cand):
-        return g.assign(market_p_home=np.nan).drop(columns=["_d"])
-    cand["agap"] = (cand["_d"] - cand.d_si).dt.days.abs().fillna(9999)
-    cand["score_ok"] = ((cand.home_score - cand.final_home_score).abs().le(2)
-                        & (cand.away_score - cand.final_away_score).abs().le(2))
-    cand = cand.sort_values(["score_ok", "agap"], ascending=[False, True])
-    assigned: dict = {}
-    used: set = set()
-    for r in cand.itertuples(index=False):
-        if r.game_id in assigned or r.sim_match_id in used:
-            continue
-        if r.score_ok or r.agap <= 2:
-            assigned[r.game_id] = r.sim_match_id
-            used.add(r.sim_match_id)
-    left = cand[~cand.game_id.isin(assigned) & ~cand.sim_match_id.isin(used)]
-    while len(left):
-        by_game = left.groupby("game_id").sim_match_id.nunique()
-        by_si = left.groupby("sim_match_id").game_id.nunique()
-        lone = set(by_game[by_game == 1].index) | set(by_si[by_si == 1].index)
-        if not lone:
-            break
-        changed = 0
-        for r in left[left.game_id.isin(lone)
-                      | left.sim_match_id.isin(lone)].itertuples(index=False):
-            if r.game_id in assigned or r.sim_match_id in used:
-                continue
-            assigned[r.game_id] = r.sim_match_id
-            used.add(r.sim_match_id)
-            changed += 1
-        left = left[~left.game_id.isin(assigned) & ~left.sim_match_id.isin(used)]
-        if not changed:
-            break
-    # Keep the rows that are EXACTLY the assignment. Deduplicating on
-    # ``sim_match_id`` first would let another game's candidate row stand in
-    # for the assigned one and then delete the game's price downstream.
-    pairs = cand[["game_id", "sim_match_id", "p_home"]].copy()
-    pairs["_keep"] = [assigned.get(g) == sid
-                      for g, sid in zip(pairs.game_id, pairs.sim_match_id)]
-    price = (pairs[pairs._keep][["game_id", "p_home"]]
-             .drop_duplicates("game_id"))
+    key = ["away_team", "home_team", "_d"]
+    right = si[["away_abv", "home_abv", "et_date", "p_home"]].dropna(
+        subset=["et_date"])
+    cand = g[key + ["game_id"]].merge(
+        right, left_on=key, right_on=["away_abv", "home_abv", "et_date"],
+        how="inner")
+    # Ambiguity is refused, never resolved: name it and drop it.
+    per_game = cand.groupby("game_id").size()
+    per_price = cand.groupby(["away_abv", "home_abv", "et_date"]).size()
+    ambiguous_games = set(per_game[per_game > 1].index)
+    ambiguous_keys = set(per_price[per_price > 1].index)
+    cand = cand[~cand.game_id.isin(ambiguous_games)]
+    mask_key = [(a, h, d) in ambiguous_keys
+                for a, h, d in zip(cand.away_abv, cand.home_abv, cand.et_date)]
+    cand = cand[[not m for m in mask_key]]
+    # ``reindex`` rather than a column select: an empty candidate set after
+    # the filters must still yield an empty price table, not a KeyError.
+    price = (cand.reindex(columns=["game_id", "p_home"])
+             .dropna(subset=["game_id"]).drop_duplicates("game_id"))
     out = g.merge(price, on="game_id", how="left").drop(columns=["_d"])
     return out.rename(columns={"p_home": "market_p_home"})
 

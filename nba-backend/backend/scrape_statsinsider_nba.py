@@ -121,7 +121,13 @@ def fetch_match(match_id: str, book: str = "tab", attempts: int = 3):
             "sim_match_id": md.get("SIMatchID"),
             "season": md.get("Season"),
             "round": md.get("RoundNumber"),
+            # UTCDate is when the line was PUBLISHED, not when the game
+            # started: joining on it needs a date tolerance and a score
+            # tiebreak. ``Date`` is the tip-off instant, so a join on it is
+            # exact (2026-11-16).
             "date_utc": md.get("UTCDate"),
+            "tipoff_utc": md.get("Date"),
+            "tipoff_epoch": md.get("DateStamp"),
             "venue": md.get("Venue"),
             "home_team": home_name,
             "home_abv": home_obj.get("Abv"),
