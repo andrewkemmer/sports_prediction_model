@@ -1932,13 +1932,13 @@ def _update_cards_history_store(out_dir: Path, oof_ml: pd.DataFrame,
     try:
         known: set[str] = set()
         if store_path.exists():
-            store = pd.read_csv(store_path, dtype={"game_id": str})
+            store = pd.read_csv(store_path, dtype={"game_id": str}, low_memory=False)
             known = set(store["game_id"].astype(str))
         else:
             frames = []
             for art in sorted(out_dir.glob("nhl_predictions_history_*.csv")):
                 try:
-                    df = pd.read_csv(art, dtype={"game_id": str})
+                    df = pd.read_csv(art, dtype={"game_id": str}, low_memory=False)
                 except Exception:
                     continue
                 if df.empty or "game_id" not in df.columns:

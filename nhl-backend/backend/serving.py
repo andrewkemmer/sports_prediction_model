@@ -608,7 +608,11 @@ def write_markets_csv(path, meta_path, oof_rows: pd.DataFrame,
     # slate does not carry; ids this run prices take the new row.
     try:
         if path.exists():
-            prior = pd.read_csv(path)
+            # ``low_memory=False``: the frame carries contract columns an
+            # unpriced game leaves empty, so a chunked read infers int then
+            # float and raises DtypeWarning (columns (24) on 2026-11-16,
+            # here after the same fix in the markets gate).
+            prior = pd.read_csv(path, low_memory=False)
             if len(prior) and "kind" in prior.columns and "game_id" in prior.columns:
                 prior = prior[prior["kind"].astype(str) == "slate"]
                 new_ids = set()
