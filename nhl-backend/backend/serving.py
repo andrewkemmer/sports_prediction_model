@@ -104,6 +104,29 @@ def _kickoff_instant(g):
     return ts.tz_convert("UTC")
 
 
+#: Schedule states that mean "this game has not started". Everything else the
+#: feed reports (LIVE, CRIT, OFF, FINAL, and any state not listed here) counts
+#: as started, so an unrecognised state freezes a card rather than repricing
+#: one that may already be under way. PPD belongs here: a postponed game is
+#: not live, and its card should keep taking the newest pre-game price.
+_NOT_STARTED_STATES = frozenset({"FUT", "PRE", "PPD"})
+
+
+def _state_says_started(row):
+    """The schedule's own start verdict: True/False, or None when it is silent.
+
+    The clock cannot tell a delayed start from a started game: a slipped puck
+    drop is past ``start_time_utc`` while still pre-game, and an early one can
+    be under way before it. ``gameState`` is what the league updates at the
+    actual start, so it answers the question the clock can only guess.
+    """
+    raw = row.get("game_state") if hasattr(row, "get") else ""
+    state = str(raw or "").strip().upper()
+    if not state:
+        return None
+    return state not in _NOT_STARTED_STATES
+
+
 def board_date(slate_df, run_date: str = "") -> str:
     """The ONE game date a dated board file publishes (YYYY-MM-DD, "" if none).
 
@@ -125,9 +148,11 @@ def board_date(slate_df, run_date: str = "") -> str:
         return ""
     dates: list[str] = []
     kicks: list = []
+    states: list = []
     for _, g in slate_df.iterrows():
         dates.append(_date_str(g.get("gameday")))
         kicks.append(_kickoff_instant(g))
+        states.append(_state_says_started(g))
     run_iso = str(run_date or "").strip()
     if not (len(run_iso) == 10 and run_iso[4] == "-"):
         return min((d for d in dates if d), default="")
@@ -136,10 +161,14 @@ def board_date(slate_df, run_date: str = "") -> str:
         return min((d for d in dates if d), default="")
     now = pd.Timestamp.now(tz="UTC")
     for day in sorted(set(upcoming)):
-        for d, k in zip(dates, kicks):
+        for d, k, st in zip(dates, kicks, states):
             if d != day:
                 continue
-            if k is None or k > now:      # unknown kickoff is not proof of start
+            if st is False:               # the feed says it has not started yet
+                return day
+            if st is True:                # the feed says it has started
+                continue
+            if k is None or k > now:      # silent feed: clock decides
                 return day
     return min(upcoming)
 
@@ -192,6 +221,7 @@ def write_moneyline_json(path, slate_df: pd.DataFrame, p_home: np.ndarray,
             "game_id": g["game_id"],
             "game_date": _date_str(g["gameday"]),
             "start_time_utc": _start_time_utc(g),
+            "game_state": str(g.get("game_state") or "").strip().upper() or None,
             "home_team": g["home_team"],
             "away_team": g["away_team"],
             "home_team_name": team_names.get(g["home_team"], g["home_team"]),
@@ -307,11 +337,20 @@ def _kickoff_passed(row, prior, now) -> bool:
     """True when the game's kickoff is known and has already passed.
 
     Drives the card re-pricing rule: a pre-game card takes the newest price,
-    a started card is frozen at its last pre-game value. A missing or
-    unparseable instant counts as STARTED — without a kickoff we cannot prove
-    the game is still pre-game, and repricing a live game is the failure this
-    guard exists to prevent.
+    a started card is frozen at its last pre-game value.
+
+    The schedule's own ``gameState`` decides whenever it is present: a delayed
+    game is still FUT/PRE past its scheduled time and keeps re-pricing, while a
+    game already LIVE freezes on the state rather than on the clock. Without a
+    state the scheduled instant decides, and with neither the row counts as
+    STARTED — repricing a live game is the failure this guard exists to prevent.
     """
+    for src in (row, prior):
+        if not isinstance(src, dict):
+            continue
+        started = _state_says_started(src)
+        if started is not None:
+            return bool(started)
     for src in (row, prior):
         if not isinstance(src, dict):
             continue

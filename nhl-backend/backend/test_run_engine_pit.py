@@ -5775,3 +5775,36 @@ def test_moneyline_board_reprices_every_pre_game_run_then_locks_at_kickoff(tmp_p
     locked = _publish("2020-01-01T00:30:00Z", 0.99)["games"][0]
     assert locked["home_win_prob_model"] == pytest.approx(0.68), (
         "a started game must keep the price it carried into puck drop")
+
+
+def test_moneyline_board_reprices_through_a_delayed_start_and_freezes_on_live(tmp_path):
+    """A delayed game keeps re-pricing; a started one freezes, whatever the clock says.
+
+    Stats Insider publishes pre-game prices only, so a slipped puck drop must
+    not freeze the card at its scheduled time. The league's own gameState is
+    what separates "running late" from "under way".
+    """
+    import serving
+
+    path = tmp_path / "nhl_moneyline_v1_20261120.json"
+    base = {"game_id": "g-delay", "gameday": "2026-11-20", "home_team": "BOS",
+            "away_team": "TOR", "venue": "TD Garden"}
+
+    def _publish(kickoff, state, p_home):
+        frame = pd.DataFrame([dict(base, start_time_utc=kickoff, game_state=state)])
+        return serving.write_moneyline_json(
+            path, frame, np.array([p_home]), np.array([p_home]), {}, {},
+            run_date="2026-11-20")["games"][0]
+
+    # Scheduled time long past, but the league still reports FUT: delayed, so
+    # every run must take its own new price.
+    row = _publish("2020-01-01T00:30:00Z", "FUT", 0.55)
+    assert row["home_win_prob_model"] == pytest.approx(0.55)
+    row = _publish("2020-01-01T00:30:00Z", "FUT", 0.63)
+    assert row["home_win_prob_model"] == pytest.approx(0.63), \
+        "a delayed game must keep re-pricing past its scheduled start"
+
+    # LIVE while the clock still says pre-game: the state wins and it freezes.
+    row = _publish("2030-01-01T00:30:00Z", "LIVE", 0.91)
+    assert row["home_win_prob_model"] == pytest.approx(0.63), \
+        "a live game must freeze even when the clock still says pre-game"
