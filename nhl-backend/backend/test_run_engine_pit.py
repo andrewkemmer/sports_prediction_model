@@ -1028,18 +1028,21 @@ def test_coverage_verdict_separates_cold_nulls_from_real_defects():
     """
     import master_pipeline as mp
 
-    def _row(feature, window, n_games, measured, cold, warm, cause="null"):
+    def _row(feature, window, n_games, measured, cold, warm, cause="null",
+             game=""):
         return {"feature": feature, "window": window, "n_games": n_games,
                 "n_measured": measured, "n_null": n_games - measured,
                 "n_cold_null": cold, "n_warm_null": warm,
-                "status": "OK" if not warm else "ATTENTION", "cause": cause}
+                "status": "OK" if not warm else "ATTENTION", "cause": cause,
+                "first_warm_null_game": game}
 
     rows = [
         # baseline (the decided pool): perfect except team debuts (cold)
         _row("elo_home", "baseline", 100, 96, 4, 0),
         _row("win_pct_home", "baseline", 100, 95, 5, 0),
         # serving slate: one genuine defect
-        _row("goalie_sv_pct_home", "serving slate", 5, 4, 0, 1, "warm_null"),
+        _row("goalie_sv_pct_home", "serving slate", 5, 4, 0, 1, "warm_null",
+             "2026020331"),
     ]
     records = []
     handler = logging.Handler()
@@ -1064,6 +1067,8 @@ def test_coverage_verdict_separates_cold_nulls_from_real_defects():
     # The slate defect is a WARNING that names the feature, not a footnote.
     assert len(warns) == 1, f"expected exactly one warm-null warning, got {warns}"
     assert "goalie_sv_pct_home" in warns[0] and "serving slate" in warns[0], warns[0]
+    # ...and names the ROW, or the warning cannot be remediated from the log.
+    assert "2026020331" in warns[0], warns[0]
 
 
 def test_pit_fold_labels_are_valid_for_the_frame_the_oof_rebuilds():

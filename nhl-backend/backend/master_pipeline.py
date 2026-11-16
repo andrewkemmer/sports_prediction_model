@@ -136,7 +136,10 @@ def _log_coverage_verdict(cov_rows: list[dict]) -> None:
                     window, len(defaults), detail)
         if warm:
             detail = ", ".join(
-                f"{r['feature']}({int(r['n_warm_null'])} {r.get('cause', 'null')})"
+                f"{r['feature']}({int(r['n_warm_null'])} {r.get('cause', 'null')}"
+                + (f" @ {r['first_warm_null_game']}"
+                   if r.get("first_warm_null_game") else "")
+                + ")"
                 for r in warm[:8])
             logger.warning("coverage [%s]: %d feature(s) with WARM nulls — a "
                            "defect, not a cold start: %s", window, len(warm), detail)
@@ -1797,7 +1800,12 @@ def _validate_outputs(out_dir: Path, date_c: str, oof_ml: pd.DataFrame,
         (pd.to_numeric(oof_ml["season"]) >= config.OOF_FIRST_SEASON).all())
     p = out_dir / config.MARKETS_CSV.format(date=date_c)
     if p.exists():
-        mk = pd.read_csv(p)
+        # ``low_memory=False``: total_line/spread_line are contract columns an
+        # unpriced game leaves empty, so a chunked read infers int and float
+        # across chunks and raises DtypeWarning (columns (24) on 2026-11-16).
+        # The frame is a few thousand rows; reading it whole is free and the
+        # gate below then compares one stable dtype.
+        mk = pd.read_csv(p, low_memory=False)
         ok = True
         for L in config.SPREAD_GRID:
             label = f"m{-L}" if L < 0 else str(L)

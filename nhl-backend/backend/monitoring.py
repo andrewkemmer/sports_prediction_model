@@ -808,6 +808,7 @@ def _coverage_row(f: str, df: pd.DataFrame, window: str,
             "n_cold_null": 0, "n_warm_null": n_games,
             "n_cold_default": 0, "n_warm_default": 0,
             "pct_measured_eligible": 0.0,
+            "first_warm_null_game": "",
             "cause": "absent_column",
         }
     v = pd.to_numeric(df[f], errors="coerce")
@@ -825,10 +826,19 @@ def _coverage_row(f: str, df: pd.DataFrame, window: str,
     # excluded (the contract the monitor page prints under this table).
     pct = round(100.0 * n_measured / n_games, 2) if n_games else 0.0
     n_warm_default_postseason = 0
+    first_warm_game = ""
     if warmup is not None and (n_null or n_default):
         warm = ~warmup.reindex(df.index).fillna(False).astype(bool)
         n_warm_null = int((null & warm).sum())
         n_warm_default = int((default & warm).sum())
+        if n_warm_null and "game_id" in df.columns:
+            # NAME the row a warm null sits on. A bare count ("1 defect") is
+            # unremediable from the log: the 2026-11-16 baseline reported six
+            # goalie features with one warm null each and no way to find the
+            # game without rebuilding the whole feature frame, which needs
+            # boxscores that are not shipped with the artifacts.
+            _hit = df.loc[null & warm, "game_id"]
+            first_warm_game = str(_hit.iloc[0]) if len(_hit) else ""
         n_cold_null = n_null - n_warm_null
         n_cold_default = n_default - n_warm_default
         if n_warm_default and "is_playoffs" in df.columns:
@@ -876,6 +886,7 @@ def _coverage_row(f: str, df: pd.DataFrame, window: str,
         "n_cold_null": n_cold_null, "n_warm_null": n_warm_null,
         "n_cold_default": n_cold_default, "n_warm_default": n_warm_default,
         "pct_measured_eligible": pct_eligible,
+        "first_warm_null_game": first_warm_game,
         "cause": ("defect" if n_warm_null
                   else "position_prior_postseason_boundary"
                   if n_warm_default
