@@ -1,5 +1,5 @@
 {
- "created_utc": "2026-11-05T22:49:21.844802+00:00",
+ "created_utc": "2026-11-16T07:03:25.075291+00:00",
  "config": {
   "feature_set_version": "nfl-prod-v10.2-pbwr",
   "warmup_seasons": [
@@ -1978,38 +1978,56 @@
      "raw_logloss": 0.614222,
      "params": null,
      "fold_id": 202
+    },
+    {
+     "n_prior": 1704,
+     "decision": "identity",
+     "reason": "gated_no_gain",
+     "nested_holdout_logloss": 0.615531,
+     "raw_logloss": 0.614222,
+     "params": null,
+     "fold_id": 203
+    },
+    {
+     "n_prior": 1719,
+     "decision": "identity",
+     "reason": "gated_no_gain",
+     "nested_holdout_logloss": 0.608186,
+     "raw_logloss": 0.606792,
+     "params": null,
+     "fold_id": 204
     }
    ],
    "final_serving": {
-    "n_prior": 1704,
+    "n_prior": 1719,
     "decision": "identity",
     "reason": "gated_no_gain",
-    "nested_holdout_logloss": 0.615531,
-    "raw_logloss": 0.614222,
+    "nested_holdout_logloss": 0.608186,
+    "raw_logloss": 0.606792,
     "params": null
    }
   }
  },
- "slate_date": "2026-11-05",
+ "slate_date": "2026-11-16",
  "n_games": 1,
  "games": [
   {
-   "game_id": "2026_09_JAX_BAL",
-   "game_date": "2026-11-05",
-   "start_time_utc": "2026-11-06T01:15:00Z",
+   "game_id": "2026_10_LAC_BAL",
+   "game_date": "2026-11-16",
+   "start_time_utc": "2026-11-17T01:15:00Z",
    "home_team": "BAL",
-   "away_team": "JAX",
+   "away_team": "LAC",
    "home_team_name": "Baltimore Ravens",
-   "away_team_name": "Jacksonville Jaguars",
-   "home_record": "4-4",
-   "away_record": "5-2",
+   "away_team_name": "Los Angeles Chargers",
+   "home_record": "4-5",
+   "away_record": "0-8",
    "venue": "M&T Bank Stadium",
    "game_status": "pre",
    "home_score": null,
    "away_score": null,
-   "home_win_prob_model": 0.30663010127158785,
-   "away_win_prob_model": 0.6933698987284121,
-   "model_pick": "JAX",
+   "home_win_prob_model": 0.589896905573506,
+   "away_win_prob_model": 0.41010309442649395,
+   "model_pick": "BAL",
    "model_correct": null
   }
  ]
