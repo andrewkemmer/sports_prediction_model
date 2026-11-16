@@ -140,9 +140,115 @@ def member_matrix_ndarray(
 
 
 
+def _market_logit(p) -> np.ndarray:
+    """De-vigged probability -> log-odds, the offset every arm shares."""
+    values = np.clip(np.asarray(p, dtype=float), 1e-6, 1.0 - 1e-6)
+    return np.log(values / (1.0 - values))
+
+
+class _OffsetLinear:
+    """Logistic member whose market logit enters with a FIXED coefficient.
+
+    sklearn's LogisticRegression has no offset hook, so the linear member
+    cannot start from the de-vigged price the way xgboost (``base_margin``)
+    and lightgbm (``init_score``) can. Appending the logit as a column gives
+    it a FREE coefficient, which on the NHL folds settled at 0.43 - a silent
+    discount on the price. This holds the offset at 1.0 and learns only the
+    residual: the same contract the trees are fitted under (NHL parity,
+    2026-11-15).
+    """
+
+    def __init__(self, coef: np.ndarray, intercept: float):
+        self.coef_ = np.asarray(coef, dtype=float)
+        self.intercept_ = float(intercept)
+
+    def decision(self, X, base_margin) -> np.ndarray:
+        return (self.intercept_ + np.asarray(base_margin, dtype=float)
+                + np.asarray(X, dtype=float) @ self.coef_)
+
+    def predict_proba(self, X, base_margin) -> np.ndarray:
+        p = 1.0 / (1.0 + np.exp(-self.decision(X, base_margin)))
+        return np.column_stack([1.0 - p, p])
+
+
+def _fit_offset_linear(X, y, base_margin, *,
+                       max_iter: int = 8000,
+                       tol: float = 1e-9) -> _OffsetLinear:
+    """FISTA on sklearn's elasticnet logistic objective with a fixed offset.
+
+    Objective: mean log-loss at ``offset + b0 + X @ beta`` plus
+    ``(l1_ratio/(C*n)) * |beta|_1 + 0.5*((1-l1_ratio)/(C*n)) * |beta|_2^2``,
+    with an UNPENALISED intercept - the penalty sklearn applies for
+    ``LogisticRegression(penalty='elasticnet', C=..., l1_ratio=...)``.
+    Deterministic: no seed, no threads, so every fold reproduces
+    bit-identically (the NHL implementation this mirrors is validated
+    against sklearn at offset = 0).
+    """
+    params = config.ELASTICNET_PARAMS
+    C = float(params.get("C", 1.0))
+    rho = float(params.get("l1_ratio", 0.5))
+    Z = np.asarray(X, dtype=float)
+    off = np.asarray(base_margin, dtype=float)
+    yv = np.asarray(y, dtype=float)
+    n, p = Z.shape
+    lam1 = rho / (C * n)
+    lam2 = 0.5 * (1.0 - rho) / (C * n)
+    beta = np.zeros(p)
+    b0 = 0.0
+    beta_z, b0_z = beta.copy(), b0
+    momentum = 1.0
+    lip = 0.25 * np.linalg.norm(Z, 2) ** 2 / n + lam2
+    step = 1.0 / lip if lip > 0 else 1.0
+    for _ in range(max_iter):
+        pr = 1.0 / (1.0 + np.exp(-(off + b0_z + Z @ beta_z)))
+        resid = pr - yv
+        grad = Z.T @ resid / n + lam2 * beta_z
+        grad0 = float(resid.mean())
+        nxt = beta_z - step * grad
+        nxt = np.sign(nxt) * np.maximum(np.abs(nxt) - step * lam1, 0.0)
+        nxt0 = b0_z - step * grad0
+        t_next = 0.5 * (1.0 + np.sqrt(1.0 + 4.0 * momentum * momentum))
+        beta_new = nxt + ((momentum - 1.0) / t_next) * (nxt - beta_z)
+        b0_new = nxt0 + ((momentum - 1.0) / t_next) * (nxt0 - b0_z)
+        converged = max(float(np.max(np.abs(nxt - beta))),
+                        abs(nxt0 - b0)) < tol
+        beta, b0 = nxt, nxt0
+        beta_z, b0_z = beta_new, b0_new
+        momentum = t_next
+        if converged:
+            break
+    return _OffsetLinear(beta, b0)
+
+
 def _predict(model, name: str, X: pd.DataFrame,
-             pre: TrainFoldPreprocessor | None) -> np.ndarray:
-    values = model.predict_proba(member_fit_input(name, X, pre))[:, 1]
+             pre: TrainFoldPreprocessor | None,
+             base_margin: np.ndarray | None = None) -> np.ndarray:
+    """Member probabilities; ``base_margin`` must match the fit convention.
+
+    The offset must travel with the model: a member fitted from the market
+    logit and predicted without it answers a different question (it would
+    serve the residual alone, centred on 0.5).
+    """
+    feat = member_fit_input(name, X, pre)
+    if isinstance(model, _OffsetLinear):
+        if base_margin is None:
+            raise ValueError(
+                "offset linear member: base_margin is required at predict "
+                "time - the fit was offset by the market logit")
+        values = model.predict_proba(
+            feat, np.asarray(base_margin, dtype=float))[:, 1]
+    elif base_margin is not None and name == "xgboost":
+        values = model.predict_proba(
+            feat, base_margin=np.asarray(base_margin, dtype=float))[:, 1]
+    elif base_margin is not None and name == "lightgbm":
+        # The sklearn wrapper has no init_score at predict time: the raw
+        # margin is the learned residual, so the offset is added back before
+        # the sigmoid.
+        raw = np.asarray(model.predict(feat, raw_score=True), dtype=float)
+        values = 1.0 / (1.0 + np.exp(-(raw + np.asarray(base_margin,
+                                                        dtype=float))))
+    else:
+        values = model.predict_proba(feat)[:, 1]
     return np.clip(np.asarray(values, dtype=float), CLIP, 1 - CLIP)
 
 
@@ -182,7 +288,9 @@ def _early_stop_watch(X_train: pd.DataFrame, y_train: np.ndarray,
     return (np.asarray(fit_rows), np.asarray(y_train[: len(fit_rows)]), watch)
 
 
-def _fit_member(name: str, train: pd.DataFrame) -> tuple[Any, TrainFoldPreprocessor | None]:
+def _fit_member(name: str, train: pd.DataFrame,
+                base_margin=None
+                ) -> tuple[Any, TrainFoldPreprocessor | None]:
     """Fit one member on labeled training rows only.
 
     The signature deliberately has no ``val`` parameter: the fold loop
@@ -198,10 +306,35 @@ def _fit_member(name: str, train: pd.DataFrame) -> tuple[Any, TrainFoldPreproces
     if len(train) < 2 or labels.nunique() < 2:
         raise ValueError(f"{name} requires two labeled training classes")
 
+    # The offset rides a COLUMN, not a positional array or a re-indexed
+    # Series: canonical_sort above re-sorts (and resets the index), so an
+    # array handed in by position would attach the price to the wrong games
+    # and a Series would reindex to NaN. A column travels with its row.
+    bm: np.ndarray | None = None
+    if base_margin is not None:
+        # ``base_margin`` is the NAME of the margin column, read here and
+        # therefore after the sort: an array handed in would still be in
+        # pre-sort order and the price would attach to the wrong games.
+        if base_margin not in train.columns:
+            raise ValueError(
+                f"{name}: market offset column {base_margin!r} is missing - "
+                "the offset arm cannot fit an unpriced game")
+        bm = pd.to_numeric(train[base_margin], errors="coerce").to_numpy(float)
+        if not np.isfinite(bm).all():
+            raise ValueError(
+                f"{name}: market offset missing on a training row - the "
+                "offset arm cannot fit an unpriced game")
+
     X_train = member_matrix(name, train)
     pre = (TrainFoldPreprocessor().fit(X_train)
            if name in LINEAR_MEMBERS or name == "randomforest" else None)
     y_train = labels.to_numpy(dtype=int)
+    if bm is not None and name in LINEAR_MEMBERS:
+        # A TRUE offset: the market logit is held at a coefficient of 1.0
+        # and only the residual is learned, the same contract the trees are
+        # fitted under (NHL parity).
+        return (_fit_offset_linear(member_fit_input(name, X_train, pre),
+                                   y_train, bm), pre)
     if name == "xgboost":
         # Early stopping watches a chronological tail of the TRAINING fold,
         # never the validation window - see _early_stop_watch. The tail is
@@ -217,28 +350,35 @@ def _fit_member(name: str, train: pd.DataFrame) -> tuple[Any, TrainFoldPreproces
             )
             X_fit_set = member_fit_input(
                 name, X_train.loc[fit_rows], pre)
+            probe_kwargs = {"eval_set": [(X_watch,
+                                          y_train[len(fit_rows):])]}
+            if bm is not None:
+                # The watch tail needs its own offset, or the probe measures
+                # the residual's margin without the price and picks a round
+                # count for a different problem.
+                probe_kwargs["base_margin"] = bm[: len(fit_rows)]
+                probe_kwargs["base_margin_eval_set"] = [bm[len(fit_rows):]]
             try:
-                model.fit(
-                    X_fit_set,
-                    y_fit_rows,
-                    eval_set=[(X_watch, y_train[len(fit_rows):])],
-                    verbose=False,
-                )
+                model.fit(X_fit_set, y_fit_rows, verbose=False,
+                          **probe_kwargs)
             except TypeError:
                 # Older sklearn wrappers do not accept ``verbose`` in fit.
-                model.fit(X_fit_set, y_fit_rows,
-                          eval_set=[(X_watch, y_train[len(fit_rows):])])
+                model.fit(X_fit_set, y_fit_rows, **probe_kwargs)
             # Probe labels are strictly prior. Refit on ALL training rows
             # with the measured budget so folds and serving share one policy.
             rounds = int(model.best_iteration) + 1
             model = _make_member(name, rounds)
-            model.fit(member_fit_input(name, X_train, pre), y_train)
+            refit_kwargs = ({"base_margin": bm} if bm is not None else {})
+            model.fit(member_fit_input(name, X_train, pre), y_train,
+                      **refit_kwargs)
             _check_xgb_categories(model, X_train)
             return model, pre
         # Too small for a watch tail: fit the full training fold with the
         # configured ceiling and no stopping - still strictly train-only.
         model = _make_member(name, config.XGBOOST_FOLD_ROUNDS)
-        model.fit(member_fit_input(name, X_train, pre), y_train)
+        small_kwargs = ({"base_margin": bm} if bm is not None else {})
+        model.fit(member_fit_input(name, X_train, pre), y_train,
+                  **small_kwargs)
         _check_xgb_categories(model, X_train)
         return model, pre
     # Every other member: fit on the whole training fold, no early stop.
@@ -250,6 +390,11 @@ def _fit_member(name: str, train: pd.DataFrame) -> tuple[Any, TrainFoldPreproces
                        if c in getattr(X_train_fit, "columns", [])]
         if categorical:
             fit_kwargs["categorical_feature"] = categorical
+        if bm is not None:
+            # LightGBM's sklearn wrapper has no predict-time init_score: the
+            # raw margin is the learned residual, so _predict adds the
+            # offset back before the sigmoid.
+            fit_kwargs["init_score"] = bm
     model.fit(X_train_fit, y_train, **fit_kwargs)
     return model, pre
 
@@ -456,9 +601,33 @@ def walk_forward_oof(
     date_col: str = "gameday",
     progress_every: int = 25,
     fold_list=None,
+    arm: str = "incumbent",
+    market_col: str = "market_p_home",
 ) -> dict:
-    """Causal expanding OOF with prior-fold weights and calibration."""
+    """Causal expanding OOF with prior-fold weights and calibration.
+
+    ``arm`` selects WHAT is being scored (NHL parity, 2026-11-15):
+      ``incumbent`` - the shipped model, no market input at all;
+      ``offset``    - the same members started from the de-vigged market
+                      logit (``base_margin``), so they learn the RESIDUAL to
+                      the price instead of re-deriving it;
+      ``market``    - the de-vigged price itself, no model.
+    The offset and market arms score only games that carry a price, so the
+    three arms are compared on ONE population instead of three.
+    """
+    if arm not in ("incumbent", "offset", "market"):
+        raise ValueError(f"unknown arm {arm!r}")
     df = folds_mod.canonical_sort(game_df, date_col)
+    market = None
+    if arm != "incumbent":
+        if market_col not in df.columns:
+            raise ValueError(
+                f"arm={arm!r} needs a {market_col!r} column of de-vigged "
+                "market probabilities")
+        market = pd.to_numeric(df[market_col], errors="coerce")
+        if not (market.notna() & market.gt(0) & market.lt(1)).any():
+            raise ValueError(
+                f"arm={arm!r}: {market_col!r} carries no priced game")
     folds = fold_list if fold_list is not None else folds_mod.make_folds(df, date_col)
     parts: list[pd.DataFrame] = []
     fold_rows: list[dict] = []
@@ -468,6 +637,32 @@ def walk_forward_oof(
 
     for fold in folds:
         train, val = df.loc[fold.train_idx], df.loc[fold.val_idx]
+        bm_train: pd.Series | None = None
+        bm_val: np.ndarray | None = None
+        if market is not None:
+            # Price coverage, not the calendar, decides which rows this arm
+            # may score: an unpriced game has no offset and no market
+            # probability, so it cannot be evidence for or against either.
+            kept_tr = market.loc[train.index]
+            kept_va = market.loc[val.index]
+            ok_tr = kept_tr.notna() & kept_tr.gt(0) & kept_tr.lt(1)
+            ok_va = kept_va.notna() & kept_va.gt(0) & kept_va.lt(1)
+            train, val = train.loc[ok_tr], val.loc[ok_va]
+            if len(val) == 0:
+                logger.info(
+                    "moneyline fold %s skipped: no priced game to score",
+                    fold.fold_id)
+                continue
+            bm_val = _market_logit(kept_va.loc[ok_va].to_numpy(float))
+            if arm == "offset":
+                bm_train = pd.Series(
+                    _market_logit(kept_tr.loc[ok_tr].to_numpy(float)),
+                    index=train.index)
+            # Carry the margin ON the frame: folds re-sort and re-index, and
+            # a separate array silently desynchronises from its rows.
+            val = val.assign(_offset_margin=bm_val)
+            if bm_train is not None:
+                train = train.assign(_offset_margin=bm_train.to_numpy(float))
         # Preserve the weights actually used to score this fold.  The
         # optimizer updates ``prior_weights`` only after the fold is appended;
         # recording the post-update vector would make fold 0 appear to have
@@ -480,9 +675,17 @@ def walk_forward_oof(
 
         member_p: dict[str, np.ndarray | None] = {}
         for name in config.ENSEMBLE_MEMBERS:
+            if arm == "market":
+                member_p[name] = None
+                continue
             try:
-                model, pre = _fit_member(name, train)
-                member_p[name] = _predict(model, name, member_matrix(name, val), pre)
+                model, pre = _fit_member(
+                    name, train,
+                    base_margin=("_offset_margin" if bm_train is not None
+                                 else None))
+                member_p[name] = _predict(model, name,
+                                          member_matrix(name, val), pre,
+                                          base_margin=bm_val)
             except Exception as exc:  # noqa: BLE001
                 logger.warning("moneyline fold %s member %s failed: %s",
                                fold.fold_id, name, exc)
@@ -504,6 +707,11 @@ def walk_forward_oof(
                 np.asarray(p, dtype=float) if p is not None
                 else np.full(len(val), np.nan)
             )
+        if market is not None:
+            # Kept on the row so any arm can be paired with the price it
+            # was measured against, without a second join.
+            row["market_p_home"] = market.loc[val.index].to_numpy(float)
+        val = val.drop(columns=["_offset_margin"], errors="ignore")
 
         # --- WHICH ROWS MAY GRADE THE MODEL -------------------------------
         # Policy (2026-10-03): only regular-season rows from windows at or
@@ -533,7 +741,8 @@ def walk_forward_oof(
         row["grades_pooled"] = grades
 
         # Never rewrite this causal blend using weights learned later.
-        row["p_ensemble"] = _blend(row, prior_weights)
+        row["p_ensemble"] = (_blend(row, prior_weights) if arm != "market"
+                             else row["market_p_home"].to_numpy(float))
         for name in config.ENSEMBLE_MEMBERS:
             row[f"weight_{name}"] = fold_weights.get(name, 0.0)
 
@@ -578,12 +787,20 @@ def walk_forward_oof(
         _degen0 = getattr(fit_platt, "_degen_total", 0)
         for row in parts:
             row["p_ensemble_causal"] = row["p_ensemble"].to_numpy(float).copy()
-            row["p_ensemble_retrospective"] = _blend(row, deployed_w)
+            row["p_ensemble_retrospective"] = (
+                row["p_ensemble"].to_numpy(float).copy() if arm == "market"
+                else _blend(row, deployed_w))
         # Apply the same nested prior-evidence gate at every fold origin.
         pub_p: list[float] = []
         pub_y: list[float] = []
         for row in parts:
             p_k = row["p_ensemble"].to_numpy(float)
+            if arm == "market":
+                # A de-vigged price is already a probability. Re-fitting a
+                # Platt map on it would grade a different object than "the
+                # market", and the arm exists to be the market.
+                row["p_ensemble_calibrated"] = p_k
+                continue
             cal_k, gate = gated_calibrator(np.asarray(pub_p, dtype=float),
                                             np.asarray(pub_y, dtype=float))
             gate["fold_id"] = int(row.fold_id.iloc[0])
@@ -626,7 +843,7 @@ def walk_forward_oof(
     else:
         season_split = {"regular_rows": 0, "postseason_rows": 0,
                         "provisional_rows": 0, "grading_rows": 0}
-    return {"oof": oof, "member_weights": prior_weights,
+    return {"oof": oof, "arm": arm, "member_weights": prior_weights,
             "calibration_gate": {"folds": gate_audit},
             "season_split": season_split,
             "fold_table": pd.DataFrame(fold_rows)}

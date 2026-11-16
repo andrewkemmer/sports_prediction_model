@@ -285,3 +285,109 @@ def test_monitor_constant_home_edge_is_a_probability_brier_score(labels, tmp_pat
 
 if __name__ == "__main__":  # pragma: no cover
     raise SystemExit(pytest.main([__file__, "-q"]))
+
+
+class TestMarketArms:
+    """Arm A (incumbent) / B (offset) / C (market), NHL parity 2026-11-16.
+
+    The offset arm is only meaningful if the price enters with a FIXED
+    coefficient and travels with the model into predict. Both halves are
+    cheap to get wrong and silent when wrong: a free coefficient discounts
+    the price, and a missing margin at predict time serves the residual alone.
+    """
+
+    def test_offset_linear_leaves_the_price_it_was_given_alone(self):
+        rng = np.random.default_rng(7)
+        n = 600
+        mkt = rng.uniform(0.2, 0.8, n)
+        y = (rng.random(n) < mkt).astype(float)
+        folds = rng.normal(size=(n, 4))
+        base = ml_mod._market_logit(mkt)
+        model = ml_mod._fit_offset_linear(folds, y, base)
+        p = model.predict_proba(folds, base)[:, 1]
+        # Uninformative features: the fit must leave the price essentially
+        # where it found it rather than fitting the noise in the labels.
+        assert np.abs(p - mkt).mean() < 0.05
+
+    def test_the_offset_enters_with_a_coefficient_of_exactly_one(self):
+        # The contract that separates an offset from a feature: shifting the
+        # market logit must shift the decision by exactly that much. A free
+        # coefficient (what appending the logit as a column gives the linear
+        # member) cannot satisfy this - on the NHL folds it earned 0.43, a
+        # silent discount on the price.
+        rng = np.random.default_rng(11)
+        n = 400
+        mkt = rng.uniform(0.25, 0.75, n)
+        y = (rng.random(n) < mkt).astype(float)
+        X = rng.normal(size=(n, 5))
+        base = ml_mod._market_logit(mkt)
+        model = ml_mod._fit_offset_linear(X, y, base)
+        delta = 0.37
+
+        def _logit(p):
+            return np.log(p / (1.0 - p))
+
+        moved = _logit(model.predict_proba(X, base + delta)[:, 1])
+        here = _logit(model.predict_proba(X, base)[:, 1])
+        assert np.allclose(moved - here, delta, atol=1e-9)
+        # And the features are not quietly standing in for the price: an
+        # uninformative X learns an almost flat residual.
+        assert np.abs(model.coef_).max() < 0.5
+
+    def test_the_offset_arms_require_a_priced_column(self):
+        frame = _frame([("2026-01-01", 4, 1), ("2026-01-08", 4, 1)])
+        for arm in ("offset", "market"):
+            with pytest.raises(ValueError, match="market_p_home"):
+                ml_mod.walk_forward_oof(frame, arm=arm)
+        with pytest.raises(ValueError, match="unknown arm"):
+            ml_mod.walk_forward_oof(frame, arm="closing_line")
+
+    def test_a_single_price_widens_the_population_only_where_priced(self):
+        # A column that exists but carries no in-range price is not a priced
+        # population: the arm must refuse rather than score a column of NaN.
+        frame = _frame([("2026-01-01", 4, 1), ("2026-01-08", 4, 1)])
+        frame["market_p_home"] = np.nan
+        with pytest.raises(ValueError, match="no priced game"):
+            ml_mod.walk_forward_oof(frame, arm="offset")
+
+    def test_offset_fit_survives_the_fold_sort(self):
+        # Regression (2026-11-16): canonical_sort re-sorts AND resets the
+        # index, so a margin aligned by row index reindexed to NaN and every
+        # member of the offset arm failed behind a warning - the arm scored
+        # 0 rows on the real frame. The margin rides a COLUMN, read after the
+        # sort, so reordering cannot detach a price from its game.
+        rng = np.random.default_rng(3)
+        n = 120
+        frame = pd.DataFrame({
+            "game_id": [f"g{i}" for i in range(n)],
+            "gameday": pd.to_datetime("2026-01-01")
+                       + pd.to_timedelta(rng.permutation(n), unit="D"),
+            "home_team": rng.integers(0, 8, n).astype(str),
+            "away_team": rng.integers(0, 8, n).astype(str),
+            "home_win": rng.integers(0, 2, n).astype(float),
+        })
+        for col in config.MONEYLINE_FEATURE_COLS:
+            if col not in frame.columns:
+                frame[col] = rng.normal(size=n)
+        frame["_offset_margin"] = rng.normal(size=n)
+        scrambled = frame.sample(frac=1.0, random_state=0)
+        model, _ = ml_mod._fit_member("elasticnet", scrambled,
+                                      base_margin="_offset_margin")
+        assert isinstance(model, ml_mod._OffsetLinear)
+        # A missing margin must fail loudly instead of fitting an unoffset
+        # model that would then be compared as if it had seen the price.
+        with pytest.raises(ValueError, match="market offset"):
+            ml_mod._fit_member("elasticnet", scrambled,
+                               base_margin="_missing_margin")
+
+    def test_arm_metrics_grade_one_shared_population(self):
+        from backend import evaluation as eval_mod
+        a = pd.DataFrame({"game_id": ["1", "2", "3"],
+                          "home_win": [1.0, 0.0, 1.0],
+                          "p_ensemble_calibrated": [0.6, 0.4, 0.7]})
+        b = pd.DataFrame({"game_id": ["1", "2", "3", "4"],
+                          "home_win": [1.0, 0.0, 1.0, 0.0],
+                          "p_ensemble_calibrated": [0.5, 0.5, 0.5, 0.5]})
+        out = eval_mod.arm_metrics({"incumbent": a, "market": b}).set_index("arm")
+        assert set(out["n"]) == {3}, "the extra game must not grade either arm"
+        assert list(out.columns) == ["n", "auc", "logloss", "brier", "ece"]

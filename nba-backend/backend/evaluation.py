@@ -40,3 +40,47 @@ def distribution_metrics(oof):
         return {"run_line": {"n": 0}, "totals": {"n": 0}}
     frame, bundle = dist_mod.causal_distribution_frame(oof)
     return dist_mod.distribution_score_report(frame, bundle)
+
+
+def arm_metrics(oof_by_arm: dict, score_col: str = "p_ensemble_calibrated",
+                y_col: str = "home_win") -> pd.DataFrame:
+    """AUC / logloss / Brier / ECE per arm on ONE shared population.
+
+    The arms are only comparable on the games every arm scored: an arm given
+    an extra game would be graded on a different population, and its win or
+    loss could be that game rather than the arm. Rows are intersected on
+    ``game_id`` (falling back to row position when ids are absent) before
+    anything is measured, and the shared n is reported so a shrunken
+    population is visible rather than implied.
+    """
+    keys: dict[str, pd.Series] = {}
+    for arm, frame in oof_by_arm.items():
+        if frame is None or not len(frame):
+            continue
+        if "game_id" in frame.columns:
+            key = frame["game_id"].astype(str)
+        else:
+            key = pd.Series([f"{arm}:{i}" for i in range(len(frame))])
+        keys[arm] = key
+    if not keys:
+        return pd.DataFrame(columns=["arm", "n", "auc", "logloss", "brier", "ece"])
+    shared = None
+    for key in keys.values():
+        shared = set(key) if shared is None else (shared & set(key))
+    shared = shared or set()
+    rows = []
+    for arm, frame in oof_by_arm.items():
+        if arm not in keys:
+            continue
+        if "game_id" in frame.columns:
+            keep = frame["game_id"].astype(str).isin(shared)
+        else:
+            keep = pd.Series([f"{arm}:{i}" for i in range(len(frame))]).isin(shared)
+        sub = frame.loc[keep.to_numpy()]
+        p = pd.to_numeric(sub.get(score_col), errors="coerce").to_numpy(float)
+        y = pd.to_numeric(sub.get(y_col), errors="coerce").to_numpy(float)
+        metrics = binary_metrics(p, y)
+        metrics["arm"] = arm
+        rows.append(metrics)
+    out = pd.DataFrame(rows)
+    return out[["arm", "n", "auc", "logloss", "brier", "ece"]]
