@@ -211,6 +211,11 @@ def write_moneyline_json(path, slate_df: pd.DataFrame, p_home: np.ndarray,
             "home_win_prob_model": phc if phc is not None else ph,
             "away_win_prob_model": (1.0 - phc) if phc is not None else ((1.0 - ph) if ph is not None else None),
             "model_pick": pick,
+            # Which arm produced this number. Written since 2026-11-16 so a
+            # later re-run can tell an offset price from an arm-A one and
+            # never inherit the wrong model across the same-date preservation
+            # path (see the model_arm guard below).
+            "model_arm": "market_offset",
             "model_correct": None,
         }))
     # SAME-DATE PRESERVATION (the 2026-10-03 overwrite defect): a re-run on
@@ -245,6 +250,12 @@ def write_moneyline_json(path, slate_df: pd.DataFrame, p_home: np.ndarray,
                     continue
                 pg = prior_by_id.get(str(g.get("game_id") or ""))
                 if not pg or str(pg.get("game_date") or "") != str(g.get("game_date") or ""):
+                    continue
+                if str(pg.get("model_arm") or "") != "market_offset":
+                    # A prior row from another arm — or an untagged legacy
+                    # board, which is what every pre-2026-11-16 board is — may
+                    # never stand in for an offset price. Keep THIS run's
+                    # value: the offset probability, or NaN when unpriced.
                     continue
                 try:
                     shown = float(pg["home_win_prob_model"])

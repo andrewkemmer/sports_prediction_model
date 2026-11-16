@@ -1001,7 +1001,12 @@ def main(argv: list[str] | None = None) -> int:
         p_home = ml_mod.predict_slate(final_models, slate, weights)
         if final_models_off is not None:
             _sl = _market.attach_live(slate)
-            _bm = _sl["market_logit"].to_numpy(dtype=float) if "market_logit" in _sl else None
+            # NaN, never None (2026-11-16): an absent price column must reach
+            # predict_slate as an ABSENT OFFSET (which yields NaN) - passing
+            # None means "no offset supplied" and silently prices arm A.
+            _bm = (_sl["market_logit"].to_numpy(dtype=float)
+                   if "market_logit" in _sl.columns
+                   else np.full(len(slate), np.nan))
             # Arm 3 (2026-11-15): serve the offset models with the weights
             # earned on the offset members, not arm A's allocation.
             _off_weights = ml.get("offset_member_weights") or weights
@@ -1016,10 +1021,10 @@ def main(argv: list[str] | None = None) -> int:
                         "market_price_utc"):
                 if _mc in _sl.columns:
                     slate[_mc] = _sl[_mc].to_numpy()
-            if _bm is not None:
-                logger.info("arm E slate: %d/%d game(s) priced live; mean p_home %.4f",
-                            int(np.isfinite(_bm).sum()), len(slate),
-                            float(np.nanmean(p_home_off)) if np.isfinite(p_home_off).any() else float("nan"))
+            logger.info("arm E slate: %d/%d game(s) priced live; mean p_home %s",
+                        int(np.isfinite(_bm).sum()), len(slate),
+                        (f"{float(np.nanmean(p_home_off)):.4f}"
+                         if np.isfinite(p_home_off).any() else "nan (unpriced)"))
             if os.environ.get("NHL_DUMP_FEATURES"):
                 slate[["gameday", "home_team", "away_team", "market_p_home_off",
                        "p_home_win_off"]].to_csv(
@@ -1027,7 +1032,10 @@ def main(argv: list[str] | None = None) -> int:
         # Serving arm (2026-11-15): the offset models are production, and
         # platt above was fitted on the swapped (offset) OOF series, so the
         # same map applies to the offset slate prediction.
-        if final_models_off is not None and np.isfinite(p_home_off).any():
+        if final_models_off is not None:
+            # NEVER fall back to arm A (2026-11-16): the OOF and every headline
+            # number describe the offset arm, so an unpriced game must publish
+            # NaN - never another model's probability under the same name.
             p_home = p_home_off
         p_home_cal = (ml_mod.moneyline_apply(p_home, platt)
                       if np.isfinite(p_home).any() else p_home)
