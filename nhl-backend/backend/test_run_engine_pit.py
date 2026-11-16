@@ -5744,3 +5744,34 @@ def test_offset_fold_predictions_depend_on_the_held_out_price():
     d = float(np.nanmax(np.abs(b["p_ensemble_off_earned"].to_numpy(float)
                                - a["p_ensemble_off_earned"].to_numpy(float))))
     assert d > 0.05, f"held-out price never reached the prediction (max {d})"
+
+
+def test_moneyline_board_reprices_every_pre_game_run_then_locks_at_kickoff(tmp_path):
+    """A live card takes the newest price on every run; puck drop freezes it.
+
+    The odds feed refreshes right up to game time, so a pre-game row must never
+    be stuck at an earlier run's number. Once kickoff passes, the last pre-game
+    number is the record and must never move again.
+    """
+    import serving
+
+    path = tmp_path / "nhl_moneyline_v1_20261120.json"
+    base = {"game_id": "g-reprice", "gameday": "2026-11-20", "home_team": "BOS",
+            "away_team": "TOR", "venue": "TD Garden"}
+
+    def _publish(kickoff, p_home):
+        frame = pd.DataFrame([dict(base, start_time_utc=kickoff)])
+        return serving.write_moneyline_json(
+            path, frame, np.array([p_home]), np.array([p_home]), {}, {},
+            run_date="2026-11-20")
+
+    future = "2030-01-01T00:30:00Z"
+    for price in (0.55, 0.61, 0.68):
+        shown = _publish(future, price)["games"][0]["home_win_prob_model"]
+        assert shown == pytest.approx(price), (
+            f"pre-game row froze at {shown!r} instead of re-pricing to {price}")
+
+    # Kickoff has passed: this run's 0.99 is a live number and must be ignored.
+    locked = _publish("2020-01-01T00:30:00Z", 0.99)["games"][0]
+    assert locked["home_win_prob_model"] == pytest.approx(0.68), (
+        "a started game must keep the price it carried into puck drop")
