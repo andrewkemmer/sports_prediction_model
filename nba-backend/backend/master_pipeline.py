@@ -2276,17 +2276,6 @@ def run(run_date: str | None = None, out_dir: str | Path | None = None,
                     tail_coef=_tail_coef)
             except Exception as exc:  # noqa: BLE001
                 logger.warning("shadow log skipped: %s", exc)
-            # Lineup-net shadow test (lineup_net.py, 2026-11-17): DARKO's
-            # 5-man table is a CURRENT snapshot only - ?asof= is ignored - so
-            # this input cannot be walk-forward validated. Measure it on games
-            # that arrive after it was written instead of shipping it into the
-            # feature set unmeasured. Nothing here touches the model.
-            try:
-                from . import lineup_net as _lineup_net
-                if _pl_slate is not None and len(_pl_slate):
-                    _lineup_net.log_slate(slate_markets, _pl_slate)
-            except Exception as exc:  # noqa: BLE001
-                logger.warning("lineup net log skipped: %s", exc)
             leaders = player_enrichment.build_player_leader(slate, facts.player_stats, games)
             slate = slate.merge(leaders[["game_id", *config.PLAYER_FIELDS]],
                                 on="game_id", how="left", suffixes=("", "_leader"))

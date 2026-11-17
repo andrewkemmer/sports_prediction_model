@@ -23,9 +23,6 @@ EXACT_MASTER_NAMES = frozenset({
     # survive to be scored later, so the pruner must never read it as dated
     # residue.
     "nba_shadow_log.csv",
-    # The lineup-net test log (lineup_net.py): rows exist to be scored later,
-    # so the pruner must keep them.
-    "nba_lineup_net_log.csv",
     # Rolling master run log (run_log_tee.py): overwritten in place by every
     # pipeline run, so the publish phase always stages it — but the dateless
     # name would otherwise read as stale to _prune on any run that did not
