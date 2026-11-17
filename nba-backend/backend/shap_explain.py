@@ -51,19 +51,60 @@ TREE_MEMBERS = ("xgboost", "lightgbm")
 SHAP_GAME_PREFIX = config.SHAP_GAME_PREFIX
 
 
+def _row_day(row: pd.Series) -> str:
+    """The row's own ``YYYYMMDD``, from the first date column it carries.
+
+    The slate frame this writer receives does not always carry a populated
+    ``game_date``: the pipeline hands it the slate as built, where the day
+    lives in ``gameday`` (serving enriches ``game_date`` later, for the JSON).
+    Reading only ``game_date`` therefore produced an EMPTY day and wrote every
+    file as ``shap_game__AWAY@HOME.csv`` - a name the frontend loader can
+    never resolve, so every card showed "No SHAP file found" while the run
+    logged the family as written. The date is the key's whole point (a
+    date-rewritten id attributes a different game's predictions), so fall
+    back across the date columns rather than ever emitting a dayless key.
+    """
+    for col in ("game_date", "gameday", "start_time_utc", "tipoff_utc"):
+        raw = row.get(col)
+        if raw is None:
+            continue
+        text = str(raw).strip()
+        if not text:
+            continue
+        try:
+            stamp = pd.Timestamp(text)
+        except (ValueError, TypeError):
+            continue
+        if pd.isna(stamp):
+            continue
+        if col.endswith("_utc") and stamp.tzinfo is not None:
+            # A tipoff timestamp is UTC; the card's day is the ET gameday,
+            # so an 00:30Z tip belongs to the PREVIOUS evening's slate.
+            stamp = stamp.tz_convert("America/New_York")
+        return stamp.strftime("%Y%m%d")
+    return ""
+
+
 def shap_game_key(row: pd.Series) -> str:
     """MLB-style card key: ``YYYYMMDD_<AWAY>@<HOME>``.
 
     MLB's game_id IS this string, so its SHAP files resolve by construction.
     NBA game_ids are ESPN numerics, so the key is derived from the row's own
-    game_date/away_team/home_team - the same triple the card already shows.
+    date/away_team/home_team - the same triple the card already shows.
+
+    Returns ``""`` when no day can be derived: an empty key would write a
+    file the frontend can never find, which is worse than writing none.
     """
-    try:
-        day = pd.Timestamp(row.get("game_date")).strftime("%Y%m%d")
-    except (ValueError, TypeError, AttributeError):
-        day = str(row.get("game_date", "") or "")[:10].replace("-", "")
+    day = _row_day(row)
     away = str(row.get("away_team", "") or "").strip()
     home = str(row.get("home_team", "") or "").strip()
+    if not day:
+        logger.warning(
+            "SHAP: no derivable date for %s@%s (columns: %s) - skipping this "
+            "game rather than writing an unresolvable card key",
+            away, home, [c for c in ("game_date", "gameday", "start_time_utc")
+                         if c in row.index])
+        return ""
     return f"{day}_{away}@{home}"
 
 
@@ -187,6 +228,11 @@ def compute_nba_shap_per_game(bundle: dict, games: pd.DataFrame,
         one = games.loc[[idx]]
         gid = str(one["game_id"].iloc[0])
         key = shap_game_key(one.iloc[0])
+        if not key:
+            # A dayless key writes a file the frontend can never resolve;
+            # count it as a failure so the run's SHAP summary is honest.
+            failed += 1
+            continue
         per_member: list[tuple[str, float, dict[str, float]]] = []
         for name, ex in explainers.items():
             w = float(weights.get(name, 0.0))
