@@ -346,6 +346,74 @@ def fetch_live(match_ids, workers: int = 8, timeout: float = 20.0):
         return pd.DataFrame(list(ex.map(one, ids)))
 
 
+def _nba_season_label(today=None) -> int:
+    """Stats Insider's season label for a date: 2026 means 2026-27."""
+    import pandas as pd
+    d = pd.Timestamp(today or pd.Timestamp.now(tz="UTC"))
+    return int(d.year if d.month >= 9 else d.year - 1)
+
+
+def live_match_index(season: int | None = None, max_round: int = 80,
+                     workers: int = 8, timeout: float = 20.0) -> tuple[dict, dict]:
+    """(away_abv, home_abv, ET date) -> SIMatchID, straight from the feed.
+
+    ``attach_live`` used to resolve match ids only from
+    ``run_diagnostics/si_nba_all_seasons.csv`` - a GITIGNORED file that cannot
+    exist on the production host. There the attach returned an unpriced slate
+    and the served board carried no market column at all. The round listing
+    carries the same ids, so ask it instead; the CSV is now only a fast path
+    for a machine that happens to have one.
+
+    Rounds are sub-weekly and the season's last round is around 40 in the
+    current schedule, so the scan stops after three consecutive empty rounds
+    rather than running to ``max_round``.
+    """
+    import pandas as pd
+    import requests
+    from concurrent.futures import ThreadPoolExecutor
+    from zoneinfo import ZoneInfo
+
+    season = int(season if season is not None else _nba_season_label())
+    url = ("https://levy-edge.statsinsider.com.au/round/matches"
+           "?Sport=NBA&Round={r}&Season={s}&strip=true&best_bets=true"
+           "&bookmakers=tab")
+
+    def one(round_number: int):
+        try:
+            r = requests.get(url.format(r=round_number, s=season),
+                             headers=HEADERS, timeout=timeout)
+            if r.status_code != 200:
+                return round_number, []
+            data = r.json()
+        except Exception:  # noqa: BLE001 - an unreachable feed prices nothing
+            return round_number, []
+        return round_number, data if isinstance(data, list) else []
+
+    rounds = list(range(1, int(max_round) + 1))
+    with ThreadPoolExecutor(max_workers=max(1, int(workers))) as ex:
+        fetched = list(ex.map(one, rounds))
+    by_day, by_pair, empty_run = {}, {}, 0
+    for round_number, items in fetched:
+        if not items:
+            empty_run += 1
+            if empty_run >= 3 and round_number > 20:
+                break
+            continue
+        empty_run = 0
+        for item in items:
+            md = item.get("MatchData") or {}
+            mid = md.get("SIMatchID")
+            tip = pd.to_datetime(md.get("Date"), errors="coerce", utc=True)
+            away = ((md.get("AwayTeam") or {}).get("Abv") or "").upper()
+            home = ((md.get("HomeTeam") or {}).get("Abv") or "").upper()
+            if not mid or pd.isna(tip) or not away or not home:
+                continue
+            day = tip.tz_convert(ZoneInfo("America/New_York")).normalize().tz_localize(None)
+            by_day[(away, home, day)] = mid
+            by_pair[(away, home)] = mid
+    return by_day, by_pair
+
+
 def attach_live(slate_df, lookback_days: int = 4, path: str | None = None,
                 fetcher=None, workers: int = 8):
     """Attach the CURRENT TAB price to a slate, fetched at serve time.
@@ -366,24 +434,30 @@ def attach_live(slate_df, lookback_days: int = 4, path: str | None = None,
     out = slate_df.copy()
     out = out.drop(columns=[c for c in LIVE_COLS if c in out.columns])
     src = path or f"{DIAG}/si_nba_all_seasons.csv"
-    try:
-        hist = pd.read_csv(src)
-    except Exception as exc:  # noqa: BLE001
-        print(f"market_rundown.attach_live: history unavailable ({exc})")
-        return out
-    hist["_tip"] = pd.to_datetime(hist.tipoff_utc, errors="coerce", utc=True)
-    hist = hist.dropna(subset=["_tip", "sim_match_id"])
-    hist["_et"] = (hist._tip.dt.tz_convert(ZoneInfo("America/New_York"))
-                   .dt.normalize().dt.tz_localize(None))
     now = pd.Timestamp.now(tz="UTC")
-    recent = (hist[hist._tip >= now - pd.Timedelta(days=lookback_days)]
-              .sort_values("_tip"))
     by_day, by_pair = {}, {}
-    # ``itertuples`` renames underscore columns, so iterate the values.
-    for a, h, d, mid in zip(recent["away_abv"], recent["home_abv"],
-                            recent["_et"], recent["sim_match_id"]):
-        by_day[(a, h, d)] = mid
-        by_pair[(a, h)] = mid
+    hist = None
+    if os.path.exists(src):
+        try:
+            hist = pd.read_csv(src)
+        except Exception as exc:  # noqa: BLE001
+            print(f"market_rundown.attach_live: history unreadable ({exc})")
+    if hist is not None:
+        hist["_tip"] = pd.to_datetime(hist.tipoff_utc, errors="coerce", utc=True)
+        hist = hist.dropna(subset=["_tip", "sim_match_id"])
+        hist["_et"] = (hist._tip.dt.tz_convert(ZoneInfo("America/New_York"))
+                       .dt.normalize().dt.tz_localize(None))
+        recent = (hist[hist._tip >= now - pd.Timedelta(days=lookback_days)]
+                  .sort_values("_tip"))
+        # ``itertuples`` renames underscore columns, so iterate the values.
+        for a, h, d, mid in zip(recent["away_abv"], recent["home_abv"],
+                                recent["_et"], recent["sim_match_id"]):
+            by_day[(a, h, d)] = mid
+            by_pair[(a, h)] = mid
+    if not by_day:
+        by_day, by_pair = live_match_index()
+        print(f"market_rundown.attach_live: resolved {len(by_day)} match id(s) "
+              "from the live round listing (no history file)")
     days = (pd.to_datetime(out.gameday).dt.normalize() if "gameday" in out.columns
             else pd.Series([pd.NaT] * len(out), index=out.index))
     want = [by_day.get((a, h, d)) or by_pair.get((a, h))
