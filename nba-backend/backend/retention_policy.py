@@ -16,6 +16,9 @@ EXACT_MASTER_NAMES = frozenset({
     # event coverage. Pruning it re-opens the cache hole it exists to close,
     # because the production host's machine cache is ephemeral.
     "nba_event_rollups.parquet",
+    # Maintained in place by Phase 2 (odds_history.refresh); the pruner must
+    # treat it as a master file, never as dated residue.
+    "nba_odds_history.csv", "nba_odds_rounds.json",
     # Rolling master run log (run_log_tee.py): overwritten in place by every
     # pipeline run, so the publish phase always stages it — but the dateless
     # name would otherwise read as stale to _prune on any run that did not

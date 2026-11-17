@@ -832,6 +832,8 @@ def walk_forward_oof(
                 "%d degenerate; the WARNING lines print only the first 3)",
                 _mins + _degens, _fits + _mins, _mins, _degens)
 
+    # No post-blend market shrink: the offset arm ships exactly as fitted
+    # (offset at 1.0 -> blend -> Platt), matching the NHL mechanics.
     oof = pd.concat(parts, ignore_index=True) if parts else pd.DataFrame()
     if len(oof):
         season_split = {
@@ -849,16 +851,26 @@ def walk_forward_oof(
             "fold_table": pd.DataFrame(fold_rows)}
 
 
-def fit_final_models(game_df: pd.DataFrame):
-    """Fit all members on every labeled settled game for production serving."""
+def fit_final_models(game_df: pd.DataFrame, offset_col: str | None = None):
+    """Fit all members on every labeled settled game for production serving.
+
+    ``offset_col`` is the market-offset column name (``market_logit``). When
+    given, the members are fitted on the RESIDUAL to the de-vigged price and
+    the population is restricted to priced games - an offset member cannot be
+    fitted on a row with no price (NHL parity).
+    """
     game_df = folds_mod.canonical_sort(game_df)
     labels = _binary_labels(game_df)
     frame = game_df.loc[labels.notna()].copy()
-    if len(frame) < 2 or labels.loc[labels.notna()].nunique() < 2:
+    if offset_col is not None:
+        if offset_col not in frame.columns:
+            raise ValueError(f"fit_final_models: offset column {offset_col!r} missing")
+        frame = frame[frame[offset_col].notna()].copy()
+    if len(frame) < 2 or _binary_labels(frame).nunique() < 2:
         raise ValueError("NBA final moneyline fit requires both outcome classes")
     models: dict[str, dict[str, Any]] = {}
     for name in config.ENSEMBLE_MEMBERS:
-        model, pre = _fit_member(name, frame)
+        model, pre = _fit_member(name, frame, base_margin=offset_col)
         models[name] = {"model": model, "pre": pre}
     # Keep the historical two-tuple contract; per-member preprocessors live
     # in each entry and are used by predict_slate.
@@ -866,8 +878,14 @@ def fit_final_models(game_df: pd.DataFrame):
 
 
 def predict_slate(models: dict, slate_df: pd.DataFrame,
-                  weights: dict[str, float]) -> np.ndarray:
-    """Predict and blend a pending slate with the deployed OOF weights."""
+                  weights: dict[str, float],
+                  base_margin=None) -> np.ndarray:
+    """Predict and blend a pending slate with the deployed OOF weights.
+
+    ``base_margin`` carries the slate's market logit when the deployed members
+    were fitted with an offset; it must be supplied for every row, and rows
+    without a price stay NaN rather than being filled in.
+    """
     predictions: list[np.ndarray] = []
     names: list[str] = []
     for name in config.ENSEMBLE_MEMBERS:
@@ -877,7 +895,8 @@ def predict_slate(models: dict, slate_df: pd.DataFrame,
         try:
             predictions.append(
                 _predict(entry["model"], name,
-                         member_matrix(name, slate_df), entry.get("pre"))
+                         member_matrix(name, slate_df), entry.get("pre"),
+                         base_margin=base_margin)
             )
             names.append(name)
         except Exception as exc:  # noqa: BLE001

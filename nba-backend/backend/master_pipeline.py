@@ -1982,6 +1982,24 @@ def run(run_date: str | None = None, out_dir: str | Path | None = None,
                 "structural, not a build failure",
                 len(_gaps), len(game_df), _n_look, _lookback,
                 _n_rec, _recency, _n_rest)
+    # Odds history (NHL parity): Phase 2 maintains its own TAB/Novig price
+    # history. TAB is the offset series, Novig the raw display price.
+    # Never raises - a one-run-stale history is late, not broken.
+    if os.environ.get("NBA_ODDS_REFRESH", "1").strip().lower() in ("0", "false", "no", "off"):
+        logger.info("odds history: skipped (NBA_ODDS_REFRESH=0)")
+    else:
+        try:
+            try:
+                from backend import odds_history as _odds_hist
+            except ImportError:
+                import odds_history as _odds_hist
+            _oh = _odds_hist.refresh()
+            logger.info("odds history: %s rows (+%s new, %s moved) from %s request(s) in %ss",
+                        _oh.get("rows"), _oh.get("added"), _oh.get("updated"),
+                        _oh.get("fetched"), _oh.get("elapsed"))
+        except Exception as _oh_exc:
+            logger.warning("odds history: refresh failed, continuing: %s", _oh_exc)
+
     # Canonical (date_col, game_id) order: the one order every fold index is
     # valid for. See folds.canonical_sort for why a single-column sort is not
     # enough — fold labels are positional, and the tree members are
@@ -2038,7 +2056,36 @@ def run(run_date: str | None = None, out_dir: str | Path | None = None,
         gaps = _empty_contract_columns(game_df)
         if gaps:
             raise ValueError(f"NBA training feature coverage failed: {gaps}")
-        ml = ml_mod.walk_forward_oof(game_df, fold_list=fold_list)
+        # ── market offset (NHL parity, 2026-11-17) ─────────────────────
+        # TAB de-vigged PROPORTIONALLY is the offset series (coefficient
+        # pinned at 1.0); Novig is the raw display price. FanDuel is
+        # deliberately absent from this adoption.
+        _offset_on = os.environ.get("NBA_MARKET_OFFSET", "1").strip().lower() \
+            not in ("0", "false", "no", "off")
+        _market_col = None
+        if _offset_on:
+            try:
+                from backend import odds_history as _odds_hist2
+            except ImportError:
+                import odds_history as _odds_hist2
+            game_df, _mkt_cov = _odds_hist2.attach_prices(game_df)
+            _mkt_floor = float(os.environ.get(
+                "NBA_MARKET_OFFSET_MIN_COVERAGE", "0.90"))
+            if _mkt_cov < _mkt_floor:
+                raise ValueError(
+                    f"NBA market offset coverage {_mkt_cov:.1%} is below the "
+                    f"{_mkt_floor:.0%} floor")
+            _market_col = "market_p_home"
+            logger.info("market offset: TAB priced %d/%d (%.1f%%)",
+                        int(game_df["market_p_home"].notna().sum()),
+                        len(game_df), 100 * _mkt_cov)
+        ml = ml_mod.walk_forward_oof(
+            game_df, fold_list=fold_list,
+            arm="offset" if _market_col else "incumbent",
+            # The arm takes a PROBABILITY and logits it internally; handing
+            # it the logit makes its (0,1) gate discard every priced game
+            # priced above 1:1.
+            market_col="market_p_home")
         ml_oof = _merge_oof_metadata(ml["oof"], game_df)
         if not len(ml_oof):
             raise RuntimeError("NBA moneyline walk-forward produced no OOF rows")
@@ -2136,7 +2183,8 @@ def run(run_date: str | None = None, out_dir: str | Path | None = None,
         _step("walk-forward", f"{len(ml_oof)} out-of-fold rows over "
                               f"{len(fold_list)} folds")
 
-        final_models, _ = ml_mod.fit_final_models(game_df)
+        final_models, _ = ml_mod.fit_final_models(
+            game_df, offset_col="market_logit" if _market_col else None)
         # The serving score means come from the promoted ensemble, fitted
         # on the full frame and blended with the walk's OOF-earned weights
         # — never equal priors, never an in-sample optimum (the
@@ -2148,8 +2196,26 @@ def run(run_date: str | None = None, out_dir: str | Path | None = None,
             gaps = _empty_contract_columns(slate)
             if gaps:
                 raise ValueError(f"NBA slate feature coverage failed: {gaps}")
+            # The offset rides the live price, so it must be attached
+            # BEFORE scoring: a member fitted on the residual to the price
+            # has no prediction without it. A feed outage leaves NaN and the
+            # run continues - it must never substitute a 50% prior.
+            if _market_col:
+                try:
+                    slate = market_rundown.attach_live(slate)
+                    logger.info("slate market offset: %d/%d game(s) priced",
+                                int(pd.to_numeric(slate.get("market_logit"),
+                                                  errors="coerce").notna().sum()),
+                                len(slate))
+                except Exception as exc:  # noqa: BLE001
+                    logger.warning("slate market offset unavailable: %s", exc)
+            _slate_bm = (pd.to_numeric(slate["market_logit"], errors="coerce")
+                         .to_numpy(float)
+                         if _market_col and "market_logit" in slate.columns
+                         else None)
             slate["home_win_prob_model"] = ml_mod.predict_slate(
-                final_models, slate, ml["member_weights"])
+                final_models, slate, ml["member_weights"],
+                base_margin=_slate_bm)
             slate["p_ensemble"] = slate.home_win_prob_model
             slate["p_ensemble_calibrated"] = ml_mod.moneyline_apply(
                 slate.home_win_prob_model.to_numpy(float), platt)
@@ -2169,7 +2235,10 @@ def run(run_date: str | None = None, out_dir: str | Path | None = None,
             # it first went out with. A feed outage prices nothing and must
             # never fail the run - every market column stays NaN.
             try:
-                _live = market_rundown.attach_live(slate_markets)
+                # Priced above when the offset arm is on: attach_live drops
+                # its own columns and refetches, so skip the second pull.
+                _live = (slate_markets if "market_logit" in slate_markets.columns
+                         else market_rundown.attach_live(slate_markets))
                 slate_markets = _live
                 logger.info("slate market odds: %d/%d game(s) priced live",
                             int(pd.to_numeric(_live.get("market_p_home"),
