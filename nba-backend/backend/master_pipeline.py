@@ -2204,7 +2204,8 @@ def run(run_date: str | None = None, out_dir: str | Path | None = None,
                 try:
                     slate = market_rundown.attach_live(slate)
                     logger.info("slate market offset: %d/%d game(s) priced",
-                                int(pd.to_numeric(slate.get("market_logit"),
+                                int(pd.to_numeric(slate.get("market_logit",
+                                                  pd.Series(dtype=float)),
                                                   errors="coerce").notna().sum()),
                                 len(slate))
                 except Exception as exc:  # noqa: BLE001
@@ -2241,7 +2242,8 @@ def run(run_date: str | None = None, out_dir: str | Path | None = None,
                          else market_rundown.attach_live(slate_markets))
                 slate_markets = _live
                 logger.info("slate market odds: %d/%d game(s) priced live",
-                            int(pd.to_numeric(_live.get("market_p_home"),
+                            int(pd.to_numeric(_live.get("market_p_home",
+                                              pd.Series(dtype=float)),
                                               errors="coerce").notna().sum()),
                             len(_live))
             except Exception as exc:  # noqa: BLE001
