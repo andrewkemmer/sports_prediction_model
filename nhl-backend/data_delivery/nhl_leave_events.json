@@ -1,6 +1,6 @@
 {
-  "version": 76,
-  "ledger_updated_utc": "2026-11-17T11:24:00.361547Z",
+  "version": 77,
+  "ledger_updated_utc": "2026-11-17T22:53:33.067314Z",
   "description": "Public non-medical leave-of-absence announcements. No free live feed publishes these events (verified 2026-09-29: the official NHL API serves no transactions endpoint; ESPN carries no leave rows in either its injury or its transactions payloads), so this versioned ledger is the source of record. PIT contract: announced_at_utc is the instant the information became public - a game is excluded from the player's availability only when the announcement strictly precedes it. returned_at_utc is the first boxscore-verified appearance back (activation news typically precedes the game, so the recorded end errs conservative). ledger_updated_utc is the as-of instant this ledger was last reviewed for completeness: the PIT gate vouches that every public announcement through that instant is present, which is what makes replaying its intervals onto earlier games legitimate. Intervals are re-derived from these events on every run - never a static incremental stack. Medical Out/IR absences stay on the ESPN snapshot channel and remain honestly unknown before capture began (2026-09-28). Auto-reconciled personal-leave disclosures from nhl_pregame_availability_events.parquet are refreshed on every run; ledger_updated_utc is the review instant for the curated rows plus that channel, not a claim about every possible public announcement.",
   "events": [
     {
@@ -148,6 +148,16 @@
       "returned_at_utc": "2026-10-24T23:00:01Z",
       "source_url": "https://www.nhl.com/news/vegas-golden-knights-columbus-blue-jackets-game-preview-october-24-2026",
       "note": "Auto-reconciled from the pre-game preview's explicit personal/leave disclosure (1 game(s): 2026020174); end is the last observed absence, not a confirmed return.",
+      "origin": "pregame_personal"
+    },
+    {
+      "player_name": "Elias Salomonsson",
+      "player_id": null,
+      "team": "WPG",
+      "announced_at_utc": "2026-11-17T18:03:00Z",
+      "returned_at_utc": "2026-11-18T00:00:01Z",
+      "source_url": "https://www.nhl.com/news/ottawa-senators-winnipeg-jets-game-preview-november-17-2026",
+      "note": "Auto-reconciled from the pre-game preview's explicit personal/leave disclosure (1 game(s): 2026020341); end is the last observed absence, not a confirmed return.",
       "origin": "pregame_personal"
     }
   ],
