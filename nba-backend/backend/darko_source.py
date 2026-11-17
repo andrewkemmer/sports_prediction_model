@@ -33,6 +33,83 @@ NUMERIC = ["nba_id", "season", "seconds_played", "future_game",
            "x_pace", "x_pts_100", "x_ast_100", "x_fg_pct", "x_fg3_pct"]
 
 
+LINEUPS_URL = f"{BASE}/lineups/__data.json"
+
+
+def _flat_decoder(flat: list):
+    """Resolve SvelteKit's flat reference array.
+
+    Integers index ``flat``. An integer stored AT an index is a terminal
+    literal, not another reference: a plain "integers are always references"
+    decoder walks ``lineupSize`` 2 -> 5 -> 1610612752 and reports the
+    franchise id as the lineup size, which is how this format punishes the
+    naive reading. Strings, floats, lists and dicts are decoded in place.
+    """
+
+    def dec(x, seen=frozenset()):
+        if isinstance(x, bool):
+            return x
+        if isinstance(x, int):
+            if not 0 <= x < len(flat) or x in seen:
+                return x
+            target = flat[x]
+            return target if isinstance(target, int) else dec(target, seen | {x})
+        if isinstance(x, list):
+            return [dec(v, seen) for v in x]
+        if isinstance(x, dict):
+            return {k: dec(v, seen) for k, v in x.items()}
+        return x
+
+    return dec
+
+
+def fetch_lineups(size: int = 5, variant: str = "pi",
+                  min_possessions: int | None = None) -> pd.DataFrame:
+    """Two- to five-man lineup plus/minus from darko.app/lineups.
+
+    ``net`` is the unit's net rating against league average and equals
+    ``off + def``; ``off_syn``/``def_syn`` are DARKO's synergy terms and are
+    empty under the NPI variant. Every unit size is served by the same
+    endpoint via ``?size=N`` (2-man: ~1,700 units, 5-man: ~310).
+
+    Returns one row per unit with the five player ids and names joined by
+    ``;``. ``variant`` is ``"pi"``, ``"npi"`` or ``"both"``.
+    """
+    url = LINEUPS_URL + (f"?size={int(size)}" if int(size) != 5 else "")
+    payload = _fetch_payload(url)
+    flat = [n for n in payload.get("nodes", []) if n and n.get("data")][0]["data"]
+    dec = _flat_decoder(flat)
+    root = next(dec(i) for i, v in enumerate(flat)
+                if isinstance(v, dict) and "pi" in v)
+    # row[0] is an INDEX into ``root["teams"]`` (0-29), not a team id.
+    teams = [(int(t[0]), str(t[1])) for t in root["teams"]]
+    names = root["players"]
+
+    rows = []
+    for key in ([variant] if variant in ("pi", "npi") else ["pi", "npi"]):
+        for row in root.get(key) or []:
+            poss = row[1]
+            if min_possessions is not None and poss < min_possessions:
+                continue
+            ids = [str(p) for p in row[7:]]
+            rows.append({
+                "variant": key,
+                "lineup_size": int(size),
+                "team_id": teams[row[0]][0],
+                "team": teams[row[0]][1],
+                "n_players": len(ids),
+                "possessions": poss,
+                "net": row[2],
+                "off": row[3],
+                "def": row[4],
+                "off_syn": row[5],
+                "def_syn": row[6],
+                "player_ids": ";".join(ids),
+                "players": "; ".join(names.get(p, p) for p in ids),
+            })
+    return pd.DataFrame(rows)
+
+
 def _fetch_payload(url: str) -> dict:
     try:
         from curl_cffi import requests as crequests

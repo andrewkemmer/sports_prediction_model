@@ -55,7 +55,8 @@ try:
 except ImportError:
     import nba_injury_report as injury_report_mod
 
-AGG_COLUMNS = ["gameday", "team", "pool_size", "healthy_size",
+AGG_COLUMNS = ["gameday", "team", "lineup_five_ids",
+               "pool_size", "healthy_size",
                "lineup_out_count", "lineup_healthy_frac",
                "lineup_rapm_concentration",
                "lineup_rapm_mean", "lineup_rapm_top3", "lineup_rapm_std",
@@ -1387,6 +1388,13 @@ def _project_team(work: pd.DataFrame, team: str, gameday, stints,
     return {
         "gameday": pd.Timestamp(gameday),
         "team": team,
+        # The five the projection actually selected (2026-11-17): the same
+        # members the pl_ aggregates blend, exposed as ids so a unit-level
+        # source (DARKO's 5-man net) can be joined to the exact lineup the
+        # model was fed. String, not numeric - it is an identity, not a value.
+        "lineup_five_ids": ";".join(
+            str(p) for p in projected.player_id
+            if pd.notna(p)) if len(projected) else "",
         "pool_size": pool_size,
         "healthy_size": healthy_size,
         # How many rotation players are missing, and the same as a proportion.
