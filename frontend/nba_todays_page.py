@@ -157,8 +157,38 @@ def _nba_mirror_card_html(game: pd.Series, player_row=None, run_html: str = "") 
                         pick == home, True)
     away_row = team_row(away_name, away, game.get("away_record", ""), pa,
                         pick == away, False)
-    pregame = (f'<div class="fb-pregame">Pre-game: {away} {_fmt(pa, ".0%")} vs '
-               f'{home} {_fmt(ph, ".0%")}</div>')
+    # The team rows above already state both model probabilities, so
+    # repeating them here said nothing. This slot carries the MARKET the model
+    # priced against - the no-vig price when that book quotes the match
+    # (tightest margin, the line a bettor can actually take), else TAB. With
+    # no price the caption is omitted rather than duplicated. NHL parity.
+    def _odds(v):
+        try:
+            f = float(v)
+        except (TypeError, ValueError):
+            return None
+        return f if f == f and f > 1.0 else None
+
+    _mh, _ma = _odds(game.get("market_home_odds")), _odds(game.get("market_away_odds"))
+    if _mh is not None and _ma is not None:
+        _book = str(game.get("market_book") or "").strip().lower()
+        _ih, _ia = 1.0 / _mh, 1.0 / _ma
+        if _book == "novig":
+            # The no-vig book: strip its ~1% margin so the pair states the
+            # market's actual view and sums to 100%.
+            _tot = _ih + _ia
+            _mv_home, _mv_away = _ih / _tot, _ia / _tot
+        else:
+            # TAB carries a ~4% margin, so show the RAW implied percentage -
+            # the pair sums to ~104% and the vig stays visible. Normalising
+            # here would report a de-vigged number under a "Tab" label, i.e.
+            # claim a margin-free price the bettor cannot get.
+            _mv_home, _mv_away = _ih, _ia
+        _label = {"novig": " NoVig", "tab": " Tab"}.get(_book, "")
+        pregame = (f'<div class="fb-pregame">Market{_label}: {away} '
+                   f'{_mv_away:.0%} &middot; {home} {_mv_home:.0%}</div>')
+    else:
+        pregame = ""
     player_block = _player_matchup_html(player_row)
     venue_time = _start_time_et(start)
     venue = (f'<div class="fb-venue">📍 {game.get("venue", "") or "—"}'

@@ -4546,6 +4546,12 @@ NBA_TEAM_NAMES = {
     "TOR": "Toronto Raptors", "UTA": "Utah Jazz", "WAS": "Washington Wizards",
 }
 NBA_CARD_COLUMNS = NFL_CARD_COLUMNS + [
+    # The market the model priced against (card caption). ``market_book`` is
+    # "novig" when that near-zero-margin book quoted the match, else "tab".
+    # NHL parity: the field existed on the slate and in the artifact but was
+    # never published, so every NBA card fell back to restating the model
+    # probability it already shows in the team rows.
+    "market_home_odds", "market_away_odds", "market_book",
     "p_home_name", "p_home_ppg", "p_home_apg", "p_home_games",
     "p_away_name", "p_away_ppg", "p_away_apg", "p_away_games",
 ]
@@ -4598,6 +4604,10 @@ def nba_moneyline_to_frame(data) -> pd.DataFrame:
             "game_status": status, "game_date": game_date,
             "home_team_name": record.get("home_team_name") or NBA_TEAM_NAMES.get(home, home),
             "away_team_name": record.get("away_team_name") or NBA_TEAM_NAMES.get(away, away),
+            # Market caption fields (serving.write_moneyline_json contract).
+            "market_home_odds": _nl(record.get("market_home_odds")),
+            "market_away_odds": _nl(record.get("market_away_odds")),
+            "market_book": record.get("market_book") or None,
         }
         for field in ("name", "ppg", "apg", "games"):
             for side in ("home", "away"):

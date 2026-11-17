@@ -204,6 +204,18 @@ def write_moneyline_json(path, slate: pd.DataFrame, p_home, p_home_cal,
             "home_win_prob_model_raw": raw_p,
             "model_pick": pick,
             "model_correct": None,
+            # The market the model priced against (2026-11-17). Without these
+            # the card could only restate the model's own probability, which
+            # the team rows above already show - the caption carried no
+            # information. ``market_book`` is "novig" when that near-zero
+            # margin book quoted the match (the tightest price a bettor can
+            # actually take), else "tab"; a game with no price stays None
+            # rather than inventing one.
+            "market_home_odds": _clean(game.get("market_home_odds")),
+            "market_away_odds": _clean(game.get("market_away_odds")),
+            "market_book": (None if not pd.notna(game.get("market_book"))
+                            else str(game.get("market_book")).strip().lower()
+                            or None),
         }
         player = leaders.get(str(game.get("game_id")), {})
         for field in config.PLAYER_FIELDS:
