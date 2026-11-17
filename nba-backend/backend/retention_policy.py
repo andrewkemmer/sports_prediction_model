@@ -19,10 +19,6 @@ EXACT_MASTER_NAMES = frozenset({
     # Maintained in place by Phase 2 (odds_history.refresh); the pruner must
     # treat it as a master file, never as dated residue.
     "nba_odds_history.csv", "nba_odds_rounds.json",
-    # Append-only shadow log (shadow_log.py): the whole point is that rows
-    # survive to be scored later, so the pruner must never read it as dated
-    # residue.
-    "nba_shadow_log.csv",
     # Rolling master run log (run_log_tee.py): overwritten in place by every
     # pipeline run, so the publish phase always stages it — but the dateless
     # name would otherwise read as stale to _prune on any run that did not

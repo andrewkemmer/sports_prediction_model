@@ -2254,28 +2254,6 @@ def run(run_date: str | None = None, out_dir: str | Path | None = None,
             # slate date already published keep their locked legs, so an
             # evening re-run cannot wiggle a live game's fair total/spread.
             slate_markets = _apply_markets_freeze(slate_markets, out)
-            # Shadow log (shadow_log.py, 2026-11-17): the tail-Platt and
-            # side-asymmetric rules were invented on the 3,881-game OOF slice,
-            # so scoring them there measures the hypothesis, not the rule.
-            # Record what each WOULD have taken on every new slate and score
-            # them only on games that arrive afterwards. The Elo cut and the
-            # Platt coefficients come from prior games (the OOF frame), never
-            # from the slate being logged. Logging never fails a run.
-            try:
-                from . import shadow_log as _shadow
-                _fav_elo = np.where(ml_oof.p_ensemble.to_numpy(float) > 0.5,
-                                    pd.to_numeric(ml_oof.elo_home, errors="coerce"),
-                                    pd.to_numeric(ml_oof.elo_away, errors="coerce"))
-                _tail_coef = _shadow.fit_tail_platt(
-                    pd.to_numeric(ml_oof.home_win, errors="coerce").to_numpy(float),
-                    pd.to_numeric(ml_oof.p_ensemble, errors="coerce").to_numpy(float))
-                _shadow.log_slate(
-                    slate_markets.rename(columns={"p_ensemble_calibrated": "p_model",
-                                                  "market_p_home": "p_market"}),
-                    elo_cut_value=_shadow.elo_cut(_fav_elo),
-                    tail_coef=_tail_coef)
-            except Exception as exc:  # noqa: BLE001
-                logger.warning("shadow log skipped: %s", exc)
             leaders = player_enrichment.build_player_leader(slate, facts.player_stats, games)
             slate = slate.merge(leaders[["game_id", *config.PLAYER_FIELDS]],
                                 on="game_id", how="left", suffixes=("", "_leader"))
