@@ -122,7 +122,8 @@ def _game(m, season: int, rnd: int) -> dict | None:
             "away_score": md.get("AwayScore")}
 
 
-def enumerate_recent(season: int, cursor: int, rounds: int) -> tuple[list, int]:
+def enumerate_recent(season: int, cursor: int, rounds: int,
+                     end=None) -> tuple[list, int]:
     """Games inside the last ``rounds`` days, plus everything still scheduled.
 
     The lookback trails NOW, not the furthest round on the schedule. Stats
@@ -137,9 +138,23 @@ def enumerate_recent(season: int, cursor: int, rounds: int) -> tuple[list, int]:
     Forward from the cursor covers everything still scheduled; backward from
     the cursor covers the lookback, stopping once a round's games all fall
     outside ``rounds`` days. Only games inside that horizon are returned.
+
+    ``end`` closes the far side at the pipeline's own last day
+    (``NBA_END_DATE`` / ``NHL_END_DATE``). A game past that date is never
+    priced by the model, so enumerating it only spends a price request: on
+    2026-11-18 the NHL walk reached Dec 31 and fetched prices for fixtures
+    the run would not touch for six weeks.
     """
     now = _now()
     horizon = now - pd.Timedelta(days=rounds)
+    end_day = None
+    if end is not None:
+        try:
+            _e = pd.Timestamp(end)
+        except (TypeError, ValueError, OverflowError):
+            _e = pd.NaT
+        if not pd.isna(_e):
+            end_day = _e.normalize()
     games: list[dict] = []
     seen: set[str] = set()
     last_with_games = 0
@@ -152,6 +167,12 @@ def enumerate_recent(season: int, cursor: int, rounds: int) -> tuple[list, int]:
         if ts is pd.NaT or pd.isna(ts):
             return None
         return ts.tz_localize("UTC") if ts.tzinfo is None else ts.tz_convert("UTC")
+
+    def day_of(game: dict):
+        ts = start_of(game)
+        if ts is None:
+            return None
+        return ts.tz_convert("America/New_York").normalize().tz_localize(None)
 
     def collect(rnd: int) -> list[dict]:
         nonlocal last_with_games
@@ -172,7 +193,12 @@ def enumerate_recent(season: int, cursor: int, rounds: int) -> tuple[list, int]:
 
     rnd, empty = max(1, int(cursor)), 0
     while rnd < 700 and empty < EMPTY_LIMIT:
-        empty = 0 if collect(rnd) else empty + 1
+        got = collect(rnd)
+        empty = 0 if got else empty + 1
+        if got and end_day is not None:
+            days = [d for d in (day_of(g) for g in got) if d is not None]
+            if days and min(days) > end_day:
+                break
         rnd += 1
 
     rnd, empty = max(1, int(cursor)) - 1, 0
@@ -185,7 +211,9 @@ def enumerate_recent(season: int, cursor: int, rounds: int) -> tuple[list, int]:
         rnd -= 1
 
     kept = [g for g in games
-            if start_of(g) is not None and start_of(g) >= horizon]
+            if start_of(g) is not None and start_of(g) >= horizon
+            and (end_day is None or (day_of(g) is not None
+                                     and day_of(g) <= end_day))]
     return kept, last_with_games
 
 
@@ -351,7 +379,8 @@ def _fetch_records(games: list[dict], budget: float, t0: float) -> tuple[list[di
 
 
 def refresh(rounds: int = ROUNDS, days: float = DAYS,
-            budget: float = BUDGET, season: int | None = None) -> dict:
+            budget: float = BUDGET, season: int | None = None,
+            end=None) -> dict:
     """Refresh the price history in place. Returns a run summary."""
     t0 = time.monotonic()
     out = {"ok": False, "rows": 0, "added": 0, "updated": 0, "fetched": 0,
@@ -374,7 +403,8 @@ def refresh(rounds: int = ROUNDS, days: float = DAYS,
             season = cur_season if cur_season >= _now().year else _now().year
         if season != cur_season:
             cur_round = 0
-        games, last_round = enumerate_recent(season, cur_round, rounds)
+        games, last_round = enumerate_recent(season, cur_round, rounds,
+                                             end=end)
         if not games:
             out["skipped"] = f"no rounds enumerated for {season}"
             return out
