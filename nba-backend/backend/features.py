@@ -610,8 +610,8 @@ def build_slate_features(schedule: pd.DataFrame,
     # MLB parity (2026-10-31): a game already underway STAYS in the slate.
     # The ingestion door nulls running scores, so an underway row prices
     # from strictly pre-tip features exactly like a pre-game row; serving
-    # labels it Live (never Scheduled), the moneyline freeze keeps the
-    # locked pre-tip probabilities across re-runs, and the state-keyed
+    # labels it Live (never Scheduled), the writers' tipoff lock keeps the
+    # last pre-tip probabilities across re-runs, and the state-keyed
     # outcome guards keep it out of the decided frame until it finishes.
     # (The 2026-10-22 exclusion this replaces mistook deletion for honesty:
     # the board lost tipped games entirely. Correct labeling - the MLB/NFL/

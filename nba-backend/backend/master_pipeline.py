@@ -233,192 +233,6 @@ def _merge_oof_metadata(oof: pd.DataFrame, game_df: pd.DataFrame) -> pd.DataFram
     return base.merge(metadata, on="game_id", how="left", suffixes=("", "_game"))
 
 
-def _started_mask(frame: pd.DataFrame) -> pd.Series:
-    """Whether each slate row's game has begun - the freeze boundary.
-
-    The board's promise is that a prediction is locked AT TIPOFF, not at
-    first publication (2026-11-18). An evening re-run before tip must
-    re-price - NHL parity: its serving board re-scores and re-attaches the
-    live price on every run and only a card already LIVE is frozen - while
-    a game in progress must never be re-scored.
-
-    The feed's own state is authoritative: ``pre`` is trusted even past the
-    clock, because a delayed game has not started and re-pricing it cannot
-    leak a mid-game number. The clock is the fallback only for rows that
-    carry no recognised state at all.
-    """
-    if frame is None or not len(frame):
-        return pd.Series(dtype=bool)
-    states = (frame["game_state"] if "game_state" in frame.columns
-              else pd.Series([None] * len(frame), index=frame.index))
-    details = (frame["game_status_detail"].astype(str)
-               if "game_status_detail" in frame.columns
-               else pd.Series([""] * len(frame), index=frame.index))
-    known = pd.Series(
-        [str(s or "").strip().lower() in ("pre", "in", "post") for s in states],
-        index=frame.index, dtype=bool)
-    underway = pd.Series(
-        [bool(ingestion.sources.is_underway(s, d))
-         for s, d in zip(states, details)],
-        index=frame.index, dtype=bool)
-    if "start_time_utc" in frame.columns:
-        tip = pd.to_datetime(frame["start_time_utc"], errors="coerce", utc=True)
-        tipped = (tip <= pd.Timestamp.now(tz="UTC")).fillna(False)
-    else:
-        tipped = pd.Series([False] * len(frame), index=frame.index)
-    return underway | (~known & tipped)
-
-
-def _first_published_probs(delivery_dir, slate_date_iso: str) -> dict:
-    """First-published moneyline probabilities per game for one slate date.
-
-    MLB/NFL parity (2026-10-31): a re-run must not re-price a game that is
-    already underway - the board promises the prediction was locked at
-    tipoff, and the family-restore path resolves each game to its latest
-    publication, so a live re-score would silently overwrite the locked
-    pre-game numbers. Every prior ``nba_moneyline_v1_*`` publication in the
-    delivery dir whose record ``slate_date`` matches is read, and the
-    EARLIEST ``created_utc`` publication wins per game_id (that is the
-    pre-game price; anything later may have been scored mid-game). Returns
-    ``{game_id: (shown, raw)}``; empty when this slate date was never
-    published before (the first run of the day prices everything fresh).
-    Never raises: a corrupt prior file is skipped under a warning, because
-    a freeze miss degrades to today's behavior (fresh pricing), never a
-    red run.
-    """
-    if not slate_date_iso:
-        return {}
-    try:
-        paths = sorted(Path(delivery_dir).glob("nba_moneyline_v1_*.json"))
-    except Exception:  # noqa: BLE001 - no delivery dir, nothing to freeze
-        return {}
-    candidates: dict = {}
-    for path in paths:
-        try:
-            rec = json.loads(path.read_text(encoding="utf-8"))
-        except Exception as exc:  # noqa: BLE001 - skip corrupt priors loudly
-            logger.warning("moneyline freeze: skipping unreadable %s (%s)",
-                           path.name, exc)
-            continue
-        if not isinstance(rec, dict):
-            continue
-        if str(rec.get("slate_date", "")) != slate_date_iso:
-            continue
-        stamp = str(rec.get("created_utc", ""))
-        for game in rec.get("games", []) or []:
-            if not isinstance(game, dict):
-                continue
-            gid = str(game.get("game_id", "") or "")
-            if not gid:
-                continue
-            try:
-                shown = float(game["home_win_prob_model"])
-            except (KeyError, TypeError, ValueError):
-                continue
-            try:
-                raw = float(game.get("home_win_prob_model_raw", shown))
-            except (TypeError, ValueError):
-                raw = shown
-            candidates.setdefault(gid, []).append((stamp, shown, raw))
-    # Earliest publication wins per game: the pre-game price. A later
-    # same-day overwrite (an evening re-run over a morning file) can never
-    # win, so a live re-score cannot displace the locked numbers.
-    return {gid: (min(rows)[1], min(rows)[2])
-            for gid, rows in candidates.items()}
-
-
-def _first_published_market_legs(delivery_dir, gamedays: set) -> dict:
-    """First-published slate legs per game for a set of gamedays.
-
-    Same earliest-wins rule as the moneyline freeze, over the
-    ``nba_run_engine_markets_*`` family: prior ``kind == slate`` rows whose
-    gameday is on the current board contribute their model-output columns
-    (``mu_*``/``fair_*``/``p_*``/``pred_*``/``derived_*``). Identifiers,
-    records, scores and frame flags always come from the fresh row, so a
-    stale prior row can never finalize a game or move it off the board.
-    Filenames sort in run-date order, so the first file holding a game is
-    its first publication. Never raises: unreadable files are skipped
-    under a warning.
-    """
-    prefixes = ("mu_", "fair_", "p_", "pred_", "derived_")
-    by_game: dict = {}
-    if not gamedays:
-        return by_game
-    try:
-        paths = sorted(Path(delivery_dir).glob("nba_run_engine_markets_*.csv"))
-    except Exception:  # noqa: BLE001 - no delivery dir, nothing to freeze
-        return by_game
-    for path in paths:
-        try:
-            frame = pd.read_csv(path, low_memory=False)
-        except Exception as exc:  # noqa: BLE001 - skip corrupt priors loudly
-            logger.warning("markets freeze: skipping unreadable %s (%s)",
-                           path.name, exc)
-            continue
-        if frame.empty or "game_id" not in frame.columns:
-            continue
-        kind = (frame["kind"].astype(str) if "kind" in frame.columns
-                else pd.Series([""] * len(frame), index=frame.index))
-        gd = (pd.to_datetime(frame["gameday"], errors="coerce")
-              if "gameday" in frame.columns else pd.Series([pd.NaT] * len(frame)))
-        rows = frame[(kind == "slate") & gd.dt.strftime("%Y-%m-%d").isin(gamedays)]
-        if rows.empty:
-            continue
-        # The moneyline freeze owns p_home_win/p_away_win/p_ensemble
-        # (derived from the frozen slate probs); live market-line columns
-        # (offered lines/probs) stay fresh - they describe the market, not
-        # the prediction.
-        keep = [c for c in rows.columns
-                if c.startswith(prefixes) and c not in
-                ("p_home_win", "p_away_win", "p_ensemble",
-                 "p_ensemble_calibrated", "spread_line", "total_line",
-                 "has_offer") and not c.endswith("_offered")]
-        for _, row in rows.iterrows():
-            gid = str(row["game_id"])
-            if gid and gid not in by_game:
-                by_game[gid] = {c: row[c] for c in keep}
-    return by_game
-
-
-def _apply_markets_freeze(slate_markets: pd.DataFrame, delivery_dir) -> pd.DataFrame:
-    """Carry first-published legs onto slate games that have TIPPED.
-
-    The moneyline freeze locks the graded pick; this locks the
-    Totals/Spreads strip beside the same Live badge, so an evening re-run
-    cannot wiggle a live game's fair total/spread via refetch variance.
-    Same tipoff boundary as the moneyline freeze: a game still pre-tip
-    re-prices from this run's features, because the slate predictions are
-    supposed to refresh until the game starts.
-    """
-    if slate_markets is None or not len(slate_markets):
-        return slate_markets
-    if "gameday" not in slate_markets.columns or "game_id" not in slate_markets.columns:
-        return slate_markets
-    gamedays = set(pd.to_datetime(slate_markets["gameday"], errors="coerce")
-                     .dt.strftime("%Y-%m-%d").dropna())
-    frozen = _first_published_market_legs(delivery_dir, gamedays)
-    if not frozen:
-        return slate_markets
-    gids = slate_markets["game_id"].astype(str)
-    # Tipoff is the boundary here too: a pre-tip re-run re-prices the
-    # Totals/Spreads strip, a tipped game keeps its first-published legs.
-    mask = gids.isin(set(frozen)) & _started_mask(slate_markets).fillna(False)
-    if not mask.any():
-        return slate_markets
-    n = 0
-    for col in next(iter(frozen.values())).keys():
-        if col not in slate_markets.columns:
-            continue
-        vals = pd.to_numeric(slate_markets[col], errors="coerce")
-        new_vals = gids.map(lambda g: frozen.get(g, {}).get(col, np.nan))
-        slate_markets[col] = vals.mask(mask, pd.to_numeric(new_vals, errors="coerce"))
-        n += 1
-    logger.info("markets freeze: %d/%d tipped slate games keep their "
-                "first-published legs (%d columns)", int(mask.sum()),
-                len(slate_markets), n)
-    return slate_markets
-
-
 def _quote_age_minutes(frame: pd.DataFrame) -> pd.Series:
     """Minutes between now (UTC) and each row's provider quote stamp.
 
@@ -479,67 +293,6 @@ def _keep_prior_quotes(fresh: pd.DataFrame, prior: pd.DataFrame) -> pd.DataFrame
         fill = gid.map(prev[col])
         out[col] = out[col].where(out[col].notna(), fill)
     return out
-
-
-def _apply_moneyline_freeze(slate: pd.DataFrame, delivery_dir) -> pd.DataFrame:
-    """Carry first-published probabilities onto games that have TIPPED.
-
-    The freeze is what makes the Live card honest: an evening re-run keeps
-    a tipped game's locked pre-tip numbers instead of re-pricing it
-    mid-game. It must NOT freeze a game that has not started - the slate
-    predictions are supposed to re-price until tipoff, so every pre-tip run
-    prices fresh from that run's features and market (2026-11-18: the freeze
-    used to lock any previously published game, which pinned MIN at a
-    morning probability while the line moved). Operates on the slate frame
-    in place and returns it for chaining.
-    """
-    if slate is None or not len(slate):
-        return slate
-    try:
-        slate_date_iso = pd.to_datetime(
-            slate["gameday"] if "gameday" in slate.columns
-            else slate["game_date"], errors="coerce").min()
-        slate_date_iso = (None if pd.isna(slate_date_iso)
-                          else pd.Timestamp(slate_date_iso).strftime("%Y-%m-%d"))
-    except (KeyError, TypeError, ValueError):
-        return slate
-    frozen = _first_published_probs(delivery_dir, slate_date_iso)
-    if not frozen:
-        return slate
-    gids = slate["game_id"].astype(str)
-    started = _started_mask(slate)
-    mask = gids.isin(set(frozen)) & started.fillna(False)
-    if not mask.any():
-        logger.info("moneyline freeze: no started game on the slate - "
-                    "%d game(s) re-price from this run's features and market",
-                    len(slate))
-        return slate
-    for col, idx in (("p_ensemble_calibrated", 0), ("p_ensemble", 1),
-                      ("home_win_prob_model", 0)):
-        if col not in slate.columns:
-            continue
-        vals = pd.to_numeric(slate[col], errors="coerce")
-        frozen_vals = gids.map(lambda g: frozen.get(g, (np.nan, np.nan))[idx])
-        slate[col] = vals.mask(mask, pd.to_numeric(frozen_vals,
-                                                   errors="coerce"))
-    n_live = 0
-    try:
-        states = (slate["game_state"] if "game_state" in slate.columns
-                  else pd.Series([None] * len(slate), index=slate.index))
-        details = (slate["game_status_detail"].astype(str)
-                   if "game_status_detail" in slate.columns
-                   else pd.Series([""] * len(slate), index=slate.index))
-        n_live = int(pd.Series(
-            [bool(ingestion.sources.is_underway(s, d))
-             for s, d in zip(states, details)],
-            index=slate.index)[mask].sum())
-    except Exception:  # noqa: BLE001 - count is display-only
-        pass
-    logger.info("moneyline freeze: %d/%d slate games have tipped and keep "
-                "their first-published pre-tip probabilities (%d live); "
-                "%d pre-tip game(s) re-priced", int(mask.sum()), len(slate),
-                n_live, len(slate) - int(mask.sum()))
-    return slate
 
 
 def _marketize(base: pd.DataFrame, dist: pd.DataFrame, kind: str,
@@ -1962,8 +1715,8 @@ def run(run_date: str | None = None, out_dir: str | Path | None = None,
     # MLB parity (2026-10-31): a game already underway has no result *because
     # it is being played right now*, and it STAYS in the slate. The ingestion
     # door nulls running scores, so it prices from strictly pre-tip features;
-    # serving labels it Live (never Scheduled); the moneyline freeze below
-    # keeps the locked pre-tip probabilities across re-runs; the state-keyed
+    # serving labels it Live (never Scheduled); the card writer's tipoff lock
+    # keeps the last pre-tip probabilities across re-runs; the state-keyed
     # outcome guards keep it out of the decided frame until it finishes.
     # (The 2026-10-22 exclusion this replaces deleted tipped games from the
     # board entirely - absence mistaken for honesty. Correct labeling keeps
@@ -2333,11 +2086,6 @@ def run(run_date: str | None = None, out_dir: str | Path | None = None,
             slate["p_ensemble"] = slate.home_win_prob_model
             slate["p_ensemble_calibrated"] = ml_mod.moneyline_apply(
                 slate.home_win_prob_model.to_numpy(float), platt)
-            # First-published wins (MLB/NFL parity): games this slate date
-            # already published keep their locked pre-tip probabilities, so
-            # an evening re-run prices only the never-published games and
-            # can never re-price a live game mid-game.
-            slate = _apply_moneyline_freeze(slate, out)
             slate["mu_h"], slate["mu_a"] = final_reg.predict(slate)
             # expand=False: apply_market_calibration reprices every row
             # below, so pricing here is discarded work.
@@ -2345,9 +2093,10 @@ def run(run_date: str | None = None, out_dir: str | Path | None = None,
             # Serving market odds (NHL parity, 2026-11-16): the feed's CURRENT
             # quote, fetched now rather than read from the archive, so the
             # published board carries the number a bettor can actually take.
-            # Attached BEFORE the freeze so a republished game keeps the price
-            # it first went out with. A feed outage prices nothing and must
-            # never fail the run - every market column stays NaN.
+            # A feed outage prices nothing and must never fail the run -
+            # every market column stays NaN. A started game's CARD keeps its
+            # last pre-tip number (the writers lock on tipoff), so this fresh
+            # quote is what a pre-tip run publishes, nothing more.
             try:
                 # A quote counts as "the number at publish time" only if it
                 # is actually fresh. The offset pull above happens before the
@@ -2394,10 +2143,6 @@ def run(run_date: str | None = None, out_dir: str | Path | None = None,
                 logger.warning("slate market odds unavailable: %s", exc)
             slate_markets = dist_mod.apply_market_calibration(slate_markets,
                                                                market_calibration)
-            # First-published wins for the strip too (NFL parity): games this
-            # slate date already published keep their locked legs, so an
-            # evening re-run cannot wiggle a live game's fair total/spread.
-            slate_markets = _apply_markets_freeze(slate_markets, out)
             leaders = player_enrichment.build_player_leader(slate, facts.player_stats, games)
             slate = slate.merge(leaders[["game_id", *config.PLAYER_FIELDS]],
                                 on="game_id", how="left", suffixes=("", "_leader"))

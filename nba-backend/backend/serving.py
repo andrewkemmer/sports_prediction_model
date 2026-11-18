@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+import logging
 import os
 import tempfile
 from datetime import datetime, timezone
@@ -45,6 +46,87 @@ def _safe(value: Any) -> Any:
     if isinstance(value, (pd.Timestamp, datetime)):
         return value.isoformat()
     return _clean(value)
+
+
+logger = logging.getLogger(__name__)
+
+
+def started_mask(frame: pd.DataFrame) -> pd.Series:
+    """Whether each row's game has begun - the card's freeze boundary.
+
+    NHL parity (2026-11-18): the board locks AT TIPOFF, not at first
+    publication. A pre-tip run reprices from that run's features and market;
+    a started game keeps the number the card already carries. The lock lives
+    in the writers, which read the card they are about to replace - exactly
+    the one publication that survives - instead of searching the delivery
+    tree for a "first" one it no longer keeps.
+
+    The feed's own state is authoritative: ``pre`` is trusted even past the
+    clock, because a delayed game has not started. The clock is the fallback
+    for rows that carry no recognised state. A row with NEITHER state nor a
+    parseable tip counts as started: re-pricing a live game is the failure
+    this guard exists to prevent, and the NHL board makes the same choice.
+    """
+    if frame is None or not len(frame):
+        return pd.Series(dtype=bool)
+    states = (frame["game_state"] if "game_state" in frame.columns
+              else pd.Series([None] * len(frame), index=frame.index))
+    details = (frame["game_status_detail"].astype(str)
+               if "game_status_detail" in frame.columns
+               else pd.Series([""] * len(frame), index=frame.index))
+    known = pd.Series(
+        [str(s or "").strip().lower() in ("pre", "in", "post") for s in states],
+        index=frame.index, dtype=bool)
+    underway = pd.Series(
+        [bool(sources.is_underway(s, d)) for s, d in zip(states, details)],
+        index=frame.index, dtype=bool)
+    now = pd.Timestamp.now(tz="UTC")
+    raw_tips = (list(frame["start_time_utc"]) if "start_time_utc" in frame.columns
+                else [None] * len(frame))
+    tips = [_as_utc_timestamp(value) for value in raw_tips]
+    tipped = pd.Series([t is not None and t <= now for t in tips],
+                       index=frame.index, dtype=bool)
+    unknown = pd.Series([t is None for t in tips], index=frame.index, dtype=bool)
+    return underway | (~known & (tipped | unknown))
+
+
+def _as_utc_timestamp(value):
+    """One tip instant as a UTC ``Timestamp``, or None when unplaceable.
+
+    Scalar conversion keeps pandas 3's ``datetime64[s]`` columns out of a
+    Series-to-Timestamp comparison, which raises instead of coercing.
+    """
+    if value is None or value is pd.NaT:
+        return None
+    try:
+        stamp = pd.Timestamp(value)
+    except (TypeError, ValueError, OverflowError):
+        return None
+    if pd.isna(stamp):
+        return None
+    return (stamp.tz_localize("UTC") if stamp.tzinfo is None
+            else stamp.tz_convert("UTC"))
+
+
+def _prior_card_games(path) -> dict:
+    """``{game_id: row}`` from the card this write is about to replace.
+
+    One card per slate date, so this is the immediately previous
+    publication - the value a started game's lock carries forward. Reading
+    it is the entire history requirement; nothing here reconstructs "first
+    of the day" (that needed an archive the delivery tree never kept, which
+    is how 2026-11-17 locked a mid-day value and called it first).
+    """
+    try:
+        record = json.loads(Path(path).read_text(encoding="utf-8"))
+    except (OSError, ValueError, TypeError):
+        return {}
+    rows = record.get("games") if isinstance(record, dict) else None
+    out = {}
+    for row in rows or []:
+        if isinstance(row, dict) and str(row.get("game_id") or ""):
+            out[str(row["game_id"])] = row
+    return out
 
 
 def _atomic_write_bytes(path: Path, data: bytes) -> None:
@@ -156,6 +238,9 @@ def write_moneyline_json(path, slate: pd.DataFrame, p_home, p_home_cal,
     if player_leaders is not None and len(player_leaders):
         for _, row in player_leaders.iterrows():
             leaders[str(row.get("game_id"))] = row.to_dict()
+    prior = _prior_card_games(path)
+    started = started_mask(frame)
+    n_locked = 0
     games = []
     for i, (_, game) in enumerate(frame.iterrows()):
         raw_p = _clean(raw[i])
@@ -223,10 +308,33 @@ def write_moneyline_json(path, slate: pd.DataFrame, p_home, p_home_cal,
                                  else str(game.get("price_utc"))),
             "market_stale_minutes": _clean(game.get("stale_minutes")),
         }
+        if bool(started.get(i, False)) and prior:
+            prev = prior.get(str(game.get("game_id"))) or {}
+            locked_p = _clean(prev.get("home_win_prob_model"))
+            if locked_p is not None:
+                # NHL parity (2026-11-18): a started card is frozen at its
+                # last PRE-TIP value - the row this write replaces - rather
+                # than re-scored mid-game. The fresh score is simply not
+                # written; nothing here can resurrect a value that was never
+                # published.
+                row["home_win_prob_model"] = locked_p
+                row["away_win_prob_model"] = 1.0 - float(locked_p)
+                raw_prev = _clean(prev.get("home_win_prob_model_raw"))
+                row["home_win_prob_model_raw"] = (locked_p if raw_prev is None
+                                                 else raw_prev)
+                row["model_pick"] = prev.get("model_pick") or (
+                    game.get("home_team") if locked_p >= 0.5
+                    else game.get("away_team"))
+                n_locked += 1
         player = leaders.get(str(game.get("game_id")), {})
         for field in config.PLAYER_FIELDS:
             row[field] = _clean(player.get(field))
         games.append(_safe(row))
+    n_started = int(started.sum()) if len(started) else 0
+    if n_started:
+        logger.info("moneyline card: %d/%d started game(s) keep their last "
+                    "pre-tip probability; %d pre-tip game(s) re-priced",
+                    n_locked, n_started, len(frame) - n_started)
     slate_date_value = frame.get("gameday", frame.get("game_date"))
     slate_date = _date(pd.to_datetime(slate_date_value, errors="coerce").min()) if len(frame) else None
     record = {"created_utc": _now(), "config": config_meta or {},
@@ -388,6 +496,73 @@ def markets_columns() -> list[str]:
     return list(dict.fromkeys(base + _grid_columns()))
 
 
+_MARKET_LOCK_PREFIXES = ("mu_", "fair_", "p_", "pred_", "derived_")
+_MARKET_LOCK_EXCLUDE = {"p_home_win", "p_away_win", "p_ensemble",
+                        "p_ensemble_calibrated", "spread_line", "total_line",
+                        "has_offer"}
+
+
+def _lockable_market_columns(columns) -> list[str]:
+    """Model-output legs the strip locks; live market lines are excluded."""
+    return [c for c in columns
+            if c.startswith(_MARKET_LOCK_PREFIXES)
+            and c not in _MARKET_LOCK_EXCLUDE
+            and not c.endswith("_offered")]
+
+
+def _prior_market_rows(path) -> pd.DataFrame:
+    """Slate rows of the markets table this write replaces, indexed by game."""
+    try:
+        frame = pd.read_csv(path, low_memory=False)
+    except (OSError, ValueError, pd.errors.ParserError):
+        return pd.DataFrame()
+    if frame.empty or "game_id" not in frame.columns:
+        return pd.DataFrame()
+    if "kind" in frame.columns:
+        frame = frame[frame["kind"].astype(str) == "slate"]
+    if frame.empty:
+        return pd.DataFrame()
+    frame = frame.drop_duplicates("game_id", keep="last")
+    frame.index = frame["game_id"].astype(str)
+    return frame
+
+
+def _lock_started_market_legs(path, out: pd.DataFrame):
+    """Keep a started game's last pre-tip legs; return ``(frame, locked, pre)``.
+
+    The write-side equivalent of the NHL writer's kickoff guard: for a game
+    already on the board and already underway, the prior publication's legs
+    win over this run's re-price, so refetch variance cannot wiggle a live
+    card. Nothing is locked pre-tip - those games re-price on every run.
+    """
+    if out is None or not len(out) or "kind" not in out.columns:
+        return out, 0, 0
+    if "game_id" not in out.columns:
+        return out, 0, 0
+    slate_mask = out["kind"].astype(str) == "slate"
+    if not slate_mask.any():
+        return out, 0, 0
+    sub = out.loc[slate_mask]
+    started = started_mask(sub)
+    pre_tip = int((~started.astype(bool)).sum())
+    prior = _prior_market_rows(path)
+    keep = [c for c in _lockable_market_columns(out.columns)
+            if not prior.empty and c in prior.columns]
+    if not keep:
+        return out, 0, pre_tip
+    slot = sub.index[started.to_numpy(bool)]
+    if not len(slot):
+        return out, 0, pre_tip
+    gid = sub.loc[slot, "game_id"].astype(str)
+    found = gid.isin(prior.index).to_numpy(bool)
+    slot, gid = slot[found], gid[found]
+    if not len(slot):
+        return out, 0, pre_tip
+    for col in keep:
+        out.loc[slot, col] = gid.map(prior[col]).to_numpy()
+    return out, int(len(slot)), pre_tip
+
+
 def write_markets_csv(path, meta_path, oof_rows, slate_rows, config_meta=None,
                       mc_meta: dict | None = None,
                       run_line_fit_check: dict | None = None) -> pd.DataFrame:
@@ -397,6 +572,14 @@ def write_markets_csv(path, meta_path, oof_rows, slate_rows, config_meta=None,
     # A merge can leave duplicate labels; the CSV contract is name-unique.
     if out.columns.duplicated().any():
         out = out.loc[:, ~out.columns.duplicated()].copy()
+    # NHL parity (2026-11-18): the strip beside a started game keeps the
+    # legs it last published before tip, read from the table this write
+    # replaces. Live market lines stay fresh - they describe the market.
+    out, _n_locked, _n_repriced = _lock_started_market_legs(path, out)
+    if _n_locked or _n_repriced:
+        logger.info("markets strip: %d started game(s) keep their last "
+                    "pre-tip legs; %d pre-tip game(s) re-priced",
+                    _n_locked, _n_repriced)
     # ``reindex`` is what fills the absent grid columns with NaN, and it does
     # it in one block.  Assigning them one at a time first built a frame with
     # ~470 single-column inserts, which pandas reports as "highly fragmented"

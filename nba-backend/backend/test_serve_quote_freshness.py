@@ -17,27 +17,23 @@ These pin the three pieces that make that impossible to hide:
 """
 from __future__ import annotations
 
-import json
-
 import pandas as pd
 import pytest
 
 try:  # run from nba-backend/backend, as the pipeline's own docstring says
     from master_pipeline import (
-        _apply_moneyline_freeze,
         _keep_prior_quotes,
         _needs_quote_refresh,
         _quote_age_minutes,
-        _started_mask,
     )
+    from serving import started_mask
 except ImportError:  # run from nba-backend
     from backend.master_pipeline import (
-        _apply_moneyline_freeze,
         _keep_prior_quotes,
         _needs_quote_refresh,
         _quote_age_minutes,
-        _started_mask,
     )
+    from backend.serving import started_mask
 
 
 def _frame():
@@ -108,7 +104,11 @@ def test_refresh_keeps_the_prior_number_where_the_feed_is_silent():
     assert age.iloc[1] == pytest.approx(2.0, abs=0.5)
 
 
-# ── tipoff is the freeze boundary, not first publication ─────────────────
+# ── tipoff is the lock boundary, not first publication ───────────────────
+# The lock itself lives in the writers (serving.write_moneyline_json /
+# write_markets_csv), NHL-style: they read the card they are replacing, so
+# "locked" means "the last number published before tip" - a value that is
+# always on disk. This predicate is shared by both writers.
 
 def _slate(state, detail="7:00 PM ET", tip="2026-11-18T01:00:00Z"):
     return pd.DataFrame(
@@ -125,36 +125,17 @@ def _slate(state, detail="7:00 PM ET", tip="2026-11-18T01:00:00Z"):
     )
 
 
-def _prior(tmp_path, prob=0.7087):
-    (tmp_path / "nba_moneyline_v1_20261117.json").write_text(
-        json.dumps({
-            "slate_date": "2026-11-17",
-            "created_utc": "2026-11-17T04:33:00+00:00",
-            "games": [{"game_id": "401910003", "home_win_prob_model": prob}],
-        })
-    )
-    return tmp_path
-
-
-def test_a_pretip_game_reprices_on_every_run(tmp_path):
-    # 2026-11-17: MIN had published at 0.7087 in the morning, yet had not
-    # tipped. A pre-tip run must publish ITS price, not the locked one.
-    out = _apply_moneyline_freeze(_slate("pre"), _prior(tmp_path))
-    assert out.home_win_prob_model.iloc[0] == pytest.approx(0.61)
-    assert out.p_ensemble_calibrated.iloc[0] == pytest.approx(0.61)
-
-
-def test_a_tipped_game_keeps_its_locked_pretip_number(tmp_path):
-    out = _apply_moneyline_freeze(
-        _slate("in", "Q3 4:12"), _prior(tmp_path))
-    assert out.home_win_prob_model.iloc[0] == pytest.approx(0.7087)
+def test_a_row_with_no_state_and_no_tip_counts_as_started():
+    # NHL parity: the conservative default. Re-pricing a live game is the
+    # failure the lock exists to prevent, so an unplaceable row is frozen.
+    assert bool(started_mask(_slate(None, "", tip=None))[0]) is True
 
 
 def test_state_beats_the_clock_but_the_clock_covers_legacy_rows():
     # A delayed game still reads `pre` past its tip: not started.
-    assert bool(_started_mask(_slate("pre"))[0]) is False
+    assert bool(started_mask(_slate("pre"))[0]) is False
     # No state at all: the clock decides.
     legacy = _slate(None, "", tip="2020-01-01T00:00:00Z")
-    assert bool(_started_mask(legacy)[0]) is True
+    assert bool(started_mask(legacy)[0]) is True
     future = _slate(None, "", tip="2099-01-01T00:00:00Z")
-    assert bool(_started_mask(future)[0]) is False
+    assert bool(started_mask(future)[0]) is False

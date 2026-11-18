@@ -8,8 +8,10 @@ a status dict, never an exception.
 """
 import numpy as np
 import pandas as pd
+import pytest
 
 import master_pipeline as mp
+import serving
 
 
 def _frame(n=300, seed=4, mu_shift=0.0):
@@ -77,98 +79,81 @@ def _marketize_pair():
     return base, dist
 
 
-def _frozen_pub(path, slate_date, created, probs):
-    import json as _json
-    games = [{"game_id": gid,
-              "home_win_prob_model": shown,
-              "home_win_prob_model_raw": raw}
-             for gid, (shown, raw) in probs.items()]
-    path.write_text(_json.dumps({
-        "created_utc": created, "slate_date": slate_date, "games": games}),
-                    encoding="utf-8")
-
-
-def test_moneyline_freeze_is_first_published_wins(tmp_path):
-    # An evening re-run must not re-price a game already published for the
-    # same slate date: the earliest publication's numbers are the locked
-    # pre-tip price. Never-published games price fresh.
-    _frozen_pub(tmp_path / "nba_moneyline_v1_20261030.json",
-                 "2026-10-30", "2026-10-30T10:00:00Z",
-                 {"g1": (0.62, 0.60)})
-    _frozen_pub(tmp_path / "nba_moneyline_v1_20261029.json",
-                 "2026-10-29", "2026-10-29T10:00:00Z",
-                 {"g1": (0.10, 0.10)})  # other date: must not match
-    slate = pd.DataFrame({
+def _slate_card(probs, state, detail):
+    return pd.DataFrame({
         "game_id": ["g1", "g2"],
         "gameday": pd.to_datetime(["2026-10-30", "2026-10-30"]),
+        "home_team": ["BOS", "NYK"], "away_team": ["LAL", "MIA"],
+        "game_state": [state, "pre"],
+        "game_status_detail": [detail, "7:30 PM ET"],
+        "start_time_utc": ["2026-10-30T23:00:00Z"] * 2,
+        "home_win_prob_model": list(probs)})
+
+
+def test_moneyline_card_locks_only_after_tipoff(tmp_path):
+    # NHL parity (2026-11-18): the lock lives in the writer, which reads the
+    # card it is about to replace - "the last number published before tip",
+    # a value that is always on disk. A pre-tip game re-prices every run.
+    card = tmp_path / "nba_moneyline_v1_20261030.json"
+    first = _slate_card((0.62, 0.54), "in", "8:33 - 3rd Quarter")
+    serving.write_moneyline_json(card, first, first.home_win_prob_model,
+                                 first.home_win_prob_model)
+    second = _slate_card((0.90, 0.60), "in", "8:33 - 3rd Quarter")
+    record = serving.write_moneyline_json(card, second,
+                                          second.home_win_prob_model,
+                                          second.home_win_prob_model)
+    by_id = {g["game_id"]: g for g in record["games"]}
+    assert by_id["g1"]["home_win_prob_model"] == pytest.approx(0.62)
+    assert by_id["g1"]["away_win_prob_model"] == pytest.approx(0.38)
+    assert by_id["g1"]["home_win_prob_model_raw"] == pytest.approx(0.62)
+    assert by_id["g2"]["home_win_prob_model"] == pytest.approx(0.60)
+
+
+def test_moneyline_card_with_no_prior_publication_prices_fresh(tmp_path):
+    card = tmp_path / "nba_moneyline_v1_20261030.json"
+    slate = _slate_card((0.62, 0.54), "in", "8:33 - 3rd Quarter")
+    record = serving.write_moneyline_json(card, slate,
+                                          slate.home_win_prob_model,
+                                          slate.home_win_prob_model)
+    assert record["games"][0]["home_win_prob_model"] == pytest.approx(0.62)
+
+
+def _strip(fair_total, mu_h, p_over, spread, offered):
+    return pd.DataFrame({
+        "kind": ["slate", "slate"],
+        "game_id": ["g1", "g2"],
+        "gameday": ["2026-10-30", "2026-10-30"],
         "game_state": ["in", "pre"],
         "game_status_detail": ["8:33 - 3rd Quarter", "7:30 PM ET"],
-        "p_ensemble": [0.99, 0.55],
-        "p_ensemble_calibrated": [0.98, 0.54],
-        "home_win_prob_model": [0.98, 0.54]})
-    out = mp._apply_moneyline_freeze(slate, tmp_path)
-    assert out.loc[out.game_id == "g1", "p_ensemble_calibrated"].iloc[0] \
-        == 0.62
-    assert out.loc[out.game_id == "g1", "p_ensemble"].iloc[0] == 0.60
-    assert out.loc[out.game_id == "g1", "home_win_prob_model"].iloc[0] \
-        == 0.62
-    row2 = out.loc[out.game_id == "g2"].iloc[0]
-    assert row2["p_ensemble_calibrated"] == 0.54  # fresh, never published
+        "start_time_utc": ["2026-10-30T23:00:00Z"] * 2,
+        "fair_total": fair_total, "mu_h": mu_h, "p_over_220": p_over,
+        "spread_line": spread, "p_cover_offered": offered})
 
 
-def test_moneyline_freeze_with_no_prior_publication_is_a_noop(tmp_path):
-    slate = pd.DataFrame({
-        "game_id": ["g9"],
-        "gameday": pd.to_datetime(["2026-10-30"]),
-        "p_ensemble": [0.55],
-        "p_ensemble_calibrated": [0.54],
-        "home_win_prob_model": [0.54]})
-    out = mp._apply_moneyline_freeze(slate, tmp_path)
-    assert out.loc[0, "p_ensemble_calibrated"] == 0.54
-
-
-def test_markets_freeze_is_first_published_legs(tmp_path):
-    # The strip beside the Live badge locks too, but only once the game has
-    # TIPPED (2026-11-18: the freeze boundary is tipoff, not first
-    # publication - a pre-tip re-run must re-price). A game in progress
-    # keeps its first-publication fair totals/means/grid legs so refetch
-    # variance cannot wiggle a live game; a pre-tip game prices fresh.
-    prior = pd.DataFrame({
-        "kind": ["slate", "oof", "slate"],
-        "game_id": ["g1", "g0", "g3"],
-        "gameday": ["2026-10-30", "2026-10-29", "2026-10-30"],
-        "fair_total": [224.5, 220.0, 224.5],
-        "mu_h": [112.0, 110.0, 112.0],
-        "p_over_220": [0.51, 0.50, 0.51],
-        "spread_line": [-2.5, -1.5, -2.5],
-        "p_cover_offered": [0.50, 0.50, 0.50]})
-    prior.to_csv(tmp_path / "nba_run_engine_markets_20261030.csv", index=False)
-    slate_markets = pd.DataFrame({
-        "kind": ["slate", "slate", "slate"],
-        "game_id": ["g1", "g2", "g3"],
-        "gameday": pd.to_datetime(["2026-10-30"] * 3),
-        "game_state": ["in", "pre", "pre"],
-        "game_status_detail": ["8:33 - 3rd Quarter", "7:30 PM ET",
-                              "7:30 PM ET"],
-        "fair_total": [999.0, 230.0, 231.0],
-        "mu_h": [999.0, 115.0, 115.5],
-        "p_over_220": [0.99, 0.52, 0.52],
-        "spread_line": [-9.5, -3.5, -3.5],
-        "p_cover_offered": [0.99, 0.53, 0.53]})
-    out = mp._apply_markets_freeze(slate_markets, tmp_path)
-    live = out.loc[out.game_id == "g1"].iloc[0]
-    assert live["fair_total"] == 224.5
-    assert live["mu_h"] == 112.0
-    assert live["p_over_220"] == 0.51
+def test_markets_strip_locks_legs_only_after_tipoff(tmp_path):
+    # The strip beside the Live badge locks too, on the same boundary: a
+    # started game keeps the legs it last published before tip, so refetch
+    # variance cannot wiggle a live card; a pre-tip game re-prices.
+    path = tmp_path / "nba_run_engine_markets_20261030.csv"
+    meta = tmp_path / "meta.json"
+    serving.write_markets_csv(
+        path, meta, pd.DataFrame(),
+        _strip([224.5, 230.0], [112.0, 115.0], [0.51, 0.52],
+               [-2.5, -3.5], [0.50, 0.53]))
+    serving.write_markets_csv(
+        path, meta, pd.DataFrame(),
+        _strip([999.0, 231.0], [999.0, 115.5], [0.99, 0.52],
+               [-9.5, -4.5], [0.99, 0.54]))
+    out = pd.read_csv(path).set_index("game_id")
+    live = out.loc["g1"]
+    assert live["fair_total"] == pytest.approx(224.5)
+    assert live["mu_h"] == pytest.approx(112.0)
+    assert live["p_over_220"] == pytest.approx(0.51)
     # Live market lines stay fresh - they describe the market, not the model.
-    assert live["spread_line"] == -9.5
-    assert live["p_cover_offered"] == 0.99
-    fresh = out.loc[out.game_id == "g2"].iloc[0]
-    assert fresh["fair_total"] == 230.0
-    # Published in the morning, still pre-tip for this run: it re-prices.
-    repriced = out.loc[out.game_id == "g3"].iloc[0]
-    assert repriced["fair_total"] == 231.0
-    assert repriced["mu_h"] == 115.5
+    assert live["spread_line"] == pytest.approx(-9.5)
+    assert live["p_cover_offered"] == pytest.approx(0.99)
+    assert out.loc["g2", "fair_total"] == pytest.approx(231.0)
+    assert out.loc["g2", "mu_h"] == pytest.approx(115.5)
 
 
 def test_marketize_expand_false_defers_identical_pricing():
