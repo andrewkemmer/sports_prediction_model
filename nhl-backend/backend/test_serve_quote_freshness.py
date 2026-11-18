@@ -3,7 +3,7 @@
 The 2026-11-17 NHL run attached BOS/LAK at 23:21:03 and published the board at
 23:34:13 - thirteen minutes of drift behind a card that said "priced live" and
 carried no age (the NBA board had the same hole the same night). The feed's
-own last-updated stamp is what ``market_price_utc`` records, so a run can
+own stamp is what ``market_price_utc`` records (the display book's), so a run can
 fetch seconds ago and still serve a quarter-hour-old number.
 
 These pin the three pieces that make that impossible to hide:
@@ -110,3 +110,30 @@ def test_refresh_keeps_the_prior_number_where_the_feed_is_silent():
     assert merged.loc["2026020334", "market_book"] == "novig"
     age = quote_age_minutes(merged.reset_index())
     assert age.iloc[1] == pytest.approx(2.0, abs=0.5)
+
+
+
+# ── two books, two clocks (2026-11-18) ───────────────────────────────────
+def test_the_card_stamps_and_ages_each_book_at_publish(tmp_path):
+    import numpy as np
+    import serving
+
+    now = pd.Timestamp.now(tz="UTC")
+    tab = (now - pd.Timedelta(minutes=20)).isoformat()
+    nov = (now - pd.Timedelta(minutes=4)).isoformat()
+    slate = pd.DataFrame([{
+        "game_id": "g1", "gameday": pd.Timestamp("2026-10-30"),
+        "home_team": "BOS", "away_team": "LAK",
+        "game_state": "pre", "game_status_detail": "7:30 PM ET",
+        "start_time_utc": "2099-01-01T00:00:00Z",
+        "home_win_prob_model": 0.6,
+        "market_home_odds": 1.8, "market_away_odds": 2.1,
+        "market_book": "novig", "price_utc": tab, "market_price_utc": nov}])
+    rec = serving.write_moneyline_json(
+        tmp_path / "c.json", slate, np.array([0.6]), np.array([0.6]),
+        {"BOS": "Bruins", "LAK": "Kings"}, {}, run_date="2026-10-30")
+    g = rec["games"][0]
+    assert g["market_price_utc"].startswith(nov[:19])
+    assert g["offset_price_utc"].startswith(tab[:19])
+    assert g["market_stale_minutes"] == pytest.approx(4.0, abs=0.5)
+    assert g["offset_stale_minutes"] == pytest.approx(20.0, abs=0.5)

@@ -176,3 +176,29 @@ def test_marketize_expand_false_defers_identical_pricing():
     pd.testing.assert_frame_equal(
         priced.sort_index(axis=1), full.sort_index(axis=1),
         check_dtype=False)
+
+
+
+def test_the_card_stamps_and_ages_each_book_at_publish(tmp_path):
+    """2026-11-18: the display pair and the offset input are different books
+    with different clocks, and the age is measured at THIS write, not at the
+    fetch that filled the frame."""
+    now = pd.Timestamp.now(tz="UTC")
+    tab = (now - pd.Timedelta(minutes=20)).isoformat()
+    nov = (now - pd.Timedelta(minutes=4)).isoformat()
+    slate = pd.DataFrame([{
+        "game_id": "g1", "gameday": pd.Timestamp("2026-10-30"),
+        "home_team": "BOS", "away_team": "LAL",
+        "game_state": "pre", "game_status_detail": "7:30 PM ET",
+        "start_time_utc": "2099-01-01T00:00:00Z",
+        "home_win_prob_model": 0.6,
+        "market_home_odds": 1.8, "market_away_odds": 2.1,
+        "market_book": "novig", "price_utc": tab, "market_price_utc": nov}])
+    rec = serving.write_moneyline_json(tmp_path / "c.json", slate,
+                                       slate.home_win_prob_model,
+                                       slate.home_win_prob_model)
+    g = rec["games"][0]
+    assert g["market_price_utc"].startswith(nov[:19])
+    assert g["offset_price_utc"].startswith(tab[:19])
+    assert g["market_stale_minutes"] == pytest.approx(4.0, abs=0.5)
+    assert g["offset_stale_minutes"] == pytest.approx(20.0, abs=0.5)

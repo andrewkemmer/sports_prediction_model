@@ -268,7 +268,8 @@ def _needs_quote_refresh(has_prices: bool, oldest_age_min: float,
 
 _QUOTE_COLUMNS = ("market_p_home", "market_logit", "overround", "price_utc",
                   "fetched_utc", "stale_minutes", "pregame_minutes",
-                  "market_home_odds", "market_away_odds", "market_book")
+                  "market_home_odds", "market_away_odds", "market_book",
+                  "market_price_utc")
 
 
 def _keep_prior_quotes(fresh: pd.DataFrame, prior: pd.DataFrame) -> pd.DataFrame:

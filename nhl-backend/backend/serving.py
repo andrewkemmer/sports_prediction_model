@@ -176,6 +176,44 @@ def board_date(slate_df, run_date: str = "") -> str:
 # ---------------------------------------------------------------------------
 # Moneyline JSON — the games[] card contract
 # ---------------------------------------------------------------------------
+def _utc_timestamp(value):
+    """A feed stamp as a UTC ``Timestamp``, or None when absent/unparseable."""
+    if value is None or value is pd.NaT or value is pd.NA:
+        return None
+    try:
+        ts = pd.Timestamp(value)
+    except (TypeError, ValueError, OverflowError):
+        return None
+    if pd.isna(ts):
+        return None
+    return ts.tz_localize("UTC") if ts.tzinfo is None else ts.tz_convert("UTC")
+
+
+def _first_stamp(*values):
+    """First parseable stamp among ``values`` (NaN/None skipped)."""
+    for value in values:
+        ts = _utc_timestamp(value)
+        if ts is not None:
+            return ts
+    return None
+
+
+def _iso_stamp(ts):
+    return None if ts is None else ts.isoformat().replace("+00:00", "Z")
+
+
+def _age_at_publish(ts, now):
+    """Minutes from a feed stamp to THIS write, or None.
+
+    Cards used to restate the age ``fetch_live`` computed, so a card written
+    minutes later understated it. The stamp is fixed; the age is not
+    (2026-11-18).
+    """
+    if ts is None:
+        return None
+    return max(0.0, (now - ts).total_seconds() / 60.0)
+
+
 def write_moneyline_json(path, slate_df: pd.DataFrame, p_home: np.ndarray,
                          p_home_cal: np.ndarray, team_names: dict[str, str],
                          config_meta: dict, run_date: str = "") -> dict:
@@ -210,6 +248,7 @@ def write_moneyline_json(path, slate_df: pd.DataFrame, p_home: np.ndarray,
         slate_df = slate_df[keep]
         p_home = np.asarray(p_home)[keep]
         p_home_cal = np.asarray(p_home_cal)[keep]
+    now = datetime.now(timezone.utc)
     games = []
     for i, (_, g) in enumerate(slate_df.reset_index(drop=True).iterrows()):
         ph = _clean(p_home[i]) if i < len(p_home) else None
@@ -217,6 +256,9 @@ def write_moneyline_json(path, slate_df: pd.DataFrame, p_home: np.ndarray,
         pick = None
         if ph is not None:
             pick = g["home_team"] if ph >= 0.5 else g["away_team"]
+        _market_ts = _first_stamp(g.get("market_price_utc"),
+                                  g.get("price_utc"))
+        _offset_ts = _utc_timestamp(g.get("price_utc"))
         games.append(_row_clean({
             "game_id": g["game_id"],
             "game_date": _date_str(g["gameday"]),
@@ -237,12 +279,16 @@ def write_moneyline_json(path, slate_df: pd.DataFrame, p_home: np.ndarray,
             "market_home_odds": _clean(g.get("market_home_odds")),
             "market_away_odds": _clean(g.get("market_away_odds")),
             "market_book": g.get("market_book") or None,
-            "market_price_utc": g.get("market_price_utc") or None,
+            "market_price_utc": _iso_stamp(_market_ts),
             # How old the feed's number already was when this run published
             # it (2026-11-18). The 2026-11-17 board shipped a 13-minute-old
             # quote with no age on the card, so a reader could not tell a
             # fresh price from a lagging feed.
-            "market_stale_minutes": _clean(g.get("stale_minutes")),
+            "market_stale_minutes": _age_at_publish(_market_ts, now),
+            # The offset's own input is TAB; its clock is published apart
+            # from the display pair's so the two can never be conflated.
+            "offset_price_utc": _iso_stamp(_offset_ts),
+            "offset_stale_minutes": _age_at_publish(_offset_ts, now),
             "home_win_prob_model": phc if phc is not None else ph,
             "away_win_prob_model": (1.0 - phc) if phc is not None else ((1.0 - ph) if ph is not None else None),
             "model_pick": pick,

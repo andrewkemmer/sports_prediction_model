@@ -51,6 +51,44 @@ def _safe(value: Any) -> Any:
 logger = logging.getLogger(__name__)
 
 
+def _utc_timestamp(value):
+    """A feed stamp as a UTC ``Timestamp``, or None when absent/unparseable."""
+    if value is None or value is pd.NaT or value is pd.NA:
+        return None
+    try:
+        ts = pd.Timestamp(value)
+    except (TypeError, ValueError, OverflowError):
+        return None
+    if pd.isna(ts):
+        return None
+    return ts.tz_localize("UTC") if ts.tzinfo is None else ts.tz_convert("UTC")
+
+
+def _first_stamp(*values):
+    """First parseable stamp among ``values`` (NaN/None skipped)."""
+    for value in values:
+        ts = _utc_timestamp(value)
+        if ts is not None:
+            return ts
+    return None
+
+
+def _iso_stamp(ts):
+    return None if ts is None else ts.isoformat().replace("+00:00", "Z")
+
+
+def _age_at_publish(ts, now):
+    """Minutes from a feed stamp to THIS write, or None.
+
+    Cards used to restate the age ``fetch_live`` computed, so a card written
+    minutes later understated it. The stamp is fixed; the age is not
+    (2026-11-18).
+    """
+    if ts is None:
+        return None
+    return max(0.0, (now - ts).total_seconds() / 60.0)
+
+
 def started_mask(frame: pd.DataFrame) -> pd.Series:
     """Whether each row's game has begun - the card's freeze boundary.
 
@@ -232,6 +270,7 @@ def write_moneyline_json(path, slate: pd.DataFrame, p_home, p_home_cal,
     """Write the v1 moneyline/card JSON consumed by ``frontend/utils.py``."""
     team_names = team_names or {}
     frame = slate.reset_index(drop=True)
+    now = datetime.now(timezone.utc)
     raw = _prob_array(p_home, len(frame))
     cal = _prob_array(p_home_cal, len(frame))
     leaders = {}
@@ -259,6 +298,9 @@ def write_moneyline_json(path, slate: pd.DataFrame, p_home, p_home_cal,
         final = (pd.notna(hs) and pd.notna(as_) and not underway
                  and (sources.is_final_state(state, detail) or not state_known))
         postponed = sources.is_postponed_detail(detail)
+        _market_ts = _first_stamp(game.get("market_price_utc"),
+                                  game.get("price_utc"))
+        _offset_ts = _utc_timestamp(game.get("price_utc"))
         row = {
             "game_id": str(game.get("game_id", "")),
             "game_date": _date(game.get("gameday", game.get("game_date"))),
@@ -301,12 +343,14 @@ def write_moneyline_json(path, slate: pd.DataFrame, p_home, p_home_cal,
             "market_book": (None if not pd.notna(game.get("market_book"))
                             else str(game.get("market_book")).strip().lower()
                             or None),
-            # When that price was struck, and how old it already was at
-            # publish. Without these the card cannot say "as of 00:03" and a
-            # reader has no way to tell a fresh quote from a lagging feed.
-            "market_price_utc": (None if not pd.notna(game.get("price_utc"))
-                                 else str(game.get("price_utc"))),
-            "market_stale_minutes": _clean(game.get("stale_minutes")),
+            # Two books, two clocks (2026-11-18). The stamp and age beside
+            # the DISPLAY pair describe that pair; the offset's input is TAB,
+            # so its stamp is published under its own name instead of being
+            # restated as the display book's.
+            "market_price_utc": _iso_stamp(_market_ts),
+            "market_stale_minutes": _age_at_publish(_market_ts, now),
+            "offset_price_utc": _iso_stamp(_offset_ts),
+            "offset_stale_minutes": _age_at_publish(_offset_ts, now),
         }
         if bool(started.get(i, False)) and prior:
             prev = prior.get(str(game.get("game_id"))) or {}
@@ -491,7 +535,7 @@ def markets_columns() -> list[str]:
         "market_p_home", "market_logit", "overround", "price_utc",
         "fetched_utc", "stale_minutes", "pregame_minutes",
         "market_home_odds", "market_away_odds", "market_book",
-        "market_tipoff_utc",
+        "market_tipoff_utc", "market_price_utc",
     ]
     return list(dict.fromkeys(base + _grid_columns()))
 

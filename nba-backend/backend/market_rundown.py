@@ -265,7 +265,7 @@ HEADERS = {"User-Agent": "Mozilla/5.0", "Accept": "application/json"}
 LIVE_COLS = ["market_p_home", "market_logit", "overround", "price_utc",
              "fetched_utc", "stale_minutes", "pregame_minutes",
              "market_home_odds", "market_away_odds", "market_book",
-             "market_tipoff_utc"]
+             "market_tipoff_utc", "market_price_utc"]
 
 
 def _book_blob(payload: dict, name: str) -> dict:
@@ -302,7 +302,8 @@ def fetch_live(match_ids, workers: int = 8, timeout: float = 20.0):
                "price_utc": None, "fetched_utc": now, "stale_minutes": np.nan,
                "pregame_minutes": np.nan, "market_home_odds": np.nan,
                "market_away_odds": np.nan, "market_book": None,
-               "market_tipoff_utc": None, "error": None}
+               "market_tipoff_utc": None, "market_price_utc": None,
+               "error": None}
         try:
             r = requests.get(SI_LIVE.format(mid=mid), headers=HEADERS,
                              timeout=timeout)
@@ -331,10 +332,15 @@ def fetch_live(match_ids, workers: int = 8, timeout: float = 20.0):
                 rec["market_home_odds"] = float(nov["HomeOdds"])
                 rec["market_away_odds"] = float(nov["AwayOdds"])
                 rec["market_book"] = "novig"
+                # The DISPLAY pair's own stamp. ``price_utc`` stays TAB's -
+                # that is the offset input and the serve gate's clock.
+                rec["market_price_utc"] = (nov.get("LastUpdated")
+                                           or tab.get("LastUpdated"))
             elif tab.get("HomeOdds") and tab.get("AwayOdds"):
                 rec["market_home_odds"] = float(tab["HomeOdds"])
                 rec["market_away_odds"] = float(tab["AwayOdds"])
                 rec["market_book"] = "tab"
+                rec["market_price_utc"] = tab.get("LastUpdated")
         except Exception as exc:  # noqa: BLE001
             rec["error"] = str(exc)[:120]
         return rec
