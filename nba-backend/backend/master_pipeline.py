@@ -1365,10 +1365,25 @@ def _validate_slate_contract(slate: pd.DataFrame,
         raise RuntimeError("NBA slate contract contains duplicate game_id values")
     if set(slate_ids) != set(market_ids):
         raise RuntimeError("NBA slate and market contract game_id sets differ")
-    for column in ("home_win_prob_model", "mu_h", "mu_a"):
+    for column in ("mu_h", "mu_a"):
         values = pd.to_numeric(slate[column], errors="coerce").to_numpy(float)
         if not np.isfinite(values).all():
             raise RuntimeError(f"NBA slate contract has non-finite {column}")
+    # A game with no market price has no offset prediction: the offset arm
+    # intentionally leaves it NaN rather than substituting another model's
+    # probability under the offset's name (NHL's serving rule), and the card
+    # writer publishes null there. The finite check therefore covers PRICED
+    # rows only; an unpriced row is the documented feed-outage state. A NaN
+    # on a priced row is still a broken model and must fail the contract.
+    probs = pd.to_numeric(slate["home_win_prob_model"],
+                          errors="coerce").to_numpy(float)
+    if "market_logit" in slate.columns:
+        priced = pd.to_numeric(slate["market_logit"],
+                               errors="coerce").notna().to_numpy()
+    else:
+        priced = np.ones(len(slate), dtype=bool)
+    if not np.isfinite(probs[priced]).all():
+        raise RuntimeError("NBA slate contract has non-finite home_win_prob_model")
     for column in ("fair_spread", "fair_total"):
         values = pd.to_numeric(slate_markets[column], errors="coerce").to_numpy(float)
         if not np.isfinite(values).all():
@@ -2146,10 +2161,24 @@ def run(run_date: str | None = None, out_dir: str | Path | None = None,
                                 len(slate))
                 except Exception as exc:  # noqa: BLE001
                     logger.warning("slate market offset unavailable: %s", exc)
+            # An absent price column must reach predict_slate as an ABSENT
+            # OFFSET (all NaN, which yields NaN), never as None: None means
+            # "no offset supplied" and would silently score arm A under the
+            # offset arm's name (NHL's 2026-11-16 fix).
             _slate_bm = (pd.to_numeric(slate["market_logit"], errors="coerce")
                          .to_numpy(float)
                          if _market_col and "market_logit" in slate.columns
-                         else None)
+                         else (np.full(len(slate), np.nan)
+                               if _market_col else None))
+            if _market_col:
+                _unpriced = slate.loc[
+                    pd.Series(~np.isfinite(_slate_bm), index=slate.index),
+                    "game_id"].astype(str).tolist()
+                if _unpriced:
+                    logger.warning(
+                        "slate market offset: %d game(s) have no price and "
+                        "will publish no model probability: %s",
+                        len(_unpriced), ", ".join(_unpriced))
             slate["home_win_prob_model"] = ml_mod.predict_slate(
                 final_models, slate, ml["member_weights"],
                 base_margin=_slate_bm)
@@ -2177,6 +2206,16 @@ def run(run_date: str | None = None, out_dir: str | Path | None = None,
                     slate["p_ensemble"] = slate.home_win_prob_model
                     slate["p_ensemble_calibrated"] = ml_mod.moneyline_apply(
                         slate.home_win_prob_model.to_numpy(float), platt)
+            # A started game has no in-play quote, so the offset re-score
+            # above leaves its probability NaN. The card writer locks those
+            # rows to their last pre-tip publication, and the slate must
+            # carry the same values because the contract check, the markets
+            # strip and the history CSV all read this frame. This runs AFTER
+            # the refresh on purpose: the 2026-11-18 02:41 build froze first,
+            # then the quote-moved re-score overwrote the locked numbers with
+            # NaN and the slate contract aborted the entire board.
+            slate = serving.freeze_started_frame(
+                slate, out / config.MONEYLINE_JSON.format(date=date_c))
             slate["mu_h"], slate["mu_a"] = final_reg.predict(slate)
             # expand=False: apply_market_calibration reprices every row
             # below, so pricing here is discarded work.

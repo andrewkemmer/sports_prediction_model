@@ -149,11 +149,10 @@ def _as_utc_timestamp(value):
 def _prior_card_games(path) -> dict:
     """``{game_id: row}`` from the card this write is about to replace.
 
-    One card per slate date, so this is the immediately previous
-    publication - the value a started game's lock carries forward. Reading
-    it is the entire history requirement; nothing here reconstructs "first
-    of the day" (that needed an archive the delivery tree never kept, which
-    is how 2026-11-17 locked a mid-day value and called it first).
+    One card per run date, so this is the immediately previous publication
+    for a game on the same board. A late slate can also carry yesterday's
+    still-live games; ``_prior_card_games_any_date`` adds those from the
+    newest sibling card that carries them.
     """
     try:
         record = json.loads(Path(path).read_text(encoding="utf-8"))
@@ -164,6 +163,103 @@ def _prior_card_games(path) -> dict:
     for row in rows or []:
         if isinstance(row, dict) and str(row.get("game_id") or ""):
             out[str(row["game_id"])] = row
+    return out
+
+
+def _prior_card_games_any_date(path) -> dict:
+    """``{game_id: row}`` from the newest prior card that carries the game.
+
+    The same-date card wins. Siblings matter because a run-date card only
+    replaces itself while the board can carry the previous day's games: the
+    2026-11-18 01:11 run kept three 2026-11-17 games that had tipped, and
+    their last pre-tip publication lived in
+    ``nba_moneyline_v1_20261117.json``, not in the 11-18 file it replaced.
+    Without this lookup those rows had no lock, the in-play feed's missing
+    quote became a non-finite card probability, and the slate contract
+    aborted the whole board.
+
+    Newest publication wins, matching the writer's "last number published
+    before tip" rule. Never raises: an unreadable sibling is skipped under
+    a warning, because a freeze miss falls back to the fresh value rather
+    than failing the card.
+    """
+    path = Path(path)
+    out = _prior_card_games(path)
+    best: dict[str, tuple[str, str, dict]] = {}
+    try:
+        cards = sorted(path.parent.glob("nba_moneyline_v1_*.json"))
+    except OSError:
+        return out
+    for card in cards:
+        if card == path:
+            continue
+        try:
+            record = json.loads(card.read_text(encoding="utf-8"))
+        except (OSError, ValueError, TypeError) as exc:
+            logger.warning("moneyline freeze: skipping unreadable %s (%s)",
+                           card.name, exc)
+            continue
+        if not isinstance(record, dict):
+            continue
+        stamp = str(record.get("created_utc", ""))
+        for row in record.get("games", []) or []:
+            if not isinstance(row, dict):
+                continue
+            gid = str(row.get("game_id") or "")
+            if not gid or gid in out:
+                continue
+            if _clean(row.get("home_win_prob_model")) is None:
+                continue
+            previous = best.get(gid)
+            if previous is None or (stamp, card.name) > (previous[0],
+                                                         previous[1]):
+                best[gid] = (stamp, card.name, row)
+    out.update({gid: row for gid, (_, _, row) in best.items()})
+    return out
+
+
+def freeze_started_frame(frame: pd.DataFrame, path) -> pd.DataFrame:
+    """Carry the last pre-tip probability onto games already underway.
+
+    The card writer applies this lock row by row, but the pipeline needs the
+    same values on its slate: an offset member cannot score a live game (the
+    in-play feed quotes no price), so a re-score leaves NaN there and
+    ``_validate_slate_contract`` aborts the run before anything publishes.
+    The 2026-11-18 02:41 run died exactly that way on the three 2026-11-17
+    games it carried as Live.
+
+    Returns a copy; pre-tip rows are never touched, so they re-price from
+    this run's features and market.
+    """
+    if frame is None or not len(frame) or "game_id" not in frame.columns:
+        return frame
+    started = started_mask(frame)
+    if not bool(started.any()):
+        return frame
+    prior = _prior_card_games_any_date(path)
+    if not prior:
+        return frame
+    out = frame.copy()
+    n = 0
+    for i, (_, game) in enumerate(out.iterrows()):
+        if not bool(started.iloc[i]):
+            continue
+        prev = prior.get(str(game.get("game_id") or ""))
+        if not isinstance(prev, dict):
+            continue
+        shown = _clean(prev.get("home_win_prob_model"))
+        if shown is None:
+            continue
+        raw = _clean(prev.get("home_win_prob_model_raw"))
+        raw = shown if raw is None else raw
+        out.at[game.name, "home_win_prob_model"] = raw
+        if "p_ensemble" in out.columns:
+            out.at[game.name, "p_ensemble"] = raw
+        if "p_ensemble_calibrated" in out.columns:
+            out.at[game.name, "p_ensemble_calibrated"] = shown
+        n += 1
+    logger.info("moneyline freeze: %d/%d started game(s) keep their pre-tip "
+                "probability from a prior card", n, int(started.sum()))
     return out
 
 
@@ -277,7 +373,7 @@ def write_moneyline_json(path, slate: pd.DataFrame, p_home, p_home_cal,
     if player_leaders is not None and len(player_leaders):
         for _, row in player_leaders.iterrows():
             leaders[str(row.get("game_id"))] = row.to_dict()
-    prior = _prior_card_games(path)
+    prior = _prior_card_games_any_date(path)
     started = started_mask(frame)
     n_locked = 0
     games = []
@@ -554,19 +650,62 @@ def _lockable_market_columns(columns) -> list[str]:
             and not c.endswith("_offered")]
 
 
-def _prior_market_rows(path) -> pd.DataFrame:
-    """Slate rows of the markets table this write replaces, indexed by game."""
+def _prior_market_rows(path, columns=None, game_ids=None) -> pd.DataFrame:
+    """Slate rows of the markets table this write replaces, indexed by game.
+
+    The same-date table wins. A late board can carry the previous day's live
+    games (the 2026-11-18 06:28 run had two 2026-11-17 games), whose last
+    pre-tip legs live in ``nba_run_engine_markets_20261117.csv`` rather than
+    in the 11-18 file it replaces. The newest sibling that carries a game
+    supplies its lock. Never raises: an unreadable file is a freeze miss,
+    not a failed strip.
+    """
+    path = Path(path)
+    usecols = None
+    if columns is not None:
+        wanted = set(columns) | {"game_id", "kind"}
+        usecols = lambda name: name in wanted  # noqa: E731
+
+    def _read(candidate: Path) -> pd.DataFrame:
+        try:
+            frame = pd.read_csv(candidate, low_memory=False, usecols=usecols)
+        except (OSError, ValueError, pd.errors.ParserError):
+            return pd.DataFrame()
+        if frame.empty or "game_id" not in frame.columns:
+            return pd.DataFrame()
+        if "kind" in frame.columns:
+            frame = frame[frame["kind"].astype(str) == "slate"]
+        return frame
+
+    same = _read(path)
+    wanted_ids = set(game_ids) if game_ids is not None else None
+    if wanted_ids is not None and len(same):
+        if wanted_ids <= set(same["game_id"].astype(str)):
+            same = same.drop_duplicates("game_id", keep="last")
+            same.index = same["game_id"].astype(str)
+            return same
+
+    frames: list[pd.DataFrame] = []
     try:
-        frame = pd.read_csv(path, low_memory=False)
-    except (OSError, ValueError, pd.errors.ParserError):
+        siblings = sorted(path.parent.glob("nba_run_engine_markets_*.csv"))
+    except OSError:
+        siblings = []
+    for candidate in siblings:
+        if candidate == path:
+            continue
+        frame = _read(candidate)
+        if len(frame):
+            frames.append(frame)
+    if len(same):
+        frames.append(same)  # this run-date table wins over older siblings
+    if not frames:
         return pd.DataFrame()
-    if frame.empty or "game_id" not in frame.columns:
-        return pd.DataFrame()
-    if "kind" in frame.columns:
-        frame = frame[frame["kind"].astype(str) == "slate"]
+    frame = pd.concat(frames, ignore_index=True, sort=False)
+    frame = frame.drop_duplicates("game_id", keep="last")
+    if wanted_ids is not None:
+        frame = frame[frame["game_id"].astype(str).isin(wanted_ids)]
     if frame.empty:
         return pd.DataFrame()
-    frame = frame.drop_duplicates("game_id", keep="last")
     frame.index = frame["game_id"].astype(str)
     return frame
 
@@ -589,15 +728,15 @@ def _lock_started_market_legs(path, out: pd.DataFrame):
     sub = out.loc[slate_mask]
     started = started_mask(sub)
     pre_tip = int((~started.astype(bool)).sum())
-    prior = _prior_market_rows(path)
-    keep = [c for c in _lockable_market_columns(out.columns)
-            if not prior.empty and c in prior.columns]
-    if not keep:
-        return out, 0, pre_tip
+    keep = _lockable_market_columns(out.columns)
     slot = sub.index[started.to_numpy(bool)]
-    if not len(slot):
+    if not len(slot) or not keep:
         return out, 0, pre_tip
     gid = sub.loc[slot, "game_id"].astype(str)
+    prior = _prior_market_rows(path, keep, set(gid))
+    keep = [c for c in keep if not prior.empty and c in prior.columns]
+    if not keep:
+        return out, 0, pre_tip
     found = gid.isin(prior.index).to_numpy(bool)
     slot, gid = slot[found], gid[found]
     if not len(slot):

@@ -202,3 +202,112 @@ def test_the_card_stamps_and_ages_each_book_at_publish(tmp_path):
     assert g["offset_price_utc"].startswith(tab[:19])
     assert g["market_stale_minutes"] == pytest.approx(4.0, abs=0.5)
     assert g["offset_stale_minutes"] == pytest.approx(20.0, abs=0.5)
+
+
+# ── the freeze reaches the previous day's card (2026-11-18 crash) ────────
+# The 02:41 run carried three 2026-11-17 games that had tipped onto the
+# 2026-11-18 slate. The in-play feed quoted no price, so the offset arm
+# scored NaN; the freeze that had filled them ran BEFORE the quote-moved
+# re-score, which overwrote the values, and _validate_slate_contract then
+# aborted the whole board. The lock must survive the re-score and must be
+# able to read a card named for the PREVIOUS run date.
+
+def _previous_day_card(path, gid="g1", prob=0.62):
+    frame = pd.DataFrame({
+        "game_id": [gid],
+        "gameday": pd.to_datetime(["2026-11-17"]),
+        "home_team": ["TOR"], "away_team": ["NYK"],
+        "game_state": ["pre"], "game_status_detail": ["7:00 PM ET"],
+        "start_time_utc": ["2026-11-17T23:00:00Z"],
+        "home_win_prob_model": [prob],
+    })
+    return serving.write_moneyline_json(
+        path, frame, frame.home_win_prob_model, frame.home_win_prob_model)
+
+
+def _next_day_live_slate():
+    return pd.DataFrame({
+        "game_id": ["g1", "g2"],
+        "gameday": pd.to_datetime(["2026-11-17", "2026-11-18"]),
+        "home_team": ["TOR", "BOS"], "away_team": ["NYK", "LAL"],
+        "game_state": ["in", "pre"],
+        "game_status_detail": ["8:33 - 3rd Quarter", "7:30 PM ET"],
+        "start_time_utc": ["2026-11-17T23:00:00Z", "2026-11-18T23:00:00Z"],
+        "home_win_prob_model": [np.nan, 0.58],
+        "p_ensemble": [np.nan, 0.58],
+        "p_ensemble_calibrated": [np.nan, 0.58],
+        "mu_h": [110.0, 112.0], "mu_a": [108.0, 110.0],
+    })
+
+
+def test_a_live_game_from_yesterdays_card_keeps_its_pre_tip_probability(tmp_path):
+    _previous_day_card(tmp_path / "nba_moneyline_v1_20261117.json")
+    slate = _next_day_live_slate()
+    frozen = serving.freeze_started_frame(
+        slate, tmp_path / "nba_moneyline_v1_20261118.json")
+    assert frozen.loc[0, "home_win_prob_model"] == pytest.approx(0.62)
+    assert frozen.loc[0, "p_ensemble"] == pytest.approx(0.62)
+    assert frozen.loc[0, "p_ensemble_calibrated"] == pytest.approx(0.62)
+    # The pre-tip row is not frozen, and the caller's frame is untouched.
+    assert frozen.loc[1, "home_win_prob_model"] == pytest.approx(0.58)
+    assert np.isnan(slate.loc[0, "home_win_prob_model"])
+    markets = pd.DataFrame({"game_id": ["g1", "g2"],
+                            "fair_spread": [1.5, -2.0],
+                            "fair_total": [221.5, 228.0]})
+    mp._validate_slate_contract(frozen, markets)  # must not raise
+
+
+def test_the_card_writer_locks_a_live_game_from_yesterdays_card(tmp_path):
+    _previous_day_card(tmp_path / "nba_moneyline_v1_20261117.json")
+    slate = _next_day_live_slate().iloc[[0]].copy()
+    slate["home_win_prob_model"] = 0.90
+    record = serving.write_moneyline_json(
+        tmp_path / "nba_moneyline_v1_20261118.json", slate,
+        slate.home_win_prob_model, slate.home_win_prob_model)
+    assert record["games"][0]["home_win_prob_model"] == pytest.approx(0.62)
+
+
+def test_an_unpriced_slate_game_may_publish_no_probability():
+    # The offset arm cannot score a game with no price, and the card writer
+    # publishes null for it - the documented feed-outage state. A NaN on a
+    # PRICED row is still a broken model and must fail the contract.
+    slate = pd.DataFrame({
+        "game_id": ["g1", "g2"],
+        "home_team": ["TOR", "BOS"], "away_team": ["NYK", "LAL"],
+        "home_win_prob_model": [0.62, np.nan],
+        "mu_h": [110.0, 112.0], "mu_a": [108.0, 110.0],
+        "market_logit": [0.49, np.nan],
+    })
+    markets = pd.DataFrame({"game_id": ["g1", "g2"],
+                            "fair_spread": [1.5, -2.0],
+                            "fair_total": [221.5, 228.0]})
+    mp._validate_slate_contract(slate, markets)  # must not raise
+    broken = slate.copy()
+    broken.loc[0, "home_win_prob_model"] = np.nan
+    with pytest.raises(RuntimeError, match="non-finite home_win_prob_model"):
+        mp._validate_slate_contract(broken, markets)
+
+
+def test_markets_strip_locks_a_live_game_from_yesterdays_table(tmp_path):
+    # The 2026-11-18 06:28 log said "0 started game(s) keep their last
+    # pre-tip legs" for two 2026-11-17 live games: the writer read only the
+    # 11-18 table, which did not exist. The newest sibling must supply the
+    # lock while live market lines keep moving.
+    yesterday = tmp_path / "nba_run_engine_markets_20261117.csv"
+    serving.write_markets_csv(
+        yesterday, tmp_path / "m1.json", pd.DataFrame(),
+        _strip([224.5, 230.0], [112.0, 115.0], [0.51, 0.52],
+               [-2.5, -3.5], [0.50, 0.53]))
+    today = tmp_path / "nba_run_engine_markets_20261118.csv"
+    serving.write_markets_csv(
+        today, tmp_path / "m2.json", pd.DataFrame(),
+        _strip([999.0, 231.0], [999.0, 115.5], [0.99, 0.52],
+               [-9.5, -4.5], [0.99, 0.54]))
+    out = pd.read_csv(today).set_index("game_id")
+    live = out.loc["g1"]
+    assert live["fair_total"] == pytest.approx(224.5)
+    assert live["mu_h"] == pytest.approx(112.0)
+    assert live["p_over_220"] == pytest.approx(0.51)
+    # Live market lines stay fresh - they describe the market, not the model.
+    assert live["spread_line"] == pytest.approx(-9.5)
+    assert out.loc["g2", "fair_total"] == pytest.approx(231.0)
