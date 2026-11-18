@@ -117,32 +117,70 @@ def _game(m, season: int, rnd: int) -> dict | None:
 
 
 def enumerate_recent(season: int, cursor: int, rounds: int) -> tuple[list, int]:
-    """Games from the most recent ``rounds`` rounds, plus the last round seen.
+    """Games inside the last ``rounds`` days, plus everything still scheduled.
 
-    The walk starts inside the previous window and steps forward until the
-    season runs dry, so a run that resumes after a long gap still finds the
-    current rounds (only the tail past the last game is empty).
+    The lookback trails NOW, not the furthest round on the schedule. Stats
+    Insider publishes the season's fixtures up front, so the cursor sits
+    weeks ahead (NHL 2026-11-17: round 94 = Dec 31). The old window started
+    at ``cursor - rounds + 1`` and therefore began in December: no November
+    round was enumerated at all, so the last 30 days were neither healed for
+    missing matches nor re-priced before their games. That run made 3 price
+    requests, added 3 December matches, moved 0, and left every game dated
+    that night on its 11:09Z morning capture (2026-11-18).
+
+    Forward from the cursor covers everything still scheduled; backward from
+    the cursor covers the lookback, stopping once a round's games all fall
+    outside ``rounds`` days. Only games inside that horizon are returned.
     """
-    start = max(1, int(cursor) - rounds + 1)
+    now = _now()
+    horizon = now - pd.Timedelta(days=rounds)
     games: list[dict] = []
+    seen: set[str] = set()
     last_with_games = 0
-    empty = 0
-    rnd = start
+
+    def start_of(game: dict):
+        try:
+            ts = pd.Timestamp(game.get("date"))
+        except (TypeError, ValueError, OverflowError):
+            return None
+        if ts is pd.NaT or pd.isna(ts):
+            return None
+        return ts.tz_localize("UTC") if ts.tzinfo is None else ts.tz_convert("UTC")
+
+    def collect(rnd: int) -> list[dict]:
+        nonlocal last_with_games
+        got: list[dict] = []
+        for m in matches_for(season, rnd) or []:
+            g = _game(m, season, rnd)
+            if not g:
+                continue
+            mid = str(g["match_id"])
+            if mid in seen:
+                continue
+            seen.add(mid)
+            games.append(g)
+            got.append(g)
+        if got:
+            last_with_games = max(last_with_games, rnd)
+        return got
+
+    rnd, empty = max(1, int(cursor)), 0
     while rnd < 700 and empty < EMPTY_LIMIT:
-        ms = matches_for(season, rnd)
-        if ms:
-            empty = 0
-            last_with_games = rnd
-            for m in ms:
-                g = _game(m, season, rnd)
-                if g:
-                    games.append(g)
-        else:
-            empty += 1
+        empty = 0 if collect(rnd) else empty + 1
         rnd += 1
-    keep_from = max(1, last_with_games - rounds + 1)
-    games = [g for g in games if g["round"] >= keep_from]
-    return games, last_with_games
+
+    rnd, empty = max(1, int(cursor)) - 1, 0
+    while rnd >= 1 and empty < EMPTY_LIMIT:
+        got = collect(rnd)
+        empty = 0 if got else empty + 1
+        starts = [s for s in (start_of(g) for g in got) if s is not None]
+        if starts and max(starts) < horizon:
+            break
+        rnd -= 1
+
+    kept = [g for g in games
+            if start_of(g) is not None and start_of(g) >= horizon]
+    return kept, last_with_games
 
 
 def _price_record(g: dict) -> dict | None:

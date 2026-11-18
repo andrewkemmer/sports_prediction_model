@@ -123,32 +123,70 @@ def _game(m, season: int, rnd: int) -> dict | None:
 
 
 def enumerate_recent(season: int, cursor: int, rounds: int) -> tuple[list, int]:
-    """Games from the most recent ``rounds`` rounds, plus the last round seen.
+    """Games inside the last ``rounds`` days, plus everything still scheduled.
 
-    The walk starts inside the previous window and steps forward until the
-    season runs dry, so a run that resumes after a long gap still finds the
-    current rounds (only the tail past the last game is empty).
+    The lookback trails NOW, not the furthest round on the schedule. Stats
+    Insider publishes the season's fixtures up front, so the cursor sits
+    weeks ahead (NHL 2026-11-17: round 94 = Dec 31). The old window started
+    at ``cursor - rounds + 1`` and therefore began in December: no November
+    round was enumerated at all, so the last 30 days were neither healed for
+    missing matches nor re-priced before their games. That run made 3 price
+    requests, added 3 December matches, moved 0, and left every game dated
+    that night on its 11:09Z morning capture (2026-11-18).
+
+    Forward from the cursor covers everything still scheduled; backward from
+    the cursor covers the lookback, stopping once a round's games all fall
+    outside ``rounds`` days. Only games inside that horizon are returned.
     """
-    start = max(1, int(cursor) - rounds + 1)
+    now = _now()
+    horizon = now - pd.Timedelta(days=rounds)
     games: list[dict] = []
+    seen: set[str] = set()
     last_with_games = 0
-    empty = 0
-    rnd = start
+
+    def start_of(game: dict):
+        try:
+            ts = pd.Timestamp(game.get("date"))
+        except (TypeError, ValueError, OverflowError):
+            return None
+        if ts is pd.NaT or pd.isna(ts):
+            return None
+        return ts.tz_localize("UTC") if ts.tzinfo is None else ts.tz_convert("UTC")
+
+    def collect(rnd: int) -> list[dict]:
+        nonlocal last_with_games
+        got: list[dict] = []
+        for m in matches_for(season, rnd) or []:
+            g = _game(m, season, rnd)
+            if not g:
+                continue
+            mid = str(g["match_id"])
+            if mid in seen:
+                continue
+            seen.add(mid)
+            games.append(g)
+            got.append(g)
+        if got:
+            last_with_games = max(last_with_games, rnd)
+        return got
+
+    rnd, empty = max(1, int(cursor)), 0
     while rnd < 700 and empty < EMPTY_LIMIT:
-        ms = matches_for(season, rnd)
-        if ms:
-            empty = 0
-            last_with_games = rnd
-            for m in ms:
-                g = _game(m, season, rnd)
-                if g:
-                    games.append(g)
-        else:
-            empty += 1
+        empty = 0 if collect(rnd) else empty + 1
         rnd += 1
-    keep_from = max(1, last_with_games - rounds + 1)
-    games = [g for g in games if g["round"] >= keep_from]
-    return games, last_with_games
+
+    rnd, empty = max(1, int(cursor)) - 1, 0
+    while rnd >= 1 and empty < EMPTY_LIMIT:
+        got = collect(rnd)
+        empty = 0 if got else empty + 1
+        starts = [s for s in (start_of(g) for g in got) if s is not None]
+        if starts and max(starts) < horizon:
+            break
+        rnd -= 1
+
+    kept = [g for g in games
+            if start_of(g) is not None and start_of(g) >= horizon]
+    return kept, last_with_games
 
 
 def _price_record(g: dict) -> dict | None:
@@ -434,8 +472,47 @@ def full_sweep(seasons=(2022, 2023, 2024, 2025, 2026),
                 pass
 
 
+def power_devig(qh, qa):
+    """Power de-vig: solve (1/d1)^k + (1/d2)^k = 1 and return p_home.
+
+    Proportional de-vig keeps the implied ratio and therefore understates
+    favourites on a high-hold book; the power form lets k absorb the hold.
+    """
+    import numpy as np
+    lo = np.full_like(qh, 0.05)
+    hi = np.full_like(qh, 10.0)
+    for _ in range(80):
+        mid = (lo + hi) / 2.0
+        s = np.power(qh, mid) + np.power(qa, mid)
+        lo = np.where(s > 1.0, mid, lo)
+        hi = np.where(s > 1.0, hi, mid)
+    return np.power(qh, (lo + hi) / 2.0)
+
+
+def shin_devig(qh, qa):
+    """Shin (1993) de-vig - the construction the FanDuel arm used."""
+    import numpy as np
+    S = qh + qa
+
+    def pr(z):
+        a = np.sqrt(z * z + 4 * (1 - z) * qh * qh / S)
+        b = np.sqrt(z * z + 4 * (1 - z) * qa * qa / S)
+        return (a - z) / (2 * (1 - z)), (b - z) / (2 * (1 - z))
+
+    lo = np.zeros_like(qh, dtype=float)
+    hi = np.full_like(qh, 0.99)
+    for _ in range(60):
+        mid = (lo + hi) / 2.0
+        ph, pa = pr(mid)
+        ss = ph + pa
+        hi = np.where(ss > 1.0, hi, mid)
+        lo = np.where(ss > 1.0, mid, lo)
+    return pr((lo + hi) / 2.0)[0]
+
+
 def attach_prices(game_df: pd.DataFrame, path: str | None = None,
-                  date_col: str = "gameday") -> tuple[pd.DataFrame, float]:
+                  date_col: str = "gameday",
+                  method: str = "proportional") -> tuple[pd.DataFrame, float]:
     """Attach the proportional TAB fair price and its logit to a game frame.
 
     Returns ``(frame, coverage)``. ``market_p_home`` is the proportional
@@ -458,9 +535,17 @@ def attach_prices(game_df: pd.DataFrame, path: str | None = None,
     ok = (np.isfinite(ih) & np.isfinite(ia) & (h > 1.0) & (a > 1.0)
           & (ov >= _mr.MIN_OVERROUND) & (ov <= _mr.MAX_OVERROUND))
     d = d[ok].copy()
-    d["market_p_home"] = (1.0 / pd.to_numeric(d["tab_homeodds"], errors="coerce")
-                          ) / (1.0 / pd.to_numeric(d["tab_homeodds"], errors="coerce")
-                               + 1.0 / pd.to_numeric(d["tab_awayodds"], errors="coerce"))
+    _qh = 1.0 / pd.to_numeric(d["tab_homeodds"], errors="coerce")
+    _qa = 1.0 / pd.to_numeric(d["tab_awayodds"], errors="coerce")
+    _ov = _qh + _qa
+    if method == "power":
+        d["market_p_home"] = power_devig(_qh.to_numpy(float), _qa.to_numpy(float))
+    elif method == "shin":
+        d["market_p_home"] = shin_devig(_qh.to_numpy(float), _qa.to_numpy(float))
+    elif method == "proportional":
+        d["market_p_home"] = _qh / _ov
+    else:
+        raise ValueError(f"unknown de-vig method {method!r}")
     d["market_logit"] = np.log(d["market_p_home"] / (1.0 - d["market_p_home"]))
     d["_day"] = (pd.to_datetime(d["date"], utc=True, errors="coerce")
                  .dt.tz_convert("America/New_York").dt.tz_localize(None)
