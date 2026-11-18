@@ -45,6 +45,7 @@ import distributions as dist_mod  # noqa: E402
 import evaluation as eval_mod  # noqa: E402
 import serving as serve_mod  # noqa: E402
 import monitoring  # noqa: E402
+import market_offset as _market  # noqa: E402
 
 # Logs go to STDOUT, the same stream as the phase banners. They used to go to
 # stderr while _banner printed to stdout, and the two are separate file
@@ -672,7 +673,6 @@ def main(argv: list[str] | None = None) -> int:
     _offset_col = None
     _offset_env = os.environ.get("NHL_MARKET_OFFSET", "1").strip().lower()
     if _offset_env not in ("0", "false", "no", "off"):
-        import market_offset as _market
         game_df = _market.attach(game_df)
         _priced = int(game_df["market_p_home"].notna().sum())
         logger.info("market offset: TAB price attached to %d/%d games (%.1f%%)",

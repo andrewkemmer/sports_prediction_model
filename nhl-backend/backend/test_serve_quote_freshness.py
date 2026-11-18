@@ -144,3 +144,28 @@ def test_the_card_stamps_and_ages_each_book_at_publish(tmp_path):
     assert g["offset_price_utc"].startswith(tab[:19])
     assert g["market_stale_minutes"] == pytest.approx(4.0, abs=0.5)
     assert g["offset_stale_minutes"] == pytest.approx(20.0, abs=0.5)
+
+
+# ── the refresh path resolves the market module (2026-11-18 crash) ───────
+def test_the_pipeline_refresh_path_reads_the_market_module(monkeypatch):
+    """``_refresh_serve_quotes`` referenced ``_market`` as a global while the
+    module was imported only inside ``main()``, so any run whose oldest quote
+    passed the bar died in Phase 12 with ``NameError: name '_market' is not
+    defined`` - after eleven phases of work, on a slate that was already
+    priced. The binding is module-level now; this test walks the crash path
+    and fails with the same NameError if the import regresses.
+    """
+    import master_pipeline
+
+    slate = _frame()                     # oldest quote 13.2 min > 10-min bar
+    p = slate["market_p_home"].to_numpy()
+    # The feed drops both games: the refresh must keep the prior board.
+    monkeypatch.setattr(master_pipeline._market, "attach_live",
+                        lambda base: None)
+
+    out, p_out, cal_out = master_pipeline._refresh_serve_quotes(
+        slate, p, p, None, None, None)
+
+    assert out is slate
+    assert p_out is p
+    assert cal_out is p
