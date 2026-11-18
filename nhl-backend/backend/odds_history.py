@@ -217,11 +217,21 @@ def plan_fetch(games: list[dict], base: pd.DataFrame, now: pd.Timestamp,
                days: float, cap: int = MAX_FETCH) -> list[dict]:
     """Which enumerated games need a request.
 
-    Missing ids always qualify (they heal old gaps); ids already in the base
-    qualify only inside the freshness window, where the quote can still move
-    toward the close. Everything else is already at its closing line.
+    Missing ids always qualify (they heal old gaps), and so does a row the
+    module never captured - no ``fetched_utc`` means no proof the stored quote
+    is a closing line (2026-11-18: 173 of the NHL lookback's 207 rows were
+    unstamped legacy rows and could never heal). Ids already captured qualify
+    inside the freshness window, where the quote can still move toward the
+    close; everything else is already at its closing line.
     """
     known = set(base["match_id"].astype(str)) if len(base) and "match_id" in base else set()
+    if len(base) and "match_id" in base:
+        stamps = (pd.to_datetime(base["fetched_utc"], errors="coerce", utc=True)
+                  if "fetched_utc" in base.columns
+                  else pd.Series([pd.NaT] * len(base), index=base.index))
+        stamped = set(base.loc[stamps.notna(), "match_id"].astype(str))
+    else:
+        stamped = set()
     cutoff = now - pd.Timedelta(days=days)
     out: list[dict] = []
     seen: set[str] = set()
@@ -236,7 +246,8 @@ def plan_fetch(games: list[dict], base: pd.DataFrame, now: pd.Timestamp,
                 start = start.tz_localize("UTC")
         except Exception:  # noqa: BLE001
             start = None
-        if mid not in known or (start is not None and start >= cutoff):
+        if (mid not in known or mid not in stamped
+                or (start is not None and start >= cutoff)):
             out.append(g)
     return out[:cap]
 

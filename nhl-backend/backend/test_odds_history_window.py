@@ -37,13 +37,18 @@ def test_the_lookback_trails_now_not_the_furthest_scheduled_round(monkeypatch):
     assert last == 94
 
 
-def test_a_missing_match_and_a_pre_game_row_both_get_requested():
+def test_missing_unstamped_and_pre_game_rows_all_get_requested():
     now = pd.Timestamp("2026-11-18T00:00:00Z")
-    base = pd.DataFrame({"match_id": ["known_today", "closing"]})
+    base = pd.DataFrame({
+        "match_id": ["known_today", "closing", "unstamped"],
+        "fetched_utc": ["2026-11-17T12:00:00Z", "2026-11-10T23:00:00Z", None]})
     games = [
         {"match_id": "known_today", "date": "2026-11-18T23:00:00Z"},
         {"match_id": "closing", "date": "2026-11-10T00:00:00Z"},
+        {"match_id": "unstamped", "date": "2026-11-10T00:00:00Z"},
         {"match_id": "missing", "date": "2026-11-10T00:00:00Z"},
     ]
     got = {g["match_id"] for g in oh.plan_fetch(games, base, now, 3)}
-    assert got == {"known_today", "missing"}
+    # A row with no capture stamp is not a proven closing line, even when it
+    # is older than the re-price window; the stamped closing row is left.
+    assert got == {"known_today", "unstamped", "missing"}
