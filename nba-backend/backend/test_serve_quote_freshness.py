@@ -17,6 +17,7 @@ These pin the three pieces that make that impossible to hide:
 """
 from __future__ import annotations
 
+import numpy as np
 import pandas as pd
 import pytest
 
@@ -25,6 +26,7 @@ try:  # run from nba-backend/backend, as the pipeline's own docstring says
         _keep_prior_quotes,
         _needs_quote_refresh,
         _quote_age_minutes,
+        _refresh_serve_quotes,
     )
     from serving import started_mask
 except ImportError:  # run from nba-backend
@@ -32,6 +34,7 @@ except ImportError:  # run from nba-backend
         _keep_prior_quotes,
         _needs_quote_refresh,
         _quote_age_minutes,
+        _refresh_serve_quotes,
     )
     from backend.serving import started_mask
 
@@ -139,3 +142,45 @@ def test_state_beats_the_clock_but_the_clock_covers_legacy_rows():
     assert bool(started_mask(legacy)[0]) is True
     future = _slate(None, "", tip="2099-01-01T00:00:00Z")
     assert bool(started_mask(future)[0]) is False
+
+
+# ── the refresh lands on the CARD frame and reports a moved price ─────────
+# 2026-11-18: the gate used to refresh slate_markets only, so the moneyline
+# card kept the older quote and the probability computed from it.
+
+def _quoted(age_min=13.2, prob=0.548743):
+    now = pd.Timestamp.now(tz="UTC")
+    return pd.DataFrame({
+        "game_id": ["401910003"],
+        "market_p_home": [prob],
+        "market_logit": [float(np.log(prob / (1 - prob)))],
+        "price_utc": [(now - pd.Timedelta(minutes=age_min)).isoformat()],
+        "market_home_odds": [1.83333], "market_away_odds": [2.17],
+        "market_book": ["novig"]})
+
+
+def test_a_moved_price_refreshes_the_card_frame_and_reports_it():
+    out, moved = _refresh_serve_quotes(
+        _quoted(), 10.0, attach=lambda _f: _quoted(age_min=0.1, prob=0.615))
+    assert moved is True
+    assert out["market_p_home"].iloc[0] == pytest.approx(0.615)
+
+
+def test_a_quiet_feed_keeps_the_prior_quote_instead_of_blanking_it():
+    silent = pd.DataFrame({"game_id": ["401910003"],
+                           "market_p_home": [np.nan],
+                           "market_logit": [np.nan], "price_utc": [None]})
+    out, moved = _refresh_serve_quotes(
+        _quoted(), 10.0, attach=lambda _f: silent)
+    assert moved is False
+    assert out["market_p_home"].iloc[0] == pytest.approx(0.548743)
+    assert out["market_book"].iloc[0] == "novig"
+    assert out["price_utc"].iloc[0] is not None
+
+
+def test_a_fresh_quote_is_not_refetched():
+    calls = []
+    _, moved = _refresh_serve_quotes(
+        _quoted(age_min=2.0), 10.0,
+        attach=lambda frame: calls.append(1) or frame)
+    assert calls == [] and moved is False

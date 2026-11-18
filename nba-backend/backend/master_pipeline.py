@@ -295,6 +295,75 @@ def _keep_prior_quotes(fresh: pd.DataFrame, prior: pd.DataFrame) -> pd.DataFrame
     return out
 
 
+def _refresh_serve_quotes(slate: pd.DataFrame, max_age: float,
+                          attach=None) -> tuple[pd.DataFrame, bool]:
+    """Re-pull the live TAB quote on the frame the CARD is written from.
+
+    NHL twin (``nhl-backend/backend/master_pipeline._refresh_serve_quotes``).
+    Phase 4 attaches prices, then scores, prices the strip and writes
+    artifacts: the 2026-11-17 run attached MIN from a 00:03:39Z stamp and
+    published at 00:20 while calling it "live". Past the bar this re-pulls
+    once, keeps the prior number (and its stamp) where the feed is silent,
+    and reports whether ``market_logit`` actually moved so the caller can
+    re-score the offset arm against the price the card will show.
+
+    The refresh targets the CARD frame, not a copy: a quote refreshed only
+    into ``slate_markets`` leaves the moneyline card serving the older price
+    and the probability computed from it.
+    """
+    if slate is None or not len(slate):
+        return slate, False
+    attach = attach or market_rundown.attach_live
+    age = _quote_age_minutes(slate)
+    oldest = float(age.max()) if len(age) else float("nan")
+    priced = int(pd.to_numeric(
+        slate.get("market_p_home", pd.Series(dtype=float)),
+        errors="coerce").notna().sum())
+    shown_age = "n/a" if not np.isfinite(oldest) else f"{oldest:.1f}"
+    if not _needs_quote_refresh(priced > 0, oldest, max_age):
+        logger.info("serve quotes: %d/%d game(s) priced (reused), oldest "
+                    "quote %s min against a %g-min bar", priced, len(slate),
+                    shown_age, max_age)
+        return slate, False
+    try:
+        fresh = attach(slate)
+    except Exception as exc:  # noqa: BLE001 - a feed outage never fails a run
+        logger.warning("serve quotes: refresh unavailable (%s) - keeping "
+                       "the attached quote", exc)
+        return slate, False
+    if (fresh is None or len(fresh) != len(slate)
+            or "market_logit" not in fresh.columns):
+        logger.warning("serve quotes: refresh returned %s row(s) for %d "
+                       "game(s) - keeping the attached quote",
+                       (0 if fresh is None else len(fresh)), len(slate))
+        return slate, False
+    before = pd.to_numeric(
+        slate.get("market_logit", pd.Series([np.nan] * len(slate))),
+        errors="coerce").to_numpy(float)
+    merged = _keep_prior_quotes(fresh.reset_index(drop=True),
+                                slate.reset_index(drop=True))
+    for col in _QUOTE_COLUMNS:
+        if col in merged.columns:
+            slate[col] = merged[col].to_numpy()
+    after = pd.to_numeric(slate["market_logit"], errors="coerce").to_numpy(float)
+    moved = not np.allclose(before, after, equal_nan=True)
+    age = _quote_age_minutes(slate)
+    oldest = float(age.max()) if len(age) else float("nan")
+    logger.info("serve quotes: %d/%d game(s) priced (refreshed%s), oldest "
+                "quote %s min against a %g-min bar", priced, len(slate),
+                ", price moved" if moved else "", 
+                "n/a" if not np.isfinite(oldest) else f"{oldest:.1f}", max_age)
+    if np.isfinite(oldest) and oldest > max_age:
+        stale_ids = (slate.loc[_quote_age_minutes(slate) > max_age, "game_id"]
+                     .astype(str).tolist())
+        logger.warning(
+            "serve quotes: %d game(s) still quote a price older than %g min "
+            "after the refresh (%s) - the feed is lagging, so the card "
+            "carries the last number it published, not a fresh one",
+            len(stale_ids), max_age, ", ".join(stale_ids))
+    return slate, moved
+
+
 def _marketize(base: pd.DataFrame, dist: pd.DataFrame, kind: str,
                 mc_meta_out: dict | None = None, expand: bool = True) -> pd.DataFrame:
     """Attach a complete NBA score/line distribution to a base game frame.
@@ -2086,61 +2155,31 @@ def run(run_date: str | None = None, out_dir: str | Path | None = None,
             slate["p_ensemble"] = slate.home_win_prob_model
             slate["p_ensemble_calibrated"] = ml_mod.moneyline_apply(
                 slate.home_win_prob_model.to_numpy(float), platt)
+            # Serving market odds (NHL parity, 2026-11-16): the feed's
+            # CURRENT quote, fetched now rather than read from the archive,
+            # so the published board carries the number a bettor can
+            # actually take. A feed outage prices nothing and must never
+            # fail the run - every market column stays NaN. This runs on
+            # the CARD frame, and a price that moved re-scores the offset
+            # arm: otherwise the card pairs a fresh quote with a probability
+            # computed from the old one.
+            if _market_col:
+                slate, _quote_moved = _refresh_serve_quotes(
+                    slate, float(os.environ.get(
+                        "NBA_SERVE_QUOTE_MAX_AGE_MIN", "10")))
+                if _quote_moved:
+                    slate["home_win_prob_model"] = ml_mod.predict_slate(
+                        final_models, slate, ml["member_weights"],
+                        base_margin=pd.to_numeric(
+                            slate["market_logit"], errors="coerce")
+                        .to_numpy(float))
+                    slate["p_ensemble"] = slate.home_win_prob_model
+                    slate["p_ensemble_calibrated"] = ml_mod.moneyline_apply(
+                        slate.home_win_prob_model.to_numpy(float), platt)
             slate["mu_h"], slate["mu_a"] = final_reg.predict(slate)
             # expand=False: apply_market_calibration reprices every row
             # below, so pricing here is discarded work.
             slate_markets = _marketize(slate, slate, "slate", expand=False)
-            # Serving market odds (NHL parity, 2026-11-16): the feed's CURRENT
-            # quote, fetched now rather than read from the archive, so the
-            # published board carries the number a bettor can actually take.
-            # A feed outage prices nothing and must never fail the run -
-            # every market column stays NaN. A started game's CARD keeps its
-            # last pre-tip number (the writers lock on tipoff), so this fresh
-            # quote is what a pre-tip run publishes, nothing more.
-            try:
-                # A quote counts as "the number at publish time" only if it
-                # is actually fresh. The offset pull above happens before the
-                # scoring block, so a late-evening run can attach a price and
-                # serve it twenty minutes later - on 2026-11-17 that shipped
-                # MIN at 54.9% no-vig from a 12.75-minute-old quote while the
-                # log called it "live". Re-pull once past the bar, and keep
-                # the older number for any game the feed cannot price.
-                _max_age = float(os.environ.get(
-                    "NBA_SERVE_QUOTE_MAX_AGE_MIN", "10"))
-                _age = _quote_age_minutes(slate_markets)
-                _oldest = float(_age.max()) if len(_age) else float("nan")
-                _had = "market_logit" in slate_markets.columns
-                _refreshed = False
-                if _needs_quote_refresh(_had, _oldest, _max_age):
-                    _fresh = market_rundown.attach_live(slate_markets)
-                    if _fresh is not None and len(_fresh):
-                        slate_markets = _keep_prior_quotes(_fresh, slate_markets)
-                        _refreshed = True
-                _age = _quote_age_minutes(slate_markets)
-                _oldest = float(_age.max()) if len(_age) else float("nan")
-                _priced = int(pd.to_numeric(
-                    slate_markets.get("market_p_home",
-                                      pd.Series(dtype=float)),
-                    errors="coerce").notna().sum())
-                logger.info(
-                    "slate market odds: %d/%d game(s) priced (%s), oldest "
-                    "quote %s min against a %g-min bar",
-                    _priced, len(slate_markets),
-                    "refreshed" if _refreshed else "reused",
-                    ("n/a" if not np.isfinite(_oldest)
-                     else f"{_oldest:.1f}"), _max_age)
-                if np.isfinite(_oldest) and _oldest > _max_age:
-                    _stale_ids = (slate_markets.loc[
-                        _quote_age_minutes(slate_markets) > _max_age, "game_id"]
-                        .astype(str).tolist())
-                    logger.warning(
-                        "slate market odds: %d game(s) still quote a price "
-                        "older than %g min after the refresh (%s) - the feed "
-                        "is lagging, so the card carries the last number it "
-                        "published, not a fresh one",
-                        len(_stale_ids), _max_age, ", ".join(_stale_ids))
-            except Exception as exc:  # noqa: BLE001
-                logger.warning("slate market odds unavailable: %s", exc)
             slate_markets = dist_mod.apply_market_calibration(slate_markets,
                                                                market_calibration)
             leaders = player_enrichment.build_player_leader(slate, facts.player_stats, games)
