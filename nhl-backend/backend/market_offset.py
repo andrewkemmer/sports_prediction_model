@@ -163,6 +163,75 @@ def attach(game_df: pd.DataFrame,
     return out.drop(columns=["_day"])
 
 
+#: Every column a live pull owns. A refresh must drop all of them before
+#: calling ``attach_live`` - it only drops the first four itself, and a
+#: merge would otherwise suffix the price columns ``_x``/``_y``.
+QUOTE_FIELDS = ("market_p_home", "market_logit", "price_utc", "stale_minutes",
+                "market_home_odds", "market_away_odds", "market_book",
+                "market_price_utc")
+
+
+def quote_age_minutes(frame: pd.DataFrame) -> pd.Series:
+    """Minutes between now (UTC) and each row's provider quote stamp.
+
+    ``market_price_utc``/``price_utc`` is the FEED's own last-updated
+    instant, so this is the age of the number a reader would see, not the
+    age of our request: the 2026-11-17 run attached BOS/LAK at 23:21:03 and
+    published the card at 23:34:13 - thirteen minutes of drift behind a
+    board that said "priced live" and carried no age at all.
+    """
+    if frame is None or not len(frame):
+        return pd.Series(dtype=float)
+    col = next((c for c in ("market_price_utc", "price_utc")
+                if c in frame.columns), None)
+    if col is None:
+        return pd.Series(dtype=float)
+    stamp = pd.to_datetime(frame[col], errors="coerce", utc=True)
+    return (pd.Timestamp.now(tz="UTC") - stamp).dt.total_seconds() / 60.0
+
+
+def needs_quote_refresh(has_prices: bool, oldest_age_min: float,
+                        max_age_min: float) -> bool:
+    """Whether serving must re-pull prices before it publishes.
+
+    An unpriced slate, or one whose stamp is unusable, is refreshed; so is
+    one whose OLDEST quote is past the bar. Mirrors the NBA gate so the two
+    boards age the same way.
+    """
+    if not has_prices:
+        return True
+    try:
+        oldest = float(oldest_age_min)
+    except (TypeError, ValueError):
+        return True
+    return not np.isfinite(oldest) or oldest > float(max_age_min)
+
+
+def keep_prior_quotes(fresh: pd.DataFrame, prior: pd.DataFrame) -> pd.DataFrame:
+    """Overlay a refresh on the prior quote, keeping any field it left empty.
+
+    A game the feed cannot re-price keeps its older number AND its older
+    stamp, so the staleness stays visible instead of being disguised as
+    fresh by the refresh itself.
+    """
+    if fresh is None or not len(fresh):
+        return fresh
+    if prior is None or not len(prior):
+        return fresh
+    if "game_id" not in fresh.columns or "game_id" not in prior.columns:
+        return fresh
+    out = fresh.copy()
+    prev = prior.drop_duplicates("game_id").set_index(
+        prior.drop_duplicates("game_id").game_id.astype(str))
+    gid = out.game_id.astype(str)
+    for col in QUOTE_FIELDS:
+        if col not in out.columns or col not in prev.columns:
+            continue
+        fill = gid.map(prev[col])
+        out[col] = out[col].where(out[col].notna(), fill)
+    return out
+
+
 def attach_live(slate_df: pd.DataFrame, lookback_days: int = 4,
                 path: str | None = None) -> pd.DataFrame:
     """Attach the CURRENT TAB price to a slate, fetched at serve time.

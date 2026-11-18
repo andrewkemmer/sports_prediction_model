@@ -238,6 +238,11 @@ def write_moneyline_json(path, slate_df: pd.DataFrame, p_home: np.ndarray,
             "market_away_odds": _clean(g.get("market_away_odds")),
             "market_book": g.get("market_book") or None,
             "market_price_utc": g.get("market_price_utc") or None,
+            # How old the feed's number already was when this run published
+            # it (2026-11-18). The 2026-11-17 board shipped a 13-minute-old
+            # quote with no age on the card, so a reader could not tell a
+            # fresh price from a lagging feed.
+            "market_stale_minutes": _clean(g.get("stale_minutes")),
             "home_win_prob_model": phc if phc is not None else ph,
             "away_win_prob_model": (1.0 - phc) if phc is not None else ((1.0 - ph) if ph is not None else None),
             "model_pick": pick,
