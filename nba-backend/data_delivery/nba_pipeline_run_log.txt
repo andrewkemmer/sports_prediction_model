@@ -3,329 +3,320 @@
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
   PHASE 1-3  NBA data acquisition - ESPN schedule, stats.nba.com features, play-by-play
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-2026-11-18 13:52:00,385 INFO NBA window 2023-10-24..2026-11-18 (download allowed)
-2026-11-18 13:52:00,385 INFO NBA_FULL_REPULL is set; every schedule day is refetched
-2026-11-18 13:52:00,386 INFO schedule: 1122 day(s) from 2023-10-24 to 2026-11-18, one request per day (ESPN's scoreboard has no date range); 4 worker(s), at most one request start every 0.10s
-2026-11-18 13:52:00,609 INFO preflight: ESPN's scoreboard (site.api.espn.com) answered in 0.22s
-2026-11-18 13:52:01,126 INFO   Chunk: 2023-10-24 -> 2023-12-22
-2026-11-18 13:52:19,296 INFO     -> 418 game(s) over 60 day(s) (60 fetched, 0 from cache)
-schedule: 100%|##########| 60/60 [00:18<00:00,  3.30day/s]
-2026-11-18 13:52:19,297 INFO   Chunk: 2023-12-23 -> 2024-02-20
-2026-11-18 13:52:37,146 WARNING dropping 401623259 on 2024-02-18 00:00:00 (EAST vs WEST): a side is not one of the 30 franchises, and the season log has no player lines for it, so it is not a game this model can score
-2026-11-18 13:52:37,189 INFO     -> 405 game(s) over 60 day(s) (60 fetched, 0 from cache)
-schedule: 100%|##########| 60/60 [00:17<00:00,  3.35day/s]
-2026-11-18 13:52:37,190 INFO   Chunk: 2024-02-21 -> 2024-04-20
-2026-11-18 13:52:48,893 INFO     -> 414 game(s) over 60 day(s) (60 fetched, 0 from cache)
-schedule: 100%|##########| 60/60 [00:11<00:00,  5.13day/s]
-2026-11-18 13:52:48,894 INFO   Chunk: 2024-04-21 -> 2024-06-19
-2026-11-18 13:53:03,474 INFO     -> 78 game(s) over 60 day(s) (60 fetched, 0 from cache)
-schedule: 100%|##########| 60/60 [00:14<00:00,  4.12day/s]
-2026-11-18 13:53:03,475 INFO   Chunk: 2024-06-20 -> 2024-08-18
-2026-11-18 13:53:15,073 INFO     -> 0 game(s) over 60 day(s) (60 fetched, 0 from cache)
-schedule: 100%|##########| 60/60 [00:11<00:00,  5.17day/s]
-2026-11-18 13:53:15,073 INFO   Chunk: 2024-08-19 -> 2024-10-17
-2026-11-18 13:53:25,716 INFO     -> 0 game(s) over 60 day(s) (60 fetched, 0 from cache)
-schedule: 100%|##########| 60/60 [00:10<00:00,  5.64day/s]
-2026-11-18 13:53:25,716 INFO   Chunk: 2024-10-18 -> 2024-12-16
-2026-11-18 13:53:41,644 INFO     -> 389 game(s) over 60 day(s) (60 fetched, 0 from cache)
-schedule: 100%|##########| 60/60 [00:15<00:00,  3.77day/s]
-2026-11-18 13:53:41,646 INFO   Chunk: 2024-12-17 -> 2025-02-14
-2026-11-18 13:53:52,189 WARNING dropping 401752955 on 2025-02-16 00:00:00 (CHK vs KEN): a side is not one of the 30 franchises, and the season log has no player lines for it, so it is not a game this model can score
-2026-11-18 13:53:52,191 WARNING dropping 401752956 on 2025-02-16 00:00:00 (SHQ vs CAN): a side is not one of the 30 franchises, and the season log has no player lines for it, so it is not a game this model can score
-2026-11-18 13:53:52,192 WARNING dropping 401752957 on 2025-02-16 00:00:00 (CHK vs SHQ): a side is not one of the 30 franchises, and the season log has no player lines for it, so it is not a game this model can score
-2026-11-18 13:53:52,466 INFO     -> 431 game(s) over 60 day(s) (60 fetched, 0 from cache)
-schedule: 100%|##########| 60/60 [00:10<00:00,  5.55day/s]
-2026-11-18 13:53:52,467 INFO   Chunk: 2025-02-15 -> 2025-04-15
-2026-11-18 13:54:05,867 INFO     -> 416 game(s) over 60 day(s) (60 fetched, 0 from cache)
-schedule: 100%|##########| 60/60 [00:13<00:00,  4.48day/s]
-2026-11-18 13:54:05,869 INFO   Chunk: 2025-04-16 -> 2025-06-14
-2026-11-18 13:54:19,195 INFO     -> 81 game(s) over 60 day(s) (60 fetched, 0 from cache)
-schedule: 100%|##########| 60/60 [00:13<00:00,  4.50day/s]
-2026-11-18 13:54:19,196 INFO   Chunk: 2025-06-15 -> 2025-08-13
-2026-11-18 13:54:26,314 INFO     -> 3 game(s) over 60 day(s) (60 fetched, 0 from cache)
-schedule: 100%|##########| 60/60 [00:07<00:00,  8.43day/s]
-2026-11-18 13:54:26,315 INFO   Chunk: 2025-08-14 -> 2025-10-12
-2026-11-18 13:54:37,512 INFO     -> 0 game(s) over 60 day(s) (60 fetched, 0 from cache)
-schedule: 100%|##########| 60/60 [00:11<00:00,  5.36day/s]
-2026-11-18 13:54:37,513 INFO   Chunk: 2025-10-13 -> 2025-12-11
-2026-11-18 13:54:47,762 INFO     -> 365 game(s) over 60 day(s) (60 fetched, 0 from cache)
-schedule: 100%|##########| 60/60 [00:10<00:00,  5.85day/s]
-2026-11-18 13:54:47,764 INFO   Chunk: 2025-12-12 -> 2026-02-09
-2026-11-18 13:55:00,763 INFO     -> 438 game(s) over 60 day(s) (60 fetched, 0 from cache)
-schedule: 100%|##########| 60/60 [00:12<00:00,  4.62day/s]
-2026-11-18 13:55:00,764 INFO   Chunk: 2026-02-10 -> 2026-04-10
-2026-11-18 13:55:01,592 WARNING dropping 401838140 on 2026-02-15 00:00:00 (STARS vs WORLD): a side is not one of the 30 franchises, and the season log has no player lines for it, so it is not a game this model can score
-2026-11-18 13:55:01,594 WARNING dropping 401838141 on 2026-02-15 00:00:00 (STRIPES vs STARS): a side is not one of the 30 franchises, and the season log has no player lines for it, so it is not a game this model can score
-2026-11-18 13:55:01,595 WARNING dropping 401838142 on 2026-02-15 00:00:00 (STRIPES vs WORLD): a side is not one of the 30 franchises, and the season log has no player lines for it, so it is not a game this model can score
-2026-11-18 13:55:01,596 WARNING dropping 401838143 on 2026-02-15 00:00:00 (STRIPES vs STARS): a side is not one of the 30 franchises, and the season log has no player lines for it, so it is not a game this model can score
-2026-11-18 13:55:12,538 INFO     -> 417 game(s) over 60 day(s) (60 fetched, 0 from cache)
-schedule: 100%|##########| 60/60 [00:11<00:00,  5.10day/s]
-2026-11-18 13:55:12,539 INFO   Chunk: 2026-04-11 -> 2026-06-09
-2026-11-18 13:55:24,896 INFO     -> 98 game(s) over 60 day(s) (60 fetched, 0 from cache)
-schedule: 100%|##########| 60/60 [00:12<00:00,  4.86day/s]
-2026-11-18 13:55:24,897 INFO   Chunk: 2026-06-10 -> 2026-08-08
-2026-11-18 13:55:35,757 INFO     -> 2 game(s) over 60 day(s) (60 fetched, 0 from cache)
-schedule: 100%|##########| 60/60 [00:10<00:00,  5.52day/s]
-2026-11-18 13:55:35,758 INFO   Chunk: 2026-08-09 -> 2026-10-07
-2026-11-18 13:55:46,324 INFO     -> 0 game(s) over 60 day(s) (60 fetched, 0 from cache)
-schedule: 100%|##########| 60/60 [00:10<00:00,  5.68day/s]
-2026-11-18 13:55:46,325 INFO   Chunk: 2026-10-08 -> 2026-11-18
-2026-11-18 13:55:54,304 INFO     -> 222 game(s) over 42 day(s) (42 fetched, 0 from cache)
-schedule: 100%|##########| 42/42 [00:07<00:00,  5.26day/s]
-2026-11-18 13:55:54,378 INFO schedule: 4177 games over 1122 days (1122 fetched, 0 from cache); 4.80 day/s against a 10.00/s gate (48% of ceiling)
-2026-11-18 13:55:54,404 INFO season log: 36 request(s) of up to 60 day(s) over 2023-10-24..2026-11-18 (NBA_SLICE_DAYS overrides the width); 4 worker(s)
-2026-11-18 13:55:55,101 INFO preflight: stats.nba.com answered in 0.69s
-2026-11-18 13:55:58,041 INFO   Chunk: 2023-10-24 -> 2023-12-22  2023-24 Regular Season
-2026-11-18 13:55:58,042 INFO 2023-24 Regular Season 2023-10-24..2023-12-22: 8975 player rows
-2026-11-18 13:55:58,043 INFO   Chunk: 2023-10-24 -> 2023-12-22  2023-24 Playoffs
-2026-11-18 13:55:58,043 INFO 2023-24 Playoffs 2023-10-24..2023-12-22: no rows (no games in this window)
-2026-11-18 13:55:58,046 INFO   Chunk: 2023-12-23 -> 2024-02-20  2023-24 Regular Season
-2026-11-18 13:55:58,046 INFO 2023-24 Regular Season 2023-12-23..2024-02-20: 8662 player rows
-2026-11-18 13:55:58,047 INFO   Chunk: 2023-12-23 -> 2024-02-20  2023-24 Playoffs
-2026-11-18 13:55:58,047 INFO 2023-24 Playoffs 2023-12-23..2024-02-20: no rows (no games in this window)
-2026-11-18 13:56:00,017 INFO   Chunk: 2024-02-21 -> 2024-04-20  2023-24 Regular Season
-2026-11-18 13:56:00,018 INFO 2023-24 Regular Season 2024-02-21..2024-04-20: 8764 player rows
-2026-11-18 13:56:00,019 INFO   Chunk: 2024-02-21 -> 2024-04-20  2023-24 Playoffs
-2026-11-18 13:56:00,021 INFO 2023-24 Playoffs 2024-02-21..2024-04-20: 81 player rows
-2026-11-18 13:56:00,205 INFO   Chunk: 2024-04-21 -> 2024-06-19  2023-24 Regular Season
-2026-11-18 13:56:00,206 INFO 2023-24 Regular Season 2024-04-21..2024-06-19: no rows (no games in this window)
-2026-11-18 13:56:00,207 INFO   Chunk: 2024-04-21 -> 2024-06-19  2023-24 Playoffs
-2026-11-18 13:56:00,208 INFO 2023-24 Playoffs 2024-04-21..2024-06-19: 1604 player rows
-2026-11-18 13:56:00,841 INFO   Chunk: 2024-06-20 -> 2024-07-31  2023-24 Regular Season
-2026-11-18 13:56:00,842 INFO 2023-24 Regular Season 2024-06-20..2024-07-31: no rows (no games in this window)
-2026-11-18 13:56:01,147 INFO   Chunk: 2024-06-20 -> 2024-07-31  2023-24 Playoffs
-2026-11-18 13:56:01,148 INFO 2023-24 Playoffs 2024-06-20..2024-07-31: no rows (no games in this window)
-2026-11-18 13:56:02,675 INFO   Chunk: 2024-10-01 -> 2024-11-29  2024-25 Regular Season
-2026-11-18 13:56:02,675 INFO 2024-25 Regular Season 2024-10-01..2024-11-29: 6274 player rows
-2026-11-18 13:56:02,676 INFO   Chunk: 2024-10-01 -> 2024-11-29  2024-25 Playoffs
-2026-11-18 13:56:02,677 INFO 2024-25 Playoffs 2024-10-01..2024-11-29: no rows (no games in this window)
-2026-11-18 13:56:03,543 INFO   Chunk: 2024-11-30 -> 2025-01-28  2024-25 Regular Season
-2026-11-18 13:56:03,543 INFO 2024-25 Regular Season 2024-11-30..2025-01-28: 8550 player rows
-2026-11-18 13:56:03,544 INFO   Chunk: 2024-11-30 -> 2025-01-28  2024-25 Playoffs
-2026-11-18 13:56:03,546 INFO 2024-25 Playoffs 2024-11-30..2025-01-28: no rows (no games in this window)
-2026-11-18 13:56:04,968 INFO   Chunk: 2025-01-29 -> 2025-03-29  2024-25 Regular Season
-2026-11-18 13:56:04,969 INFO 2024-25 Regular Season 2025-01-29..2025-03-29: 8926 player rows
-2026-11-18 13:56:04,970 INFO   Chunk: 2025-01-29 -> 2025-03-29  2024-25 Playoffs
-2026-11-18 13:56:04,971 INFO 2024-25 Playoffs 2025-01-29..2025-03-29: no rows (no games in this window)
-2026-11-18 13:56:05,226 INFO   Chunk: 2025-03-30 -> 2025-05-28  2024-25 Regular Season
-2026-11-18 13:56:05,227 INFO 2024-25 Regular Season 2025-03-30..2025-05-28: 2556 player rows
-2026-11-18 13:56:05,548 INFO   Chunk: 2025-03-30 -> 2025-05-28  2024-25 Playoffs
-2026-11-18 13:56:05,548 INFO 2024-25 Playoffs 2025-03-30..2025-05-28: 1595 player rows
-2026-11-18 13:56:05,767 INFO   Chunk: 2025-05-29 -> 2025-07-27  2024-25 Regular Season
-2026-11-18 13:56:05,767 INFO 2024-25 Regular Season 2025-05-29..2025-07-27: no rows (no games in this window)
-2026-11-18 13:56:06,484 INFO   Chunk: 2025-05-29 -> 2025-07-27  2024-25 Playoffs
-2026-11-18 13:56:06,485 INFO 2024-25 Playoffs 2025-05-29..2025-07-27: 209 player rows
-2026-11-18 13:56:06,623 INFO   Chunk: 2025-07-28 -> 2025-07-31  2024-25 Regular Season
-2026-11-18 13:56:06,624 INFO 2024-25 Regular Season 2025-07-28..2025-07-31: no rows (no games in this window)
-2026-11-18 13:56:07,324 INFO   Chunk: 2025-07-28 -> 2025-07-31  2024-25 Playoffs
-2026-11-18 13:56:07,325 INFO 2024-25 Playoffs 2025-07-28..2025-07-31: no rows (no games in this window)
-2026-11-18 13:56:08,534 INFO   Chunk: 2025-10-01 -> 2025-11-29  2025-26 Regular Season
-2026-11-18 13:56:08,535 INFO 2025-26 Regular Season 2025-10-01..2025-11-29: 6403 player rows
-2026-11-18 13:56:08,536 INFO   Chunk: 2025-10-01 -> 2025-11-29  2025-26 Playoffs
-2026-11-18 13:56:08,537 INFO 2025-26 Playoffs 2025-10-01..2025-11-29: no rows (no games in this window)
-2026-11-18 13:56:09,761 INFO   Chunk: 2025-11-30 -> 2026-01-28  2025-26 Regular Season
-2026-11-18 13:56:09,762 INFO 2025-26 Regular Season 2025-11-30..2026-01-28: 8937 player rows
-2026-11-18 13:56:09,763 INFO   Chunk: 2025-11-30 -> 2026-01-28  2025-26 Playoffs
-2026-11-18 13:56:09,764 INFO 2025-26 Playoffs 2025-11-30..2026-01-28: no rows (no games in this window)
-2026-11-18 13:56:10,932 INFO   Chunk: 2026-01-29 -> 2026-03-29  2025-26 Regular Season
-2026-11-18 13:56:10,933 INFO 2025-26 Regular Season 2026-01-29..2026-03-29: 8921 player rows
-2026-11-18 13:56:10,934 INFO   Chunk: 2026-01-29 -> 2026-03-29  2025-26 Playoffs
-2026-11-18 13:56:10,936 INFO 2025-26 Playoffs 2026-01-29..2026-03-29: no rows (no games in this window)
-2026-11-18 13:56:11,226 INFO   Chunk: 2026-03-30 -> 2026-05-28  2025-26 Regular Season
-2026-11-18 13:56:11,227 INFO 2025-26 Regular Season 2026-03-30..2026-05-28: 2390 player rows
-2026-11-18 13:56:11,400 INFO   Chunk: 2026-03-30 -> 2026-05-28  2025-26 Playoffs
-2026-11-18 13:56:11,401 INFO 2025-26 Playoffs 2026-03-30..2026-05-28: 1801 player rows
-2026-11-18 13:56:11,814 INFO   Chunk: 2026-05-29 -> 2026-07-27  2025-26 Regular Season
-2026-11-18 13:56:11,815 INFO 2025-26 Regular Season 2026-05-29..2026-07-27: no rows (no games in this window)
-2026-11-18 13:56:12,646 INFO   Chunk: 2026-05-29 -> 2026-07-27  2025-26 Playoffs
-2026-11-18 13:56:12,647 INFO 2025-26 Playoffs 2026-05-29..2026-07-27: 120 player rows
-2026-11-18 13:56:12,676 INFO   Chunk: 2026-07-28 -> 2026-07-31  2025-26 Regular Season
-2026-11-18 13:56:12,677 INFO 2025-26 Regular Season 2026-07-28..2026-07-31: no rows (no games in this window)
-2026-11-18 13:56:13,116 INFO   Chunk: 2026-07-28 -> 2026-07-31  2025-26 Playoffs
-2026-11-18 13:56:13,117 INFO 2025-26 Playoffs 2026-07-28..2026-07-31: no rows (no games in this window)
-2026-11-18 13:56:14,275 INFO   Chunk: 2026-10-01 -> 2026-11-18  2026-27 Regular Season
-2026-11-18 13:56:14,276 INFO 2026-27 Regular Season 2026-10-01..2026-11-18: 4721 player rows
-2026-11-18 13:56:14,327 INFO   Chunk: 2026-10-01 -> 2026-11-18  2026-27 Playoffs
-2026-11-18 13:56:14,328 INFO 2026-27 Playoffs 2026-10-01..2026-11-18: no rows (no games in this window)
-season log slices: 100%|##########| 36/36 [00:19<00:00,  1.81slice/s]
-2026-11-18 13:56:14,330 INFO season log: 89489 player row(s) over 36 slice(s); 1.81 slice/s against a 2.00/s gate (90% of ceiling)
-2026-11-18 13:56:16,761 WARNING 3 settled game(s) have no season-log match; they have no player lines and no play-by-play: 401607495 (2023-12-09 LAL@IND), 401734908 (2024-12-17 OKC@MIL), 401809839 (2025-12-16 NYK@SAS)
-2026-11-18 13:56:16,762 INFO 23 scheduled game(s) are not yet played, so they have no season-log row yet (gamedays 2024-01-17..2026-11-18); that is a pending slate, not a join failure
-2026-11-18 13:56:17,021 WARNING 26 game(s) carry no NBA game id; they have no play-by-play to fetch and are not swept: 401607495 (2023-12-09 LAL@IND), 401585204 (2024-01-17 UTA@GSW), 401585217 (2024-01-19 GSW@DAL), 401734908 (2024-12-17 OKC@MIL), 401705090 (2025-01-09 LAL@CHA), 401705098 (2025-01-11 ATL@HOU), 401705103 (2025-01-11 LAL@SAS), 401705104 (2025-01-11 LAC@CHA), 401705183 (2025-01-22 NOP@MIL), 401809839 (2025-12-16 NYK@SAS), 401810384 (2026-01-08 CHI@MIA), 401810499 (2026-01-24 MIN@GSW), 401810506 (2026-01-25 MEM@DEN), 401810507 (2026-01-25 MIL@DAL), 401910007 (2026-11-18 CLE@MEM), 401910008 (2026-11-18 IND@HOU), 401910009 (2026-11-18 MIA@MIL), 401910010 (2026-11-18 ORL@PHI), 401910011 (2026-11-18 BKN@CHI), 401910012 (2026-11-18 TOR@WAS), 401910013 (2026-11-18 NOP@DET), 401910014 (2026-11-18 OKC@ATL), 401910016 (2026-11-18 DAL@GSW), 401910015 (2026-11-18 DEN@BOS), 401910017 (2026-11-18 LAL@UTA) (+1 more)
-2026-11-18 13:56:17,120 INFO play-by-play backfill: 4151 game(s) have no cached rollup; the sweep covers the full window
-2026-11-18 13:56:17,121 INFO play-by-play: 4151 candidate game(s), sweeping 4151 on 4 worker(s), at most one request start every 0.25s
-play-by-play: 100%|##########| 4151/4151 [17:31<00:00,  3.95game/s, 0022600256]
-2026-11-18 14:13:48,841 INFO play-by-play: 4151 fetched, 0 from cache, 0 unavailable; 3.95 game/s against a 4.00/s gate (99% of ceiling)
-2026-11-18 14:14:44,397 INFO event rollup archive not absorbed under NBA_FULL_REPULL; this run's sweep of 8302 team-game(s) is the only source
-2026-11-18 14:14:44,510 INFO 3 finished game(s) have no season-log player lines and so no features; they are excluded from training. These are the postponed, neutral-site and all-star games, not a join failure: 2023-12-09 IND@LAL, 2024-12-17 MIL@OKC, 2025-12-16 SAS@NYK
-2026-11-18 14:14:44,547 INFO NBA facts: 4177 games, 8302 team rows, 89489 player rows, 2060001 play-by-play actions, 8302 event rows
-2026-11-18 14:14:44,547 INFO ingest timing: 1364s = schedule 234s + season log 20s + play-by-play 1057s + contract 0s + archive 53s (download allowed; 4177 game(s), 89489 player row(s), 2060001 play-by-play action(s))
-  ✅ facts: 4177 games, 89489 player rows, 8302 event rows, 2060001 play-by-play actions
-2026-11-18 14:14:45,132 INFO   phase 1/10  ingest schedule  (3m54s)
-2026-11-18 14:14:45,133 INFO   phase 2/10  ingest features  (20s)
-2026-11-18 14:14:45,133 INFO   phase 3/10  ingest play-by-play  (18m29s)
-2026-11-18 14:14:45,159 INFO 3 finished game(s) have no season-log player lines and so no features; they are excluded from training. These are the postponed, neutral-site and all-star games, not a join failure: 2023-12-09 IND@LAL, 2024-12-17 MIL@OKC, 2025-12-16 SAS@NYK
-2026-11-18 14:14:45,169 INFO excluding 11 postponed game(s) from the slate: 401585204, 401585217, 401705090, 401705098, 401705103, 401705104, 401705183, 401810384, 401810499, 401810506, 401810507
-2026-11-18 14:14:53,343 INFO game feature build: 8s (4151 decided game(s), 185 column(s))
-2026-11-18 14:14:54,013 INFO positions for 2023-24 written: 572 players from 3 of 3 positions
-2026-11-18 14:14:54,410 INFO positions for 2024-25 written: 569 players from 3 of 3 positions
-2026-11-18 14:14:55,720 INFO positions for 2025-26 written: 582 players from 3 of 3 positions
-2026-11-18 14:14:57,239 INFO positions for 2026-27 written: 471 players from 3 of 3 positions
-2026-11-18 14:14:58,327 INFO designation archive repopulate: resolving 653 decided day(s) 2023-10-24..2026-11-17 (archive covers 650 day(s))
-2026-11-18 14:16:29,967 INFO designation archive repopulate: 25/653 day(s) resolved (25 with rows)
-2026-11-18 14:16:35,503 WARNING no filing lists BOS@NYK before tipoff on 2023-10-25: game uncovered
-2026-11-18 14:18:00,563 INFO designation archive repopulate: 50/653 day(s) resolved (50 with rows)
-2026-11-18 14:19:34,591 INFO designation archive repopulate: 75/653 day(s) resolved (75 with rows)
-2026-11-18 14:21:23,918 INFO designation archive repopulate: 100/653 day(s) resolved (100 with rows)
-2026-11-18 14:21:49,582 WARNING no filing lists DAL@GSW before tipoff on 2024-01-19: game uncovered
-2026-11-18 14:23:07,073 INFO designation archive repopulate: 125/653 day(s) resolved (125 with rows)
-2026-11-18 14:24:49,023 INFO designation archive repopulate: 150/653 day(s) resolved (150 with rows)
-2026-11-18 14:26:08,016 INFO designation archive repopulate: 175/653 day(s) resolved (175 with rows)
-2026-11-18 14:26:28,902 INFO designation archive repopulate: 200/653 day(s) resolved (200 with rows)
-2026-11-18 14:27:51,881 INFO designation archive repopulate: 225/653 day(s) resolved (225 with rows)
-2026-11-18 14:29:35,684 INFO designation archive repopulate: 250/653 day(s) resolved (250 with rows)
-2026-11-18 14:31:16,181 INFO designation archive repopulate: 275/653 day(s) resolved (275 with rows)
-2026-11-18 14:33:07,350 INFO designation archive repopulate: 300/653 day(s) resolved (300 with rows)
-2026-11-18 14:34:59,880 INFO designation archive repopulate: 325/653 day(s) resolved (325 with rows)
-2026-11-18 14:37:05,305 INFO designation archive repopulate: 350/653 day(s) resolved (350 with rows)
-2026-11-18 14:38:41,477 INFO designation archive repopulate: 375/653 day(s) resolved (375 with rows)
-2026-11-18 14:39:12,034 INFO designation archive repopulate: 400/653 day(s) resolved (400 with rows)
-2026-11-18 14:40:06,975 INFO designation archive repopulate: 425/653 day(s) resolved (425 with rows)
-2026-11-18 14:40:38,908 WARNING no filing lists NYK@BOS before tipoff on 2025-05-05: game uncovered
-2026-11-18 14:41:45,251 INFO designation archive repopulate: 450/653 day(s) resolved (450 with rows)
-2026-11-18 14:43:09,091 INFO designation archive repopulate: 475/653 day(s) resolved (475 with rows)
-2026-11-18 14:45:15,704 INFO designation archive repopulate: 500/653 day(s) resolved (500 with rows)
-2026-11-18 14:47:20,791 INFO designation archive repopulate: 525/653 day(s) resolved (525 with rows)
-2026-11-18 14:49:29,660 INFO designation archive repopulate: 550/653 day(s) resolved (550 with rows)
-2026-11-18 14:51:38,926 INFO designation archive repopulate: 575/653 day(s) resolved (575 with rows)
-2026-11-18 14:52:43,299 INFO designation archive repopulate: 600/653 day(s) resolved (600 with rows)
-2026-11-18 14:53:36,612 INFO designation archive repopulate: 625/653 day(s) resolved (625 with rows)
-2026-11-18 14:54:55,421 WARNING no filing lists NYK@CLE before tipoff on 2026-05-23: game uncovered
-2026-11-18 14:54:55,450 WARNING no filing lists CLE@NYK before tipoff on 2026-05-21: game uncovered
-2026-11-18 14:56:06,555 INFO designation archive repopulate: 650/653 day(s) resolved (648 with rows)
-2026-11-18 14:56:15,647 INFO designation archive repopulate: 653/653 day(s) resolved (651 with rows)
+2026-11-18 17:22:21,571 INFO NBA window 2023-10-24..2026-11-18 (download allowed)
+2026-11-18 17:22:21,572 INFO NBA_FULL_REPULL is set; every schedule day is refetched
+2026-11-18 17:22:21,572 INFO schedule: 1122 day(s) from 2023-10-24 to 2026-11-18, one request per day (ESPN's scoreboard has no date range); 4 worker(s), at most one request start every 0.10s
+2026-11-18 17:22:21,770 INFO preflight: ESPN's scoreboard (site.api.espn.com) answered in 0.20s
+2026-11-18 17:22:22,188 INFO   Chunk: 2023-10-24 -> 2023-12-22
+2026-11-18 17:22:28,539 INFO     -> 418 game(s) over 60 day(s) (60 fetched, 0 from cache)
+schedule: 100%|##########| 60/60 [00:06<00:00,  9.45day/s]
+2026-11-18 17:22:28,540 INFO   Chunk: 2023-12-23 -> 2024-02-20
+2026-11-18 17:22:34,188 WARNING dropping 401623259 on 2024-02-18 00:00:00 (EAST vs WEST): a side is not one of the 30 franchises, and the season log has no player lines for it, so it is not a game this model can score
+2026-11-18 17:22:34,494 INFO     -> 405 game(s) over 60 day(s) (60 fetched, 0 from cache)
+schedule: 100%|##########| 60/60 [00:05<00:00, 10.08day/s]
+2026-11-18 17:22:34,494 INFO   Chunk: 2024-02-21 -> 2024-04-20
+2026-11-18 17:22:40,499 INFO     -> 414 game(s) over 60 day(s) (60 fetched, 0 from cache)
+schedule: 100%|##########| 60/60 [00:06<00:00,  9.99day/s]
+2026-11-18 17:22:40,500 INFO   Chunk: 2024-04-21 -> 2024-06-19
+2026-11-18 17:22:46,557 INFO     -> 78 game(s) over 60 day(s) (60 fetched, 0 from cache)
+schedule: 100%|##########| 60/60 [00:06<00:00,  9.91day/s]
+2026-11-18 17:22:46,558 INFO   Chunk: 2024-06-20 -> 2024-08-18
+2026-11-18 17:22:52,625 INFO     -> 0 game(s) over 60 day(s) (60 fetched, 0 from cache)
+schedule: 100%|##########| 60/60 [00:06<00:00,  9.89day/s]
+2026-11-18 17:22:52,625 INFO   Chunk: 2024-08-19 -> 2024-10-17
+2026-11-18 17:22:58,640 INFO     -> 0 game(s) over 60 day(s) (60 fetched, 0 from cache)
+schedule: 100%|##########| 60/60 [00:06<00:00,  9.98day/s]
+2026-11-18 17:22:58,641 INFO   Chunk: 2024-10-18 -> 2024-12-16
+2026-11-18 17:23:04,623 INFO     -> 389 game(s) over 60 day(s) (60 fetched, 0 from cache)
+schedule: 100%|##########| 60/60 [00:05<00:00, 10.03day/s]
+2026-11-18 17:23:04,624 INFO   Chunk: 2024-12-17 -> 2025-02-14
+2026-11-18 17:23:10,613 INFO     -> 431 game(s) over 60 day(s) (60 fetched, 0 from cache)
+schedule: 100%|##########| 60/60 [00:05<00:00, 10.02day/s]
+2026-11-18 17:23:10,614 INFO   Chunk: 2025-02-15 -> 2025-04-15
+2026-11-18 17:23:10,727 WARNING dropping 401752955 on 2025-02-16 00:00:00 (CHK vs KEN): a side is not one of the 30 franchises, and the season log has no player lines for it, so it is not a game this model can score
+2026-11-18 17:23:10,729 WARNING dropping 401752956 on 2025-02-16 00:00:00 (SHQ vs CAN): a side is not one of the 30 franchises, and the season log has no player lines for it, so it is not a game this model can score
+2026-11-18 17:23:10,730 WARNING dropping 401752957 on 2025-02-16 00:00:00 (CHK vs SHQ): a side is not one of the 30 franchises, and the season log has no player lines for it, so it is not a game this model can score
+2026-11-18 17:23:16,633 INFO     -> 416 game(s) over 60 day(s) (60 fetched, 0 from cache)
+schedule: 100%|##########| 60/60 [00:06<00:00,  9.97day/s]
+2026-11-18 17:23:16,634 INFO   Chunk: 2025-04-16 -> 2025-06-14
+2026-11-18 17:23:22,773 INFO     -> 81 game(s) over 60 day(s) (60 fetched, 0 from cache)
+schedule: 100%|##########| 60/60 [00:06<00:00,  9.77day/s]
+2026-11-18 17:23:22,774 INFO   Chunk: 2025-06-15 -> 2025-08-13
+2026-11-18 17:23:28,663 INFO     -> 3 game(s) over 60 day(s) (60 fetched, 0 from cache)
+schedule: 100%|##########| 60/60 [00:05<00:00, 10.19day/s]
+2026-11-18 17:23:28,664 INFO   Chunk: 2025-08-14 -> 2025-10-12
+2026-11-18 17:23:34,670 INFO     -> 0 game(s) over 60 day(s) (60 fetched, 0 from cache)
+schedule: 100%|##########| 60/60 [00:06<00:00,  9.99day/s]
+2026-11-18 17:23:34,670 INFO   Chunk: 2025-10-13 -> 2025-12-11
+2026-11-18 17:23:40,685 INFO     -> 365 game(s) over 60 day(s) (60 fetched, 0 from cache)
+schedule: 100%|##########| 60/60 [00:06<00:00,  9.98day/s]
+2026-11-18 17:23:40,685 INFO   Chunk: 2025-12-12 -> 2026-02-09
+2026-11-18 17:23:47,140 INFO     -> 438 game(s) over 60 day(s) (60 fetched, 0 from cache)
+schedule: 100%|##########| 60/60 [00:06<00:00,  9.30day/s]
+2026-11-18 17:23:47,140 INFO   Chunk: 2026-02-10 -> 2026-04-10
+2026-11-18 17:23:47,627 WARNING dropping 401838140 on 2026-02-15 00:00:00 (STARS vs WORLD): a side is not one of the 30 franchises, and the season log has no player lines for it, so it is not a game this model can score
+2026-11-18 17:23:47,628 WARNING dropping 401838141 on 2026-02-15 00:00:00 (STRIPES vs STARS): a side is not one of the 30 franchises, and the season log has no player lines for it, so it is not a game this model can score
+2026-11-18 17:23:47,629 WARNING dropping 401838142 on 2026-02-15 00:00:00 (STRIPES vs WORLD): a side is not one of the 30 franchises, and the season log has no player lines for it, so it is not a game this model can score
+2026-11-18 17:23:47,631 WARNING dropping 401838143 on 2026-02-15 00:00:00 (STRIPES vs STARS): a side is not one of the 30 franchises, and the season log has no player lines for it, so it is not a game this model can score
+2026-11-18 17:23:53,131 INFO     -> 417 game(s) over 60 day(s) (60 fetched, 0 from cache)
+schedule: 100%|##########| 60/60 [00:05<00:00, 10.02day/s]
+2026-11-18 17:23:53,131 INFO   Chunk: 2026-04-11 -> 2026-06-09
+2026-11-18 17:23:59,187 INFO     -> 98 game(s) over 60 day(s) (60 fetched, 0 from cache)
+schedule: 100%|##########| 60/60 [00:06<00:00,  9.91day/s]
+2026-11-18 17:23:59,187 INFO   Chunk: 2026-06-10 -> 2026-08-08
+2026-11-18 17:24:05,188 INFO     -> 2 game(s) over 60 day(s) (60 fetched, 0 from cache)
+schedule: 100%|##########| 60/60 [00:06<00:00, 10.00day/s]
+2026-11-18 17:24:05,188 INFO   Chunk: 2026-08-09 -> 2026-10-07
+2026-11-18 17:24:12,084 INFO     -> 0 game(s) over 60 day(s) (60 fetched, 0 from cache)
+schedule: 100%|##########| 60/60 [00:06<00:00,  8.70day/s]
+2026-11-18 17:24:12,086 INFO   Chunk: 2026-10-08 -> 2026-11-18
+2026-11-18 17:24:16,101 INFO     -> 222 game(s) over 42 day(s) (42 fetched, 0 from cache)
+schedule: 100%|##########| 42/42 [00:04<00:00, 10.46day/s]
+2026-11-18 17:24:16,166 INFO schedule: 4177 games over 1122 days (1122 fetched, 0 from cache); 9.79 day/s against a 10.00/s gate (98% of ceiling)
+2026-11-18 17:24:16,188 INFO season log: 36 request(s) of up to 60 day(s) over 2023-10-24..2026-11-18 (NBA_SLICE_DAYS overrides the width); 4 worker(s)
+2026-11-18 17:24:16,437 INFO preflight: stats.nba.com answered in 0.25s
+2026-11-18 17:24:18,280 INFO   Chunk: 2023-10-24 -> 2023-12-22  2023-24 Regular Season
+2026-11-18 17:24:18,281 INFO 2023-24 Regular Season 2023-10-24..2023-12-22: 8975 player rows
+2026-11-18 17:24:18,281 INFO   Chunk: 2023-10-24 -> 2023-12-22  2023-24 Playoffs
+2026-11-18 17:24:18,282 INFO 2023-24 Playoffs 2023-10-24..2023-12-22: no rows (no games in this window)
+2026-11-18 17:24:18,283 INFO   Chunk: 2023-12-23 -> 2024-02-20  2023-24 Regular Season
+2026-11-18 17:24:18,285 INFO 2023-24 Regular Season 2023-12-23..2024-02-20: 8662 player rows
+2026-11-18 17:24:18,285 INFO   Chunk: 2023-12-23 -> 2024-02-20  2023-24 Playoffs
+2026-11-18 17:24:18,286 INFO 2023-24 Playoffs 2023-12-23..2024-02-20: no rows (no games in this window)
+2026-11-18 17:24:18,884 INFO   Chunk: 2024-02-21 -> 2024-04-20  2023-24 Regular Season
+2026-11-18 17:24:18,884 INFO 2023-24 Regular Season 2024-02-21..2024-04-20: 8764 player rows
+2026-11-18 17:24:19,208 INFO   Chunk: 2024-02-21 -> 2024-04-20  2023-24 Playoffs
+2026-11-18 17:24:19,209 INFO 2023-24 Playoffs 2024-02-21..2024-04-20: 81 player rows
+2026-11-18 17:24:19,690 INFO   Chunk: 2024-04-21 -> 2024-06-19  2023-24 Regular Season
+2026-11-18 17:24:19,690 INFO 2023-24 Regular Season 2024-04-21..2024-06-19: no rows (no games in this window)
+2026-11-18 17:24:20,240 INFO   Chunk: 2024-04-21 -> 2024-06-19  2023-24 Playoffs
+2026-11-18 17:24:20,241 INFO 2023-24 Playoffs 2024-04-21..2024-06-19: 1604 player rows
+2026-11-18 17:24:20,742 INFO   Chunk: 2024-06-20 -> 2024-07-31  2023-24 Regular Season
+2026-11-18 17:24:20,742 INFO 2023-24 Regular Season 2024-06-20..2024-07-31: no rows (no games in this window)
+2026-11-18 17:24:21,191 INFO   Chunk: 2024-06-20 -> 2024-07-31  2023-24 Playoffs
+2026-11-18 17:24:21,191 INFO 2023-24 Playoffs 2024-06-20..2024-07-31: no rows (no games in this window)
+2026-11-18 17:24:21,809 INFO   Chunk: 2024-10-01 -> 2024-11-29  2024-25 Regular Season
+2026-11-18 17:24:21,810 INFO 2024-25 Regular Season 2024-10-01..2024-11-29: 6274 player rows
+2026-11-18 17:24:22,174 INFO   Chunk: 2024-10-01 -> 2024-11-29  2024-25 Playoffs
+2026-11-18 17:24:22,174 INFO 2024-25 Playoffs 2024-10-01..2024-11-29: no rows (no games in this window)
+2026-11-18 17:24:23,211 INFO   Chunk: 2024-11-30 -> 2025-01-28  2024-25 Regular Season
+2026-11-18 17:24:23,212 INFO 2024-25 Regular Season 2024-11-30..2025-01-28: 8550 player rows
+2026-11-18 17:24:23,215 INFO   Chunk: 2024-11-30 -> 2025-01-28  2024-25 Playoffs
+2026-11-18 17:24:23,215 INFO 2024-25 Playoffs 2024-11-30..2025-01-28: no rows (no games in this window)
+2026-11-18 17:24:23,892 INFO   Chunk: 2025-01-29 -> 2025-03-29  2024-25 Regular Season
+2026-11-18 17:24:23,893 INFO 2024-25 Regular Season 2025-01-29..2025-03-29: 8926 player rows
+2026-11-18 17:24:24,180 INFO   Chunk: 2025-01-29 -> 2025-03-29  2024-25 Playoffs
+2026-11-18 17:24:24,181 INFO 2024-25 Playoffs 2025-01-29..2025-03-29: no rows (no games in this window)
+2026-11-18 17:24:24,781 INFO   Chunk: 2025-03-30 -> 2025-05-28  2024-25 Regular Season
+2026-11-18 17:24:24,781 INFO 2024-25 Regular Season 2025-03-30..2025-05-28: 2556 player rows
+2026-11-18 17:24:25,224 INFO   Chunk: 2025-03-30 -> 2025-05-28  2024-25 Playoffs
+2026-11-18 17:24:25,225 INFO 2024-25 Playoffs 2025-03-30..2025-05-28: 1595 player rows
+2026-11-18 17:24:25,686 INFO   Chunk: 2025-05-29 -> 2025-07-27  2024-25 Regular Season
+2026-11-18 17:24:25,686 INFO 2024-25 Regular Season 2025-05-29..2025-07-27: no rows (no games in this window)
+2026-11-18 17:24:26,231 INFO   Chunk: 2025-05-29 -> 2025-07-27  2024-25 Playoffs
+2026-11-18 17:24:26,231 INFO 2024-25 Playoffs 2025-05-29..2025-07-27: 209 player rows
+2026-11-18 17:24:26,674 INFO   Chunk: 2025-07-28 -> 2025-07-31  2024-25 Regular Season
+2026-11-18 17:24:26,675 INFO 2024-25 Regular Season 2025-07-28..2025-07-31: no rows (no games in this window)
+2026-11-18 17:24:27,195 INFO   Chunk: 2025-07-28 -> 2025-07-31  2024-25 Playoffs
+2026-11-18 17:24:27,195 INFO 2024-25 Playoffs 2025-07-28..2025-07-31: no rows (no games in this window)
+2026-11-18 17:24:27,815 INFO   Chunk: 2025-10-01 -> 2025-11-29  2025-26 Regular Season
+2026-11-18 17:24:27,815 INFO 2025-26 Regular Season 2025-10-01..2025-11-29: 6403 player rows
+2026-11-18 17:24:28,183 INFO   Chunk: 2025-10-01 -> 2025-11-29  2025-26 Playoffs
+2026-11-18 17:24:28,184 INFO 2025-26 Playoffs 2025-10-01..2025-11-29: no rows (no games in this window)
+2026-11-18 17:24:28,873 INFO   Chunk: 2025-11-30 -> 2026-01-28  2025-26 Regular Season
+2026-11-18 17:24:28,874 INFO 2025-26 Regular Season 2025-11-30..2026-01-28: 8937 player rows
+2026-11-18 17:24:29,183 INFO   Chunk: 2025-11-30 -> 2026-01-28  2025-26 Playoffs
+2026-11-18 17:24:29,184 INFO 2025-26 Playoffs 2025-11-30..2026-01-28: no rows (no games in this window)
+2026-11-18 17:24:29,893 INFO   Chunk: 2026-01-29 -> 2026-03-29  2025-26 Regular Season
+2026-11-18 17:24:29,894 INFO 2025-26 Regular Season 2026-01-29..2026-03-29: 8921 player rows
+2026-11-18 17:24:30,168 INFO   Chunk: 2026-01-29 -> 2026-03-29  2025-26 Playoffs
+2026-11-18 17:24:30,168 INFO 2025-26 Playoffs 2026-01-29..2026-03-29: no rows (no games in this window)
+2026-11-18 17:24:31,197 INFO   Chunk: 2026-03-30 -> 2026-05-28  2025-26 Regular Season
+2026-11-18 17:24:31,198 INFO 2025-26 Regular Season 2026-03-30..2026-05-28: 2390 player rows
+2026-11-18 17:24:31,240 INFO   Chunk: 2026-03-30 -> 2026-05-28  2025-26 Playoffs
+2026-11-18 17:24:31,241 INFO 2025-26 Playoffs 2026-03-30..2026-05-28: 1801 player rows
+2026-11-18 17:24:31,670 INFO   Chunk: 2026-05-29 -> 2026-07-27  2025-26 Regular Season
+2026-11-18 17:24:31,671 INFO 2025-26 Regular Season 2026-05-29..2026-07-27: no rows (no games in this window)
+2026-11-18 17:24:32,255 INFO   Chunk: 2026-05-29 -> 2026-07-27  2025-26 Playoffs
+2026-11-18 17:24:32,256 INFO 2025-26 Playoffs 2026-05-29..2026-07-27: 120 player rows
+2026-11-18 17:24:32,690 INFO   Chunk: 2026-07-28 -> 2026-07-31  2025-26 Regular Season
+2026-11-18 17:24:32,690 INFO 2025-26 Regular Season 2026-07-28..2026-07-31: no rows (no games in this window)
+2026-11-18 17:24:33,178 INFO   Chunk: 2026-07-28 -> 2026-07-31  2025-26 Playoffs
+2026-11-18 17:24:33,179 INFO 2025-26 Playoffs 2026-07-28..2026-07-31: no rows (no games in this window)
+2026-11-18 17:24:33,772 INFO   Chunk: 2026-10-01 -> 2026-11-18  2026-27 Regular Season
+2026-11-18 17:24:33,772 INFO 2026-27 Regular Season 2026-10-01..2026-11-18: 4721 player rows
+2026-11-18 17:24:34,171 INFO   Chunk: 2026-10-01 -> 2026-11-18  2026-27 Playoffs
+2026-11-18 17:24:34,172 INFO 2026-27 Playoffs 2026-10-01..2026-11-18: no rows (no games in this window)
+season log slices: 100%|##########| 36/36 [00:17<00:00,  2.00slice/s]
+2026-11-18 17:24:34,174 INFO season log: 89489 player row(s) over 36 slice(s); 2.00 slice/s against a 2.00/s gate (100% of ceiling)
+2026-11-18 17:24:36,496 WARNING 3 settled game(s) have no season-log match; they have no player lines and no play-by-play: 401607495 (2023-12-09 LAL@IND), 401734908 (2024-12-17 OKC@MIL), 401809839 (2025-12-16 NYK@SAS)
+2026-11-18 17:24:36,497 INFO 23 scheduled game(s) are not yet played, so they have no season-log row yet (gamedays 2024-01-17..2026-11-18); that is a pending slate, not a join failure
+2026-11-18 17:24:36,728 WARNING 26 game(s) carry no NBA game id; they have no play-by-play to fetch and are not swept: 401607495 (2023-12-09 LAL@IND), 401585204 (2024-01-17 UTA@GSW), 401585217 (2024-01-19 GSW@DAL), 401734908 (2024-12-17 OKC@MIL), 401705090 (2025-01-09 LAL@CHA), 401705098 (2025-01-11 ATL@HOU), 401705103 (2025-01-11 LAL@SAS), 401705104 (2025-01-11 LAC@CHA), 401705183 (2025-01-22 NOP@MIL), 401809839 (2025-12-16 NYK@SAS), 401810384 (2026-01-08 CHI@MIA), 401810499 (2026-01-24 MIN@GSW), 401810506 (2026-01-25 MEM@DEN), 401810507 (2026-01-25 MIL@DAL), 401910007 (2026-11-18 CLE@MEM), 401910008 (2026-11-18 IND@HOU), 401910009 (2026-11-18 MIA@MIL), 401910010 (2026-11-18 ORL@PHI), 401910011 (2026-11-18 BKN@CHI), 401910012 (2026-11-18 TOR@WAS), 401910013 (2026-11-18 NOP@DET), 401910014 (2026-11-18 OKC@ATL), 401910016 (2026-11-18 DAL@GSW), 401910015 (2026-11-18 DEN@BOS), 401910017 (2026-11-18 LAL@UTA) (+1 more)
+2026-11-18 17:24:36,811 INFO play-by-play backfill: 4151 game(s) have no cached rollup; the sweep covers the full window
+2026-11-18 17:24:36,812 INFO play-by-play: 4151 candidate game(s), sweeping 4151 on 4 worker(s), at most one request start every 0.25s
+play-by-play: 100%|##########| 4151/4151 [17:19<00:00,  3.99game/s, 0022600256]
+2026-11-18 17:41:56,109 INFO play-by-play: 4151 fetched, 0 from cache, 0 unavailable; 3.99 game/s against a 4.00/s gate (100% of ceiling)
+2026-11-18 17:42:47,352 INFO event rollup archive not absorbed under NBA_FULL_REPULL; this run's sweep of 8302 team-game(s) is the only source
+2026-11-18 17:42:47,457 INFO 3 finished game(s) have no season-log player lines and so no features; they are excluded from training. These are the postponed, neutral-site and all-star games, not a join failure: 2023-12-09 IND@LAL, 2024-12-17 MIL@OKC, 2025-12-16 SAS@NYK
+2026-11-18 17:42:47,488 INFO NBA facts: 4177 games, 8302 team rows, 89489 player rows, 2059998 play-by-play actions, 8302 event rows
+2026-11-18 17:42:47,488 INFO ingest timing: 1226s = schedule 115s + season log 18s + play-by-play 1044s + contract 0s + archive 49s (download allowed; 4177 game(s), 89489 player row(s), 2059998 play-by-play action(s))
+  ✅ facts: 4177 games, 89489 player rows, 8302 event rows, 2059998 play-by-play actions
+2026-11-18 17:42:48,017 INFO   phase 1/10  ingest schedule  (1m54s)
+2026-11-18 17:42:48,018 INFO   phase 2/10  ingest features  (18s)
+2026-11-18 17:42:48,018 INFO   phase 3/10  ingest play-by-play  (18m12s)
+2026-11-18 17:42:48,043 INFO 3 finished game(s) have no season-log player lines and so no features; they are excluded from training. These are the postponed, neutral-site and all-star games, not a join failure: 2023-12-09 IND@LAL, 2024-12-17 MIL@OKC, 2025-12-16 SAS@NYK
+2026-11-18 17:42:48,052 INFO excluding 11 postponed game(s) from the slate: 401585204, 401585217, 401705090, 401705098, 401705103, 401705104, 401705183, 401810384, 401810499, 401810506, 401810507
+2026-11-18 17:42:55,724 INFO game feature build: 8s (4151 decided game(s), 185 column(s))
+2026-11-18 17:42:56,189 INFO positions for 2023-24 written: 572 players from 3 of 3 positions
+2026-11-18 17:42:56,544 INFO positions for 2024-25 written: 569 players from 3 of 3 positions
+2026-11-18 17:42:57,428 INFO positions for 2025-26 written: 582 players from 3 of 3 positions
+2026-11-18 17:42:58,548 INFO positions for 2026-27 written: 471 players from 3 of 3 positions
+2026-11-18 17:42:59,570 INFO designation archive repopulate: resolving 653 decided day(s) 2023-10-24..2026-11-17 (archive covers 651 day(s))
+2026-11-18 17:44:20,997 INFO designation archive repopulate: 25/653 day(s) resolved (25 with rows)
+2026-11-18 17:44:35,870 WARNING no filing lists BOS@NYK before tipoff on 2023-10-25: game uncovered
+2026-11-18 17:45:43,100 INFO designation archive repopulate: 50/653 day(s) resolved (50 with rows)
+2026-11-18 17:47:14,760 INFO designation archive repopulate: 75/653 day(s) resolved (75 with rows)
+2026-11-18 17:48:55,884 INFO designation archive repopulate: 100/653 day(s) resolved (100 with rows)
+2026-11-18 17:49:13,674 WARNING no filing lists DAL@GSW before tipoff on 2024-01-19: game uncovered
+2026-11-18 17:50:31,279 INFO designation archive repopulate: 125/653 day(s) resolved (125 with rows)
+2026-11-18 17:52:06,529 INFO designation archive repopulate: 150/653 day(s) resolved (150 with rows)
+2026-11-18 17:53:18,208 INFO designation archive repopulate: 175/653 day(s) resolved (175 with rows)
+2026-11-18 17:53:38,793 INFO designation archive repopulate: 200/653 day(s) resolved (200 with rows)
+2026-11-18 17:54:54,060 INFO designation archive repopulate: 225/653 day(s) resolved (225 with rows)
+2026-11-18 17:56:33,102 INFO designation archive repopulate: 250/653 day(s) resolved (250 with rows)
+2026-11-18 17:58:04,169 INFO designation archive repopulate: 275/653 day(s) resolved (275 with rows)
+2026-11-18 17:59:49,150 INFO designation archive repopulate: 300/653 day(s) resolved (300 with rows)
+2026-11-18 18:01:30,805 INFO designation archive repopulate: 325/653 day(s) resolved (325 with rows)
+2026-11-18 18:03:31,368 INFO designation archive repopulate: 350/653 day(s) resolved (350 with rows)
+2026-11-18 18:05:04,839 INFO designation archive repopulate: 375/653 day(s) resolved (375 with rows)
+2026-11-18 18:05:35,682 INFO designation archive repopulate: 400/653 day(s) resolved (400 with rows)
+2026-11-18 18:06:25,626 INFO designation archive repopulate: 425/653 day(s) resolved (425 with rows)
+2026-11-18 18:06:58,305 WARNING no filing lists NYK@BOS before tipoff on 2025-05-05: game uncovered
+2026-11-18 18:08:02,552 INFO designation archive repopulate: 450/653 day(s) resolved (450 with rows)
+2026-11-18 18:09:23,517 INFO designation archive repopulate: 475/653 day(s) resolved (475 with rows)
+2026-11-18 18:11:21,897 INFO designation archive repopulate: 500/653 day(s) resolved (500 with rows)
+2026-11-18 18:13:23,841 INFO designation archive repopulate: 525/653 day(s) resolved (525 with rows)
+2026-11-18 18:15:26,685 INFO designation archive repopulate: 550/653 day(s) resolved (550 with rows)
+2026-11-18 18:17:27,941 INFO designation archive repopulate: 575/653 day(s) resolved (575 with rows)
+2026-11-18 18:18:30,815 INFO designation archive repopulate: 600/653 day(s) resolved (600 with rows)
+2026-11-18 18:19:23,925 INFO designation archive repopulate: 625/653 day(s) resolved (625 with rows)
+2026-11-18 18:20:37,361 WARNING no filing lists NYK@CLE before tipoff on 2026-05-23: game uncovered
+2026-11-18 18:20:38,855 WARNING no filing lists CLE@NYK before tipoff on 2026-05-21: game uncovered
+2026-11-18 18:21:39,788 INFO designation archive repopulate: 650/653 day(s) resolved (648 with rows)
+2026-11-18 18:21:49,813 INFO designation archive repopulate: 653/653 day(s) resolved (651 with rows)
 consolidated 43887 records from 55 shard(s) -> /root/.cache/sports_prediction_model/nba/nba_designations.parquet
-2026-11-18 14:56:17,688 INFO designation archive full: 651 day(s) resolved, 43887 new row(s), archive now 43887 row(s) -> /kaggle/working/sports_prediction_model/nba-backend/data_delivery/nba_designations.parquet (injury-report host answered 423 403(s) during refresh)
-2026-11-18 14:56:17,689 INFO designation archive full timing: 2480s phase = resolve 2477s + merge 0s + write 2s; filings 4967 parsed in 2219s (447 ms each, 0 unparseable), pdfs 4270 disk-hit / 4491 fetched; requests 4914 in 5895s worker-time, 423 403(s), 84 known-missing skip(s)
-2026-11-18 14:56:17,689 WARNING injury-report host answered 423 403(s) resolving the archive; days it throttled are uncovered, not filled - a rate-limited refresh looks like an empty archive
-2026-11-18 14:56:18,037 INFO PIT designations: 43887 record(s) from the published archive
-2026-11-18 14:56:18,518 INFO PIT designations loaded from the delivery archive at /kaggle/working/sports_prediction_model/nba-backend/data_delivery (machine cache had none)
-2026-11-18 14:56:50,638 WARNING no filing lists DAL@GSW before tipoff on 2024-01-19: game uncovered
-2026-11-18 14:57:30,000 INFO no filing lists UTA@LAL before tipoff on 2026-11-18: pre-submission - no designations yet
-2026-11-18 14:57:30,010 WARNING injury-report host answered 423 403(s) resolving the slate; designation coverage may be incomplete
-2026-11-18 14:57:30,013 INFO slate designations resolved live: 224 record(s) across 8 date(s), 224 with a submission status
-2026-11-18 14:57:30,609 WARNING current roster unresolved (ValueError: incomplete or ambiguous official league roster); using dated history/strict-prior appearances
-2026-11-18 15:01:22,641 INFO DARKO history: 354259 rows for 876 player(s)
-2026-11-18 15:01:23,490 INFO DARKO rating: 100.0% of rows carry a DPM value
-2026-11-18 15:01:37,715 INFO DARKO expected minutes: 39.6% of rows carry x_minutes
-2026-11-18 15:07:20,789 INFO waterfall minutes redistribution (position-feature build): 12564 donor(s), 277115.7 minute(s) absorbed, 20636.8 vanished (491 no-survivor), 31201 spill(s)
-2026-11-18 15:07:20,845 INFO projected-lineup feature build: 3148s (4154 row(s), 23 feature column(s))
-2026-11-18 15:07:20,871 INFO pl_dpm features attached: 4128/4151 decided rows carry them
-2026-11-18 15:07:20,872 INFO star-out features attached: 4136/4151 decided rows carry them
-2026-11-18 15:07:20,873 INFO o-pts features attached: 4136/4151 decided rows carry them
-2026-11-18 15:07:20,898 INFO pl_dpm coverage gap: 23/4151 decided rows lack position-rapm features; by days into their season: 23 within the 10-day pool lookback, 0 more within the 30-day recency window, 0 beyond it - early-season rows are structural, not a build failure
-2026-11-18 15:08:06,152 INFO odds history: 5498 rows (+11 new, 32 moved) from 43 request(s) in 45.2s
-2026-11-18 15:08:06,264 WARNING OOF validation population is thin on 22 of 89 window(s) (< MIN_VAL_FOLD_GAMES=40 games): [2024-04-23..2024-04-29 n=22 postseason], [2024-04-30..2024-05-06 n=13 postseason], [2024-05-07..2024-05-13 n=13 postseason], [2024-05-14..2024-05-21 n=10 postseason], [2024-05-22..2024-05-28 n=7 postseason], +17 more - retained and scored, but PROVISIONAL: excluded from pooled metrics, blend weights and calibration (playoff weeks and season ramps are the usual cause)
-2026-11-18 15:08:06,269 INFO OOF season-type split: 21 window(s) carry postseason games (251 rows); their playoff rows are reported as oof_postseason and never grade the blend
+2026-11-18 18:21:51,637 INFO designation archive full: 651 day(s) resolved, 43887 new row(s), archive now 43887 row(s) -> /kaggle/working/sports_prediction_model/nba-backend/data_delivery/nba_designations.parquet (injury-report host answered 423 403(s) during refresh)
+2026-11-18 18:21:51,638 INFO designation archive full timing: 2332s phase = resolve 2330s + merge 0s + write 2s; filings 4967 parsed in 2080s (419 ms each, 0 unparseable), pdfs 4270 disk-hit / 4491 fetched; requests 4914 in 5645s worker-time, 423 403(s), 84 known-missing skip(s)
+2026-11-18 18:21:51,638 WARNING injury-report host answered 423 403(s) resolving the archive; days it throttled are uncovered, not filled - a rate-limited refresh looks like an empty archive
+2026-11-18 18:21:51,967 INFO PIT designations: 43887 record(s) from the published archive
+2026-11-18 18:21:52,140 INFO PIT designations loaded from the delivery archive at /kaggle/working/sports_prediction_model/nba-backend/data_delivery (machine cache had none)
+2026-11-18 18:22:22,928 WARNING no filing lists DAL@GSW before tipoff on 2024-01-19: game uncovered
+2026-11-18 18:23:04,997 INFO no filing lists UTA@LAL before tipoff on 2026-11-18: pre-submission - no designations yet
+2026-11-18 18:23:05,005 WARNING injury-report host answered 423 403(s) resolving the slate; designation coverage may be incomplete
+2026-11-18 18:23:05,008 INFO slate designations resolved live: 233 record(s) across 8 date(s), 231 with a submission status
+2026-11-18 18:23:05,367 WARNING current roster unresolved (ValueError: incomplete or ambiguous official league roster); using dated history/strict-prior appearances
+2026-11-18 18:27:15,229 WARNING DARKO history: 1 of 876 player(s) unavailable (first: (200782, 'Timeout: Failed to perform, curl: (28) Operation timed out after 45001 milliseconds with '))
+2026-11-18 18:27:18,900 INFO DARKO history: 353031 rows for 875 player(s)
+2026-11-18 18:27:19,712 INFO DARKO rating: 99.9% of rows carry a DPM value
+2026-11-18 18:27:32,891 INFO DARKO expected minutes: 39.5% of rows carry x_minutes
+2026-11-18 18:32:44,187 INFO waterfall minutes redistribution (position-feature build): 12567 donor(s), 277187.7 minute(s) absorbed, 20636.8 vanished (491 no-survivor), 31209 spill(s)
+2026-11-18 18:32:44,236 INFO projected-lineup feature build: 2989s (4154 row(s), 23 feature column(s))
+2026-11-18 18:32:44,258 INFO pl_dpm features attached: 4128/4151 decided rows carry them
+2026-11-18 18:32:44,259 INFO star-out features attached: 4136/4151 decided rows carry them
+2026-11-18 18:32:44,259 INFO o-pts features attached: 4136/4151 decided rows carry them
+2026-11-18 18:32:44,278 INFO pl_dpm coverage gap: 23/4151 decided rows lack position-rapm features; by days into their season: 23 within the 10-day pool lookback, 0 more within the 30-day recency window, 0 beyond it - early-season rows are structural, not a build failure
+2026-11-18 18:34:04,442 INFO odds history: 5498 rows (+0 new, 42 moved) from 42 request(s) in 80.2s
+2026-11-18 18:34:04,549 WARNING OOF validation population is thin on 22 of 89 window(s) (< MIN_VAL_FOLD_GAMES=40 games): [2024-04-23..2024-04-29 n=22 postseason], [2024-04-30..2024-05-06 n=13 postseason], [2024-05-07..2024-05-13 n=13 postseason], [2024-05-14..2024-05-21 n=10 postseason], [2024-05-22..2024-05-28 n=7 postseason], +17 more - retained and scored, but PROVISIONAL: excluded from pooled metrics, blend weights and calibration (playoff weeks and season ramps are the usual cause)
+2026-11-18 18:34:04,553 INFO OOF season-type split: 21 window(s) carry postseason games (251 rows); their playoff rows are reported as oof_postseason and never grade the blend
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
   features
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-2026-11-18 15:08:06,271 INFO   phase 4/10  features  (53m21s)
+2026-11-18 18:34:04,555 INFO   phase 4/10  features  (51m16s)
   ✅ 4151 games, 98 features, 89 folds
-2026-11-18 15:08:13,971 INFO market offset: TAB priced 4124/4151 (99.3%)
-2026-11-18 15:08:31,285 INFO moneyline OOF fold 25/89
-2026-11-18 15:08:46,110 INFO moneyline OOF fold 50/89
-2026-11-18 15:09:06,053 INFO moneyline OOF fold 75/89
-2026-11-18 15:09:21,159 INFO Published blend: 3894 OOF rows — headline metrics grade the causal rolling blend; final weights {'elasticnet': '21.9%', 'lightgbm': '0.0%', 'xgboost': '78.1%'} replay only in p_ensemble_retrospective (NOT OOF)
-2026-11-18 15:09:21,247 INFO moneyline retrospective final-weight replay (NOT OOF): {'n': 3510, 'auc': 0.7621948004784888, 'logloss': 0.5753349892280476, 'brier': 0.19651639395009862, 'ece': 0.009670859638879772}
-2026-11-18 15:09:21,248 INFO final serving calibration gate: identity (gated_no_gain)
-2026-11-18 15:09:21,249 INFO final serving calibrator: identity map (no fitted correction)
-2026-11-18 15:10:42,884 INFO score-ensemble OOF fold 25/89
-2026-11-18 15:12:32,058 INFO score-ensemble OOF fold 50/89
-2026-11-18 15:14:40,339 INFO score-ensemble OOF fold 75/89
-2026-11-18 15:15:59,460 INFO score-ensemble serving weights (OOF-earned): {'elasticnet': 0.7724, 'lightgbm': 0.0, 'xgboost': 0.2276}
-2026-11-18 15:15:59,485 INFO run-line fit check: home pearson 1.1830 dev 1.18849 (baseline 1.44237) | away pearson 1.2149 dev 1.21842 (baseline 1.49533)
-2026-11-18 15:15:59,517 INFO marketize (expand=False merge): 0.0s over 3894 rows
-2026-11-18 15:15:59,572 INFO causal_distribution_frame: 3894 rows over 89 origins (n_draws=50000)
-2026-11-18 15:15:59,982 INFO causal_distribution_frame: origin 0/89 (0.4s)
-2026-11-18 15:16:58,419 INFO causal_distribution_frame: origin 25/89 (58.8s)
-2026-11-18 15:18:57,372 INFO causal_distribution_frame: origin 50/89 (177.8s)
-2026-11-18 15:21:46,430 INFO causal_distribution_frame: origin 75/89 (346.9s)
-2026-11-18 15:23:46,077 INFO calibrate_market_frame: 466.6s over 3894 rows (89 origins)
+2026-11-18 18:34:11,937 INFO market offset: TAB priced 4124/4151 (99.3%)
+2026-11-18 18:34:27,602 INFO moneyline OOF fold 25/89
+2026-11-18 18:34:41,853 INFO moneyline OOF fold 50/89
+2026-11-18 18:35:00,456 INFO moneyline OOF fold 75/89
+2026-11-18 18:35:14,483 INFO Published blend: 3894 OOF rows — headline metrics grade the causal rolling blend; final weights {'elasticnet': '33.5%', 'lightgbm': '0.0%', 'xgboost': '66.5%'} replay only in p_ensemble_retrospective (NOT OOF)
+2026-11-18 18:35:14,573 INFO moneyline retrospective final-weight replay (NOT OOF): {'n': 3510, 'auc': 0.7619269358215275, 'logloss': 0.5755032427720062, 'brier': 0.1966267297358689, 'ece': 0.009478325193281418}
+2026-11-18 18:35:14,574 INFO final serving calibration gate: identity (gated_no_gain)
+2026-11-18 18:35:14,575 INFO final serving calibrator: identity map (no fitted correction)
+2026-11-18 18:36:30,001 INFO score-ensemble OOF fold 25/89
+2026-11-18 18:38:08,585 INFO score-ensemble OOF fold 50/89
+2026-11-18 18:40:03,716 INFO score-ensemble OOF fold 75/89
+2026-11-18 18:41:16,542 INFO score-ensemble serving weights (OOF-earned): {'elasticnet': 0.7436, 'lightgbm': 0.0032, 'xgboost': 0.2532}
+2026-11-18 18:41:16,565 INFO run-line fit check: home pearson 1.1832 dev 1.18853 (baseline 1.44237) | away pearson 1.2183 dev 1.22148 (baseline 1.49533)
+2026-11-18 18:41:16,593 INFO marketize (expand=False merge): 0.0s over 3894 rows
+2026-11-18 18:41:16,643 INFO causal_distribution_frame: 3894 rows over 89 origins (n_draws=50000)
+2026-11-18 18:41:17,023 INFO causal_distribution_frame: origin 0/89 (0.4s)
+2026-11-18 18:42:08,458 INFO causal_distribution_frame: origin 25/89 (51.8s)
+2026-11-18 18:44:03,214 INFO causal_distribution_frame: origin 50/89 (166.6s)
+2026-11-18 18:46:41,862 INFO causal_distribution_frame: origin 75/89 (325.2s)
+2026-11-18 18:48:37,872 INFO calibrate_market_frame: 441.3s over 3894 rows (89 origins)
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
   walk-forward
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-2026-11-18 15:23:46,112 INFO   phase 5/10  walk-forward  (15m39s)
+2026-11-18 18:48:37,907 INFO   phase 5/10  walk-forward  (14m33s)
   ✅ 3894 out-of-fold rows over 89 folds
 market_rundown.attach_live: resolved 231 match id(s) from the live round listing (no history file)
-2026-11-18 15:24:02,807 INFO slate market offset: 12/12 game(s) priced
+2026-11-18 18:49:06,791 INFO slate market offset: 12/12 game(s) priced
 market_rundown.attach_live: resolved 231 match id(s) from the live round listing (no history file)
-2026-11-18 15:24:05,601 INFO serve quotes: 12/12 game(s) priced (refreshed), oldest quote 20.9 min against a 10-min bar
-2026-11-18 15:24:05,603 WARNING serve quotes: 12 game(s) still quote a price older than 10 min after the refresh (401910007, 401910008, 401910009, 401910010, 401910011, 401910012, 401910013, 401910014, 401910015, 401910016, 401910017, 401910018) - the feed is lagging, so the card carries the last number it published, not a fresh one
+2026-11-18 18:49:22,453 INFO serve quotes: 12/12 game(s) priced (refreshed), oldest quote 46.2 min against a 10-min bar
+2026-11-18 18:49:22,455 WARNING serve quotes: 12 game(s) still quote a price older than 10 min after the refresh (401910007, 401910008, 401910009, 401910010, 401910011, 401910012, 401910013, 401910014, 401910015, 401910016, 401910017, 401910018) - the feed is lagging, so the card carries the last number it published, not a fresh one
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
   final fit
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-2026-11-18 15:24:09,756 INFO   phase 6/10  final fit  (23s)
+2026-11-18 18:49:26,593 INFO   phase 6/10  final fit  (48s)
   ✅ 3 ensemble member(s), 12 upcoming game(s) scored
-2026-11-18 15:24:12,672 INFO markets strip: 0 started game(s) keep their last pre-tip legs; 12 pre-tip game(s) re-priced
-2026-11-18 15:24:41,725 INFO DARKO history: 202507 rows for 471 player(s)
-2026-11-18 15:24:41,875 INFO DARKO rating: 100.0% of rows carry a DPM value
-2026-11-18 15:24:41,996 INFO DARKO expected minutes: 80.5% of rows carry x_minutes
-2026-11-18 15:24:54,492 INFO waterfall minutes redistribution (rating writer): 0 donor(s), 0.0 minute(s) absorbed, 0.0 vanished (0 no-survivor), 0 spill(s)
-2026-11-18 15:24:54,623 INFO projected lineups: 8354 team-game(s) (24 priced, 8330 pool-refusal mask rows), mean pool 15.8 / healthy 12.7 over priced rows
-2026-11-18 15:24:57,932 INFO   lineup_rapm_mean_diff            12/4177 rows  distinct 12
-2026-11-18 15:24:57,933 INFO   lineup_rapm_top3_diff            12/4177 rows  distinct 12
-2026-11-18 15:24:57,933 INFO   lineup_rapm_std_diff             12/4177 rows  distinct 12
-2026-11-18 15:24:57,934 INFO   lineup_rapm_rest_count_diff      12/4177 rows  distinct 1  CONSTANT
-2026-11-18 15:24:57,935 INFO   lineup_out_count_diff            12/4177 rows  distinct 10
-2026-11-18 15:24:57,935 INFO   lineup_healthy_frac_diff         12/4177 rows  distinct 12
-2026-11-18 15:24:57,936 INFO   lineup_rapm_concentration_diff   12/4177 rows  distinct 12
-2026-11-18 15:25:04,110 INFO NBA SHAP attributions written for 12 game(s)
-2026-11-18 15:25:04,111 INFO SHAP attributions written: 12
+2026-11-18 18:49:29,446 INFO markets strip: 0 started game(s) keep their last pre-tip legs; 12 pre-tip game(s) re-priced
+2026-11-18 18:49:58,484 INFO DARKO history: 202507 rows for 471 player(s)
+2026-11-18 18:49:58,636 INFO DARKO rating: 100.0% of rows carry a DPM value
+2026-11-18 18:49:58,753 INFO DARKO expected minutes: 80.5% of rows carry x_minutes
+2026-11-18 18:50:10,584 INFO waterfall minutes redistribution (rating writer): 0 donor(s), 0.0 minute(s) absorbed, 0.0 vanished (0 no-survivor), 0 spill(s)
+2026-11-18 18:50:10,713 INFO projected lineups: 8354 team-game(s) (24 priced, 8330 pool-refusal mask rows), mean pool 15.8 / healthy 12.7 over priced rows
+2026-11-18 18:50:13,797 INFO   lineup_rapm_mean_diff            12/4177 rows  distinct 12
+2026-11-18 18:50:13,797 INFO   lineup_rapm_top3_diff            12/4177 rows  distinct 12
+2026-11-18 18:50:13,798 INFO   lineup_rapm_std_diff             12/4177 rows  distinct 12
+2026-11-18 18:50:13,798 INFO   lineup_rapm_rest_count_diff      12/4177 rows  distinct 1  CONSTANT
+2026-11-18 18:50:13,799 INFO   lineup_out_count_diff            12/4177 rows  distinct 10
+2026-11-18 18:50:13,799 INFO   lineup_healthy_frac_diff         12/4177 rows  distinct 12
+2026-11-18 18:50:13,799 INFO   lineup_rapm_concentration_diff   12/4177 rows  distinct 12
+2026-11-18 18:50:18,747 INFO NBA SHAP attributions written for 12 game(s)
+2026-11-18 18:50:18,747 INFO SHAP attributions written: 12
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
   serve
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-2026-11-18 15:25:04,112 INFO   phase 7/10  serve  (54s)
+2026-11-18 18:50:18,748 INFO   phase 7/10  serve  (52s)
   ✅ 21 artifact(s) written to /kaggle/working/sports_prediction_model/nba-backend/data_delivery
-2026-11-18 15:25:04,447 INFO feature importance weights are blend-weighted across 3 member(s) with shares {'xgboost': 0.7813, 'lightgbm': 0.0, 'elasticnet': 0.2187}; each member's own elo_diff importance {'xgboost': 1.572, 'lightgbm': 1.0183, 'elasticnet': 0.0} - a concentrated share means the MODEL WEIGHT column is that member's profile
-2026-11-18 15:25:04,646 INFO feature drift: 132 features, 132 evaluated, 0 INSUFFICIENT, 1 warning(s), 9 alert(s); statuses on noise-adjusted PSI with a location gate [alerts: is_playoffs, elo_home, event_three_rate_away, event_rim_rate_away, event_shot_distance_away, pl_d_dpm_home, projected_game_pace_total, projected_game_pace_away, free_throw_pct_ewm_away; warnings: free_throw_pct_roll_away]
-2026-11-18 15:25:04,813 INFO run-engine drift/coverage view: DISTRIBUTION model - pooled per-side Poisson importances over 132 feature(s) summing to 100.0000%; 132 input(s) in the monitoring view
+2026-11-18 18:50:19,059 INFO feature importance weights are blend-weighted across 3 member(s) with shares {'xgboost': 0.6649, 'lightgbm': 0.0, 'elasticnet': 0.3351}; each member's own elo_diff importance {'xgboost': 1.5133, 'lightgbm': 1.2183, 'elasticnet': 0.0} - a concentrated share means the MODEL WEIGHT column is that member's profile
+2026-11-18 18:50:19,228 INFO feature drift: 132 features, 132 evaluated, 0 INSUFFICIENT, 1 warning(s), 9 alert(s); statuses on noise-adjusted PSI with a location gate [alerts: is_playoffs, elo_home, event_three_rate_away, event_rim_rate_away, event_shot_distance_away, pl_d_dpm_home, projected_game_pace_total, projected_game_pace_away, free_throw_pct_ewm_away; warnings: free_throw_pct_roll_away]
+2026-11-18 18:50:19,380 INFO run-engine drift/coverage view: DISTRIBUTION model - pooled per-side Poisson importances over 132 feature(s) summing to 100.0000%; 132 input(s) in the monitoring view
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
   feature report
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-2026-11-18 15:25:04,814 INFO   phase 8/10  feature report  (0s)
+2026-11-18 18:50:19,380 INFO   phase 8/10  feature report  (0s)
   ✅ selection nba_feature_selection_20261118.json, 2 drift/coverage file(s)
-2026-11-18 15:25:05,118 INFO feature drift: 98 features, 98 evaluated, 0 INSUFFICIENT, 0 warning(s), 8 alert(s); statuses on noise-adjusted PSI with a location gate [alerts: is_playoffs, elo_home, event_three_rate_away, event_rim_rate_away, event_shot_distance_away, pl_d_dpm_home, projected_game_pace_total, projected_game_pace_away]
-2026-11-18 15:25:05,643 INFO run-line OOF:  {"n": 3894, "n_pushes": 0, "crps": 7.975793160769081, "auc": 0.5149481161684885, "logloss": 0.6928499583480641, "logscore": 0.6928499583480641, "brier": 0.2498514251082691, "predicted_mean": 0.5000147252182845, "actual_win_rate": 0.5077041602465331, "ece_cover": 0.00768943502824858, "reliability": [{"n": 1958, "predicted": 0.4928061287027579, "actual": 0.4979570990806946, "gap": -0.005150970377936659}, {"n": 1936, "predicted": 0.5073052376033058, "actual": 0.5175619834710744, "gap": -0.01025674586776859}], "calibration_in_the_large": -0.007689435028248592, "threshold_policy": "closest_half_point_to_model_50_percent"}
-2026-11-18 15:25:05,644 INFO totals OOF:    {"n": 3894, "n_pushes": 0, "crps": 10.392985673443349, "auc": 0.5117495204829174, "logloss": 0.6929713979721656, "logscore": 0.6929713979721656, "brier": 0.2499121156325629, "predicted_mean": 0.5000507704160246, "actual_win_rate": 0.5010272213662044, "ece_cover": 0.0009764509501798062, "reliability": [{"n": 1969, "predicted": 0.49457145759268656, "actual": 0.4951752158456069, "gap": -0.0006037582529203611}, {"n": 1925, "predicted": 0.5056553246753247, "actual": 0.507012987012987, "gap": -0.0013576623376623242}], "calibration_in_the_large": -0.0009764509501797303, "threshold_policy": "closest_half_point_to_model_50_percent"}
+2026-11-18 18:50:19,639 INFO feature drift: 98 features, 98 evaluated, 0 INSUFFICIENT, 0 warning(s), 8 alert(s); statuses on noise-adjusted PSI with a location gate [alerts: is_playoffs, elo_home, event_three_rate_away, event_rim_rate_away, event_shot_distance_away, pl_d_dpm_home, projected_game_pace_total, projected_game_pace_away]
+2026-11-18 18:50:19,925 INFO run-line OOF:  {"n": 3894, "n_pushes": 0, "crps": 7.9771451559387785, "auc": 0.5244432669692978, "logloss": 0.6925673183562328, "logscore": 0.6925673183562328, "brier": 0.24971009997175142, "predicted_mean": 0.5001259938366718, "actual_win_rate": 0.5087313816127376, "ece_cover": 0.01319511556240371, "reliability": [{"n": 1882, "predicted": 0.4925272051009564, "actual": 0.487778958554729, "gap": 0.004748246546227353}, {"n": 2012, "predicted": 0.5072338071570576, "actual": 0.5283300198807157, "gap": -0.021096212723658136}], "calibration_in_the_large": -0.008605387776065787, "threshold_policy": "closest_half_point_to_model_50_percent"}
+2026-11-18 18:50:19,926 INFO totals OOF:    {"n": 3894, "n_pushes": 0, "crps": 10.401674733460297, "auc": 0.4980938921980031, "logloss": 0.6932671278956793, "logscore": 0.6932671278956793, "brier": 0.250059968588906, "predicted_mean": 0.5000438674884438, "actual_win_rate": 0.502568053415511, "ece_cover": 0.008024062660503367, "reliability": [{"n": 1952, "predicted": 0.49460172131147545, "actual": 0.5051229508196722, "gap": -0.010521229508196728}, {"n": 1942, "predicted": 0.5055140370751803, "actual": 0.5, "gap": 0.005514037075180278}], "calibration_in_the_large": -0.0025241859270672684, "threshold_policy": "closest_half_point_to_model_50_percent"}
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
   monitor
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-2026-11-18 15:25:15,059 INFO   phase 9/10  monitor  (10s)
-  ✅ rolling Brier: 0.1991 games-weighted over 617 day(s) (3894 game(s)); last day 2026-11-17 0.2993 over 5 game(s), 3 ensemble member(s)
-2026-11-18 15:25:15,719 INFO score-means stability vs prior delivery: {'status': 'ok', 'prior_file': 'nba_run_engine_markets_20261117.csv', 'n_common': 3889, 'mean_abs_dmu_home': 0.0216, 'mean_abs_dmu_away': 0.0304, 'derived_auc_new': 0.741, 'derived_logloss_new': 0.59638, 'derived_auc_prior': 0.741, 'derived_logloss_prior': 0.59644, 'derived_auc_delta_bps': 0.0, 'derived_logloss_delta_bps': -0.6}
-2026-11-18 15:25:15,767 INFO PIT designations: 43887 record(s) from the published archive
-2026-11-18 15:25:16,296 INFO designation archive published: 43887 record(s)
-2026-11-18 15:25:16,465 INFO event rollup archive published: 9838 team-game(s)
+2026-11-18 18:50:29,256 INFO   phase 9/10  monitor  (9s)
+  ✅ rolling Brier: 0.1995 games-weighted over 617 day(s) (3894 game(s)); last day 2026-11-17 0.3022 over 5 game(s), 3 ensemble member(s)
+2026-11-18 18:50:29,913 INFO score-means stability vs prior delivery: {'status': 'ok', 'prior_file': 'nba_run_engine_markets_20261117.csv', 'n_common': 3889, 'mean_abs_dmu_home': 0.1954, 'mean_abs_dmu_away': 0.2237, 'derived_auc_new': 0.7406, 'derived_logloss_new': 0.59607, 'derived_auc_prior': 0.741, 'derived_logloss_prior': 0.59644, 'derived_auc_delta_bps': -4.0, 'derived_logloss_delta_bps': -3.7}
+2026-11-18 18:50:29,959 INFO PIT designations: 43887 record(s) from the published archive
+2026-11-18 18:50:30,467 INFO designation archive published: 43887 record(s)
+2026-11-18 18:50:30,625 INFO event rollup archive published: 9838 team-game(s)
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
   publish
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-2026-11-18 15:25:16,513 INFO   phase 10/10  publish  (1s)
-  ✅ status ok, 5595.42s
-retention: 14 stale artifact(s) deleted from the delivery and staged for removal
-publish: 100%|##########| 10/10, total 1h34m
-
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-  run delivery
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-  status ok, 5595.42s
-  artifacts — 415 file(s) committed to main at 909145a6fa, remotely verified
-  run log — this file, re-delivered after the sync so the run's final state ships with it
-  📝 Final run-log delivery — pushing the complete log (the sync staged a snapshot before sync finished)
+2026-11-18 18:50:30,657 INFO   phase 10/10  publish  (1s)
+  ✅ status ok, 5288.42s
