@@ -111,3 +111,58 @@ def test_fetch_live_keeps_its_schema_when_a_request_fails(monkeypatch):
     assert "home" in live.columns and "away" in live.columns
     assert live["market_p_home"].isna().all()
     assert live["error"].notna().all()
+
+
+
+# ── live round-listing fallback (2026-11-18) ─────────────────────────────
+def _live(mid, p=0.61):
+    return pd.DataFrame([{"match_id": mid, "market_p_home": p,
+                          "market_logit": 0.45, "price_utc": None,
+                          "stale_minutes": 30.0, "market_home_odds": 1.9,
+                          "market_away_odds": 1.9, "market_book": "novig",
+                          "market_price_utc": None}])
+
+
+def test_a_missing_history_still_resolves_ids_from_the_round_listing(
+        tmp_path, monkeypatch):
+    """The history is a fast path, not the only id source (NBA parity)."""
+    day = pd.Timestamp("2026-01-06")
+    monkeypatch.setattr(mo, "live_match_index", lambda **k: (
+        {("BOS", "NYK", day): "LIVE"}, {("BOS", "NYK"): "LIVE"}))
+    seen = []
+    monkeypatch.setattr(mo, "fetch_live",
+                        lambda ids: seen.extend(ids) or _live(ids[0]))
+    out = mo.attach_live(_slate(["2026-01-06"], [("BOS", "NYK")]),
+                         path=str(tmp_path / "missing.csv"))
+    assert seen == ["LIVE"]
+    assert out["market_p_home"].iloc[0] == pytest.approx(0.61)
+
+
+def test_an_empty_recent_window_falls_back_too(tmp_path, monkeypatch):
+    path = _hist(tmp_path, [_row("OLD", "2026-01-05T00:00:00Z")])
+    day = pd.Timestamp("2026-01-06")
+    monkeypatch.setattr(mo, "live_match_index", lambda **k: (
+        {("BOS", "NYK", day): "LIVE"}, {("BOS", "NYK"): "LIVE"}))
+    seen = []
+    monkeypatch.setattr(mo, "fetch_live",
+                        lambda ids: seen.extend(ids) or _live(ids[0]))
+    mo.attach_live(_slate(["2026-01-06"], [("BOS", "NYK")]), path=path,
+                   lookback_days=1)
+    assert seen == ["LIVE"]
+
+
+def test_the_live_listing_maps_si_codes_and_eastern_dates(monkeypatch):
+    """SI writes NJ/TB; the board writes NJD/TBL, and the day is Eastern."""
+    def listing(season, rnd):
+        if rnd != 7:
+            return []
+        return [{"MatchData": {"SIMatchID": "M7",
+                               "Date": "2026-01-07T00:00:00Z",
+                               "HomeTeam": {"Abv": "NJ"},
+                               "AwayTeam": {"Abv": "TB"}}}]
+
+    monkeypatch.setattr(mo, "_round_listing", listing)
+    by_day, by_pair = mo.live_match_index(season=2026, max_round=10,
+                                          workers=2)
+    assert by_day[("NJD", "TBL", pd.Timestamp("2026-01-06"))] == "M7"
+    assert by_pair[("NJD", "TBL")] == "M7"

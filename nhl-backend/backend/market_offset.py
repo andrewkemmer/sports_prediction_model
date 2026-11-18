@@ -237,12 +237,94 @@ def keep_prior_quotes(fresh: pd.DataFrame, prior: pd.DataFrame) -> pd.DataFrame:
     return out
 
 
+def _nhl_season(season: int | None = None) -> int:
+    """Stats Insider's season label, by ``odds_history.refresh``'s own rule."""
+    now = pd.Timestamp.now(tz="UTC")
+    if season:
+        return int(season)
+    cur = 0
+    try:
+        from odds_history import _read_cursor
+        cur = int(_read_cursor()[0] or 0)
+    except Exception:  # noqa: BLE001 - no cursor means "follow the calendar"
+        cur = 0
+    return int(cur if cur >= now.year else now.year)
+
+
+def _round_listing(season: int, rnd: int) -> list:
+    """One round's matches, or [] when the listing is unreachable."""
+    try:
+        from odds_history import matches_for
+        return matches_for(season, rnd) or []
+    except Exception:  # noqa: BLE001 - an unreachable feed prices nothing
+        return []
+
+
+def _abv(team) -> str:
+    if isinstance(team, dict):
+        return str(team.get("Abv") or team.get("DisplayName") or "").upper()
+    return str(team or "").upper()
+
+
+def live_match_index(season: int | None = None, max_round: int = 160,
+                     workers: int = 8) -> tuple[dict, dict]:
+    """(home, away, ET date) -> SIMatchID, straight from the feed.
+
+    NHL twin of ``nba-backend/backend/market_rundown.live_match_index``.
+    ``attach_live`` resolved match ids ONLY from the stored price history, so
+    a game the scraper had not written yet - or a hosted run with no history
+    at all - served an unpriced card while the feed was answering. The round
+    listing carries the same ids, so ask it instead.
+
+    The whole season is swept concurrently (160 rounds, ~8 workers, a few
+    seconds). A cursor-anchored window was tried first and is WRONG on this
+    feed: 2026-11-18, the rounds around the cursor (94 = Dec 31) held three
+    December fixtures while every November game lived below round 55 - a
+    window would have "resolved" three ids and gone silent on tonight's
+    board. Stats Insider writes LA/NJ/SJ/TB where the model writes
+    LAK/NJD/SJS/TBL, so keys use the model vocabulary, exactly as the
+    history's do.
+    """
+    from concurrent.futures import ThreadPoolExecutor
+    from zoneinfo import ZoneInfo
+
+    season = _nhl_season(season)
+    rounds = range(1, int(max_round) + 1)
+
+    def one(rnd):
+        return _round_listing(season, rnd)
+
+    with ThreadPoolExecutor(max_workers=max(1, int(workers))) as ex:
+        fetched = list(ex.map(one, rounds))
+    by_day: dict = {}
+    by_pair: dict = {}
+    for items in fetched:
+        for item in items or []:
+            if not isinstance(item, dict):
+                continue
+            md = item.get("MatchData") or item
+            mid = md.get("SIMatchID")
+            tip = pd.to_datetime(md.get("Date"), errors="coerce", utc=True)
+            away = _abv(md.get("AwayTeam"))
+            home = _abv(md.get("HomeTeam"))
+            away = FROM_SI.get(away, away)
+            home = FROM_SI.get(home, home)
+            if not mid or pd.isna(tip) or not away or not home:
+                continue
+            day = (tip.tz_convert(ZoneInfo("America/New_York"))
+                   .normalize().tz_localize(None))
+            by_day[(home, away, day)] = mid
+            by_pair[(home, away)] = mid
+    return by_day, by_pair
+
+
 def attach_live(slate_df: pd.DataFrame, lookback_days: int = 4,
                 path: str | None = None) -> pd.DataFrame:
     """Attach the CURRENT TAB price to a slate, fetched at serve time.
 
     Match ids come from the stored history's recent rows (the slate itself
-    carries no Stats Insider id), then the price is pulled live — never the
+    carries no Stats Insider id), falling back to the live round listing when
+    that history carries none, then the price is pulled live — never the
     archived snapshot — so the served offset is the number at publish time.
 
     Ids are keyed on (home, away, Eastern game date) FIRST. Keying on the pair
@@ -262,21 +344,29 @@ def attach_live(slate_df: pd.DataFrame, lookback_days: int = 4,
         hist = pd.read_csv(DEFAULT_HISTORY if path is None else path)
     except Exception as exc:  # noqa: BLE001
         print(f"market_offset.attach_live: history unavailable ({exc})")
-        return out
-    hist["_d"] = pd.to_datetime(hist["date"], utc=True)
-    hist["_gd"] = (hist["_d"].dt.tz_convert("America/New_York")
-                   .dt.normalize().dt.tz_localize(None))
-    cutoff = pd.Timestamp.now(tz="UTC") - pd.Timedelta(days=lookback_days)
-    recent = hist[hist["_d"] >= cutoff].copy()
-    recent["home"] = recent["home"].replace(FROM_SI)
-    recent["away"] = recent["away"].replace(FROM_SI)
-    recent = recent.dropna(subset=["match_id"]).sort_values("_d")
+        hist = None
     by_day: dict = {}
     by_pair: dict = {}
-    for h_, a_, d_, mid in zip(recent["home"], recent["away"],
-                               recent["_gd"], recent["match_id"]):
-        by_day[(h_, a_, d_)] = mid
-        by_pair[(h_, a_)] = mid
+    if hist is not None:
+        hist["_d"] = pd.to_datetime(hist["date"], utc=True)
+        hist["_gd"] = (hist["_d"].dt.tz_convert("America/New_York")
+                       .dt.normalize().dt.tz_localize(None))
+        cutoff = pd.Timestamp.now(tz="UTC") - pd.Timedelta(days=lookback_days)
+        recent = hist[hist["_d"] >= cutoff].copy()
+        recent["home"] = recent["home"].replace(FROM_SI)
+        recent["away"] = recent["away"].replace(FROM_SI)
+        recent = recent.dropna(subset=["match_id"]).sort_values("_d")
+        for h_, a_, d_, mid in zip(recent["home"], recent["away"],
+                                   recent["_gd"], recent["match_id"]):
+            by_day[(h_, a_, d_)] = mid
+            by_pair[(h_, a_)] = mid
+    if not by_day:
+        # NBA parity (2026-11-18): the stored history is a fast path, not the
+        # only way to know a game's id. A game the scraper has not written
+        # yet - or a hosted run with no history file - keeps its price.
+        by_day, by_pair = live_match_index()
+        print(f"market_offset.attach_live: resolved {len(by_day)} match id(s) "
+              "from the live round listing (no history ids)")
     days = (pd.to_datetime(out["gameday"]).dt.normalize()
             if "gameday" in out.columns
             else pd.Series([pd.NaT] * len(out), index=out.index))
