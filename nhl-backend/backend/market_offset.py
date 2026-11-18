@@ -172,17 +172,22 @@ QUOTE_FIELDS = ("market_p_home", "market_logit", "price_utc", "stale_minutes",
 
 
 def quote_age_minutes(frame: pd.DataFrame) -> pd.Series:
-    """Minutes between now (UTC) and each row's provider quote stamp.
+    """Minutes since the TAB quote that feeds the offset was last updated.
 
-    ``market_price_utc``/``price_utc`` is the FEED's own last-updated
-    instant, so this is the age of the number a reader would see, not the
-    age of our request: the 2026-11-17 run attached BOS/LAK at 23:21:03 and
-    published the card at 23:34:13 - thirteen minutes of drift behind a
-    board that said "priced live" and carried no age at all.
+    ``price_utc`` is TAB's own last-updated instant and TAB is the OFFSET
+    book - the training series is TAB-priced, so ``market_logit`` (what the
+    slate predicts with) is that number. ``market_price_utc`` is the no-vig
+    DISPLAY stamp and can move independently; gating on it would refresh on
+    the wrong book's clock, or fail to refresh when the offset input is the
+    one that went stale. ``stale_minutes`` on the card is already TAB's age.
+
+    These are the FEED's instants, not ours: the 2026-11-17 run attached
+    BOS/LAK from a 23:21:03 stamp and published at 23:34:13 - thirteen
+    minutes behind a board that said "priced live" and carried no age.
     """
     if frame is None or not len(frame):
         return pd.Series(dtype=float)
-    col = next((c for c in ("market_price_utc", "price_utc")
+    col = next((c for c in ("price_utc", "market_price_utc")
                 if c in frame.columns), None)
     if col is None:
         return pd.Series(dtype=float)

@@ -8,8 +8,10 @@ fetch seconds ago and still serve a quarter-hour-old number.
 
 These pin the three pieces that make that impossible to hide:
 
-* ``quote_age_minutes`` measures the age of the number a reader would see,
-  not the age of our request.
+* ``quote_age_minutes`` measures the age of the TAB quote that FEEDS THE
+  OFFSET (``price_utc``), not the no-vig display stamp and not the age of
+  our request - TAB is the training series, so ``market_logit`` is TAB's
+  de-vig and that is the number whose staleness matters.
 * ``needs_quote_refresh`` re-pulls an unpriced slate, a slate with no usable
   stamp, and one whose OLDEST quote is past the bar.
 * ``keep_prior_quotes`` keeps the prior number (and its stale stamp) for any
@@ -51,10 +53,22 @@ def test_quote_age_reads_the_feed_stamp_not_our_request():
     assert age.iloc[1] == pytest.approx(2.0, abs=0.5)
 
 
-def test_quote_age_falls_back_to_price_utc():
+def test_quote_age_falls_back_to_the_display_stamp():
     now = pd.Timestamp.now(tz="UTC")
     frame = pd.DataFrame({"price_utc": [(now - pd.Timedelta(minutes=4)).isoformat()]})
     assert quote_age_minutes(frame).iloc[0] == pytest.approx(4.0, abs=0.5)
+
+
+def test_the_tab_offset_stamp_wins_over_the_novig_display_stamp():
+    # TAB feeds market_logit (the offset input); novig is display only and
+    # moves on its own clock. Gating on the display stamp would refresh on
+    # the wrong book - or miss a stale offset input entirely.
+    now = pd.Timestamp.now(tz="UTC")
+    frame = pd.DataFrame({
+        "price_utc": [(now - pd.Timedelta(minutes=14)).isoformat()],
+        "market_price_utc": [(now - pd.Timedelta(minutes=1)).isoformat()],
+    })
+    assert quote_age_minutes(frame).iloc[0] == pytest.approx(14.0, abs=0.5)
 
 
 def test_quote_age_is_empty_without_a_stamp():

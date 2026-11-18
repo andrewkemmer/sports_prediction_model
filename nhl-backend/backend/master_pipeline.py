@@ -1020,8 +1020,12 @@ def main(argv: list[str] | None = None) -> int:
             # Card caption source (2026-11-16): the price the model priced
             # against, carried onto the slate so write_moneyline_json can
             # publish it beside the probability instead of repeating it.
+            # price_utc/stale_minutes are TAB's - the OFFSET book, and the
+            # series market_logit comes from. The serve-time freshness gate
+            # and the card's age field both key on them (2026-11-18); the
+            # novig pair is display only and moves on its own clock.
             for _mc in ("market_home_odds", "market_away_odds", "market_book",
-                        "market_price_utc"):
+                        "market_price_utc", "price_utc", "stale_minutes"):
                 if _mc in _sl.columns:
                     slate[_mc] = _sl[_mc].to_numpy()
             logger.info("arm E slate: %d/%d game(s) priced live; mean p_home %s",
