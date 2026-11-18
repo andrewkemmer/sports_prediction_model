@@ -233,6 +233,42 @@ def _merge_oof_metadata(oof: pd.DataFrame, game_df: pd.DataFrame) -> pd.DataFram
     return base.merge(metadata, on="game_id", how="left", suffixes=("", "_game"))
 
 
+def _started_mask(frame: pd.DataFrame) -> pd.Series:
+    """Whether each slate row's game has begun - the freeze boundary.
+
+    The board's promise is that a prediction is locked AT TIPOFF, not at
+    first publication (2026-11-18). An evening re-run before tip must
+    re-price - NHL parity: its serving board re-scores and re-attaches the
+    live price on every run and only a card already LIVE is frozen - while
+    a game in progress must never be re-scored.
+
+    The feed's own state is authoritative: ``pre`` is trusted even past the
+    clock, because a delayed game has not started and re-pricing it cannot
+    leak a mid-game number. The clock is the fallback only for rows that
+    carry no recognised state at all.
+    """
+    if frame is None or not len(frame):
+        return pd.Series(dtype=bool)
+    states = (frame["game_state"] if "game_state" in frame.columns
+              else pd.Series([None] * len(frame), index=frame.index))
+    details = (frame["game_status_detail"].astype(str)
+               if "game_status_detail" in frame.columns
+               else pd.Series([""] * len(frame), index=frame.index))
+    known = pd.Series(
+        [str(s or "").strip().lower() in ("pre", "in", "post") for s in states],
+        index=frame.index, dtype=bool)
+    underway = pd.Series(
+        [bool(ingestion.sources.is_underway(s, d))
+         for s, d in zip(states, details)],
+        index=frame.index, dtype=bool)
+    if "start_time_utc" in frame.columns:
+        tip = pd.to_datetime(frame["start_time_utc"], errors="coerce", utc=True)
+        tipped = (tip <= pd.Timestamp.now(tz="UTC")).fillna(False)
+    else:
+        tipped = pd.Series([False] * len(frame), index=frame.index)
+    return underway | (~known & tipped)
+
+
 def _first_published_probs(delivery_dir, slate_date_iso: str) -> dict:
     """First-published moneyline probabilities per game for one slate date.
 
@@ -345,11 +381,14 @@ def _first_published_market_legs(delivery_dir, gamedays: set) -> dict:
 
 
 def _apply_markets_freeze(slate_markets: pd.DataFrame, delivery_dir) -> pd.DataFrame:
-    """Carry first-published legs onto already-published slate games.
+    """Carry first-published legs onto slate games that have TIPPED.
 
     The moneyline freeze locks the graded pick; this locks the
     Totals/Spreads strip beside the same Live badge, so an evening re-run
     cannot wiggle a live game's fair total/spread via refetch variance.
+    Same tipoff boundary as the moneyline freeze: a game still pre-tip
+    re-prices from this run's features, because the slate predictions are
+    supposed to refresh until the game starts.
     """
     if slate_markets is None or not len(slate_markets):
         return slate_markets
@@ -361,7 +400,9 @@ def _apply_markets_freeze(slate_markets: pd.DataFrame, delivery_dir) -> pd.DataF
     if not frozen:
         return slate_markets
     gids = slate_markets["game_id"].astype(str)
-    mask = gids.isin(set(frozen))
+    # Tipoff is the boundary here too: a pre-tip re-run re-prices the
+    # Totals/Spreads strip, a tipped game keeps its first-published legs.
+    mask = gids.isin(set(frozen)) & _started_mask(slate_markets).fillna(False)
     if not mask.any():
         return slate_markets
     n = 0
@@ -372,8 +413,9 @@ def _apply_markets_freeze(slate_markets: pd.DataFrame, delivery_dir) -> pd.DataF
         new_vals = gids.map(lambda g: frozen.get(g, {}).get(col, np.nan))
         slate_markets[col] = vals.mask(mask, pd.to_numeric(new_vals, errors="coerce"))
         n += 1
-    logger.info("markets freeze: %d/%d slate games carry first-published "
-                "legs (%d columns)", int(mask.sum()), len(slate_markets), n)
+    logger.info("markets freeze: %d/%d tipped slate games keep their "
+                "first-published legs (%d columns)", int(mask.sum()),
+                len(slate_markets), n)
     return slate_markets
 
 
@@ -440,12 +482,16 @@ def _keep_prior_quotes(fresh: pd.DataFrame, prior: pd.DataFrame) -> pd.DataFrame
 
 
 def _apply_moneyline_freeze(slate: pd.DataFrame, delivery_dir) -> pd.DataFrame:
-    """Carry first-published probabilities onto already-published slate games.
+    """Carry first-published probabilities onto games that have TIPPED.
 
     The freeze is what makes the Live card honest: an evening re-run keeps
-    the tipped game's locked pre-tip numbers instead of re-pricing it
-    mid-game, while never-published (pre-tip, first-run) games price fresh.
-    Operates on the slate frame in place and returns it for chaining.
+    a tipped game's locked pre-tip numbers instead of re-pricing it
+    mid-game. It must NOT freeze a game that has not started - the slate
+    predictions are supposed to re-price until tipoff, so every pre-tip run
+    prices fresh from that run's features and market (2026-11-18: the freeze
+    used to lock any previously published game, which pinned MIN at a
+    morning probability while the line moved). Operates on the slate frame
+    in place and returns it for chaining.
     """
     if slate is None or not len(slate):
         return slate
@@ -461,8 +507,12 @@ def _apply_moneyline_freeze(slate: pd.DataFrame, delivery_dir) -> pd.DataFrame:
     if not frozen:
         return slate
     gids = slate["game_id"].astype(str)
-    mask = gids.isin(set(frozen))
+    started = _started_mask(slate)
+    mask = gids.isin(set(frozen)) & started.fillna(False)
     if not mask.any():
+        logger.info("moneyline freeze: no started game on the slate - "
+                    "%d game(s) re-price from this run's features and market",
+                    len(slate))
         return slate
     for col, idx in (("p_ensemble_calibrated", 0), ("p_ensemble", 1),
                       ("home_win_prob_model", 0)):
@@ -485,9 +535,10 @@ def _apply_moneyline_freeze(slate: pd.DataFrame, delivery_dir) -> pd.DataFrame:
             index=slate.index)[mask].sum())
     except Exception:  # noqa: BLE001 - count is display-only
         pass
-    logger.info("moneyline freeze: %d/%d slate games carry first-published "
-                "pre-tip probabilities (%d live)", int(mask.sum()),
-                len(slate), n_live)
+    logger.info("moneyline freeze: %d/%d slate games have tipped and keep "
+                "their first-published pre-tip probabilities (%d live); "
+                "%d pre-tip game(s) re-priced", int(mask.sum()), len(slate),
+                n_live, len(slate) - int(mask.sum()))
     return slate
 
 

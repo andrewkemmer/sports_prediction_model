@@ -128,29 +128,33 @@ def test_moneyline_freeze_with_no_prior_publication_is_a_noop(tmp_path):
 
 
 def test_markets_freeze_is_first_published_legs(tmp_path):
-    # The strip beside the Live badge locks too: a re-run carries the first
-    # publication's fair totals/means/grid legs for already-published games
-    # (refetch variance cannot wiggle a live game), while never-published
-    # games price fresh. No prior file: strict no-op.
+    # The strip beside the Live badge locks too, but only once the game has
+    # TIPPED (2026-11-18: the freeze boundary is tipoff, not first
+    # publication - a pre-tip re-run must re-price). A game in progress
+    # keeps its first-publication fair totals/means/grid legs so refetch
+    # variance cannot wiggle a live game; a pre-tip game prices fresh.
     prior = pd.DataFrame({
-        "kind": ["slate", "oof"],
-        "game_id": ["g1", "g0"],
-        "gameday": ["2026-10-30", "2026-10-29"],
-        "fair_total": [224.5, 220.0],
-        "mu_h": [112.0, 110.0],
-        "p_over_220": [0.51, 0.50],
-        "spread_line": [-2.5, -1.5],
-        "p_cover_offered": [0.50, 0.50]})
+        "kind": ["slate", "oof", "slate"],
+        "game_id": ["g1", "g0", "g3"],
+        "gameday": ["2026-10-30", "2026-10-29", "2026-10-30"],
+        "fair_total": [224.5, 220.0, 224.5],
+        "mu_h": [112.0, 110.0, 112.0],
+        "p_over_220": [0.51, 0.50, 0.51],
+        "spread_line": [-2.5, -1.5, -2.5],
+        "p_cover_offered": [0.50, 0.50, 0.50]})
     prior.to_csv(tmp_path / "nba_run_engine_markets_20261030.csv", index=False)
     slate_markets = pd.DataFrame({
-        "kind": ["slate", "slate"],
-        "game_id": ["g1", "g2"],
-        "gameday": pd.to_datetime(["2026-10-30", "2026-10-30"]),
-        "fair_total": [999.0, 230.0],
-        "mu_h": [999.0, 115.0],
-        "p_over_220": [0.99, 0.52],
-        "spread_line": [-9.5, -3.5],
-        "p_cover_offered": [0.99, 0.53]})
+        "kind": ["slate", "slate", "slate"],
+        "game_id": ["g1", "g2", "g3"],
+        "gameday": pd.to_datetime(["2026-10-30"] * 3),
+        "game_state": ["in", "pre", "pre"],
+        "game_status_detail": ["8:33 - 3rd Quarter", "7:30 PM ET",
+                              "7:30 PM ET"],
+        "fair_total": [999.0, 230.0, 231.0],
+        "mu_h": [999.0, 115.0, 115.5],
+        "p_over_220": [0.99, 0.52, 0.52],
+        "spread_line": [-9.5, -3.5, -3.5],
+        "p_cover_offered": [0.99, 0.53, 0.53]})
     out = mp._apply_markets_freeze(slate_markets, tmp_path)
     live = out.loc[out.game_id == "g1"].iloc[0]
     assert live["fair_total"] == 224.5
@@ -161,6 +165,10 @@ def test_markets_freeze_is_first_published_legs(tmp_path):
     assert live["p_cover_offered"] == 0.99
     fresh = out.loc[out.game_id == "g2"].iloc[0]
     assert fresh["fair_total"] == 230.0
+    # Published in the morning, still pre-tip for this run: it re-prices.
+    repriced = out.loc[out.game_id == "g3"].iloc[0]
+    assert repriced["fair_total"] == 231.0
+    assert repriced["mu_h"] == 115.5
 
 
 def test_marketize_expand_false_defers_identical_pricing():
