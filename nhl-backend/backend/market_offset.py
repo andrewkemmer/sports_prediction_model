@@ -185,13 +185,9 @@ def quote_age_minutes(frame: pd.DataFrame) -> pd.Series:
     BOS/LAK from a 23:21:03 stamp and published at 23:34:13 - thirteen
     minutes behind a board that said "priced live" and carried no age.
     """
-    if frame is None or not len(frame):
+    if frame is None or not len(frame) or "price_utc" not in frame.columns:
         return pd.Series(dtype=float)
-    col = next((c for c in ("price_utc", "market_price_utc")
-                if c in frame.columns), None)
-    if col is None:
-        return pd.Series(dtype=float)
-    stamp = pd.to_datetime(frame[col], errors="coerce", utc=True)
+    stamp = pd.to_datetime(frame["price_utc"], errors="coerce", utc=True)
     return (pd.Timestamp.now(tz="UTC") - stamp).dt.total_seconds() / 60.0
 
 
@@ -266,7 +262,7 @@ def _abv(team) -> str:
     return str(team or "").upper()
 
 
-def live_match_index(season: int | None = None, max_round: int = 160,
+def live_match_index(season: int | None = None, max_round: int = 270,
                      workers: int = 8) -> tuple[dict, dict]:
     """(home, away, ET date) -> SIMatchID, straight from the feed.
 
@@ -276,12 +272,13 @@ def live_match_index(season: int | None = None, max_round: int = 160,
     at all - served an unpriced card while the feed was answering. The round
     listing carries the same ids, so ask it instead.
 
-    The whole season is swept concurrently (160 rounds, ~8 workers, a few
+    The whole season is swept concurrently (270 rounds, ~8 workers, a few
     seconds). A cursor-anchored window was tried first and is WRONG on this
     feed: 2026-11-18, the rounds around the cursor (94 = Dec 31) held three
     December fixtures while every November game lived below round 55 - a
     window would have "resolved" three ids and gone silent on tonight's
-    board. Stats Insider writes LA/NJ/SJ/TB where the model writes
+    board. The cap has to reach the end of a season too: past ones run to
+    251-259 rounds, so a 160-round sweep would miss the run-in. Stats Insider writes LA/NJ/SJ/TB where the model writes
     LAK/NJD/SJS/TBL, so keys use the model vocabulary, exactly as the
     history's do.
     """

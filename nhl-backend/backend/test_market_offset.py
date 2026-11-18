@@ -166,3 +166,19 @@ def test_the_live_listing_maps_si_codes_and_eastern_dates(monkeypatch):
                                           workers=2)
     assert by_day[("NJD", "TBL", pd.Timestamp("2026-01-06"))] == "M7"
     assert by_pair[("NJD", "TBL")] == "M7"
+
+
+
+def test_the_sweep_reaches_the_end_of_a_season(monkeypatch):
+    """Past NHL seasons end at round 251-259, so the cap must clear 240."""
+    def listing(season, rnd):
+        if rnd != 240:
+            return []
+        return [{"MatchData": {"SIMatchID": "M240",
+                               "Date": "2027-03-02T00:00:00Z",
+                               "HomeTeam": {"Abv": "LA"},
+                               "AwayTeam": {"Abv": "SJ"}}}]
+
+    monkeypatch.setattr(mo, "_round_listing", listing)
+    by_day, _by_pair = mo.live_match_index(season=2026, workers=4)
+    assert by_day[("LAK", "SJS", pd.Timestamp("2027-03-01"))] == "M240"

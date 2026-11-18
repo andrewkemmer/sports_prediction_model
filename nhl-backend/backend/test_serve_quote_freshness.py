@@ -36,6 +36,12 @@ def _frame():
             "game_id": ["2026020333", "2026020334"],
             "market_p_home": [0.576, 0.45],
             "market_logit": [0.306, -0.2],
+            # TAB is the offset book and the gate's clock; a priced frame
+            # always carries its stamp (attach_live always sets the column).
+            "price_utc": [
+                (now - pd.Timedelta(minutes=13.2)).isoformat(),
+                (now - pd.Timedelta(minutes=2)).isoformat(),
+            ],
             "market_price_utc": [
                 (now - pd.Timedelta(minutes=13.2)).isoformat(),
                 (now - pd.Timedelta(minutes=2)).isoformat(),
@@ -53,7 +59,7 @@ def test_quote_age_reads_the_feed_stamp_not_our_request():
     assert age.iloc[1] == pytest.approx(2.0, abs=0.5)
 
 
-def test_quote_age_falls_back_to_the_display_stamp():
+def test_quote_age_reads_price_utc_when_it_is_the_only_stamp():
     now = pd.Timestamp.now(tz="UTC")
     frame = pd.DataFrame({"price_utc": [(now - pd.Timedelta(minutes=4)).isoformat()]})
     assert quote_age_minutes(frame).iloc[0] == pytest.approx(4.0, abs=0.5)
@@ -96,6 +102,7 @@ def test_refresh_keeps_the_prior_number_where_the_feed_is_silent():
         {
             "game_id": ["2026020333", "2026020334"],
             "market_p_home": [0.60, float("nan")],
+            "price_utc": [pd.Timestamp.now(tz="UTC").isoformat(), None],
             "market_price_utc": [pd.Timestamp.now(tz="UTC").isoformat(), None],
             "market_book": ["novig", None],
         }

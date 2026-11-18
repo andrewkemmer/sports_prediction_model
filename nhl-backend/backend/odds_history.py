@@ -116,7 +116,8 @@ def _game(m, season: int, rnd: int) -> dict | None:
             "away_score": md.get("AwayScore")}
 
 
-def enumerate_recent(season: int, cursor: int, rounds: int) -> tuple[list, int]:
+def enumerate_recent(season: int, cursor: int,
+                     lookback_days: int) -> tuple[list, int]:
     """Games inside the last ``rounds`` days, plus everything still scheduled.
 
     The lookback trails NOW, not the furthest round on the schedule. Stats
@@ -130,10 +131,14 @@ def enumerate_recent(season: int, cursor: int, rounds: int) -> tuple[list, int]:
 
     Forward from the cursor covers everything still scheduled; backward from
     the cursor covers the lookback, stopping once a round's games all fall
-    outside ``rounds`` days. Only games inside that horizon are returned.
+    outside ``lookback_days`` days. Only games inside that horizon are
+returned - the window is CALENDAR days, not a count of rounds: rounds
+are not uniform (an NBA season runs to ~244 of them, a dense stretch
+can hold two rounds in a day), so counting rounds would silently
+shrink a 30-day lookback below 30 days.
     """
     now = _now()
-    horizon = now - pd.Timedelta(days=rounds)
+    horizon = now - pd.Timedelta(days=lookback_days)
     games: list[dict] = []
     seen: set[str] = set()
     last_with_games = 0
@@ -326,7 +331,7 @@ def _save_cursor(season: int, rnd: int) -> None:
         pass
 
 
-def refresh(rounds: int = ROUNDS, days: float = DAYS,
+def refresh(lookback_days: int = ROUNDS, days: float = DAYS,
             budget: float = BUDGET, season: int | None = None) -> dict:
     """Refresh the price history in place. Returns a run summary."""
     t0 = time.monotonic()
@@ -350,7 +355,8 @@ def refresh(rounds: int = ROUNDS, days: float = DAYS,
             season = cur_season if cur_season >= _now().year else _now().year
         if season != cur_season:
             cur_round = 0
-        games, last_round = enumerate_recent(season, cur_round, rounds)
+        games, last_round = enumerate_recent(season, cur_round,
+                                             lookback_days)
         if not games:
             out["skipped"] = f"no rounds enumerated for {season}"
             return out

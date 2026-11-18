@@ -359,7 +359,7 @@ def _nba_season_label(today=None) -> int:
     return int(d.year if d.month >= 9 else d.year - 1)
 
 
-def live_match_index(season: int | None = None, max_round: int = 80,
+def live_match_index(season: int | None = None, max_round: int = 270,
                      workers: int = 8, timeout: float = 20.0) -> tuple[dict, dict]:
     """(away_abv, home_abv, ET date) -> SIMatchID, straight from the feed.
 
@@ -370,9 +370,13 @@ def live_match_index(season: int | None = None, max_round: int = 80,
     carries the same ids, so ask it instead; the CSV is now only a fast path
     for a machine that happens to have one.
 
-    Rounds are sub-weekly and the season's last round is around 40 in the
-    current schedule, so the scan stops after three consecutive empty rounds
-    rather than running to ``max_round``.
+    The sweep covers the WHOLE season: a full one runs to ~244 rounds (the
+    stored history's seasons end at 238/238/244/236), so the old cap of 80
+    dropped every game after roughly mid-season. There is no early stop
+    either - the feed leaves multi-round holes mid-schedule (2026-11-18:
+    rounds 33-35 were empty while 36-39 carried games to Nov 28), and the old
+    "three consecutive empties" rule cut the index off at round 35, five days
+    before the last published game.
     """
     import pandas as pd
     import requests
@@ -398,14 +402,11 @@ def live_match_index(season: int | None = None, max_round: int = 80,
     rounds = list(range(1, int(max_round) + 1))
     with ThreadPoolExecutor(max_workers=max(1, int(workers))) as ex:
         fetched = list(ex.map(one, rounds))
-    by_day, by_pair, empty_run = {}, {}, 0
-    for round_number, items in fetched:
+    by_day: dict = {}
+    by_pair: dict = {}
+    for _round_number, items in fetched:
         if not items:
-            empty_run += 1
-            if empty_run >= 3 and round_number > 20:
-                break
             continue
-        empty_run = 0
         for item in items:
             md = item.get("MatchData") or {}
             mid = md.get("SIMatchID")

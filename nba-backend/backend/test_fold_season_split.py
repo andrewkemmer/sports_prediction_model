@@ -583,3 +583,44 @@ class TestMarketAttach:
         row.pop("tipoff_utc")
         with pytest.raises(ValueError, match="tipoff_utc"):
             mr.attach_market(self._frame(), self._si(tmp_path, [row]))
+
+
+
+def test_live_match_index_sweeps_the_whole_season(monkeypatch):
+    """A season runs to ~244 rounds and the feed leaves mid-schedule holes.
+
+    The old index capped at 80 rounds and stopped after three consecutive
+    empty rounds - on 2026-11-18 that cut it at round 35 and dropped the
+    Nov 25-28 games in rounds 36-39 (2026-11-18).
+    """
+    import requests
+
+    try:
+        from backend import market_rundown as mr
+    except ImportError:  # pragma: no cover - direct script/import fallback
+        import market_rundown as mr
+
+    class _Resp:
+        status_code = 200
+
+        def __init__(self, data):
+            self._data = data
+
+        def json(self):
+            return self._data
+
+    def fake_get(url, headers=None, timeout=None):
+        rnd = int(url.split("Round=")[1].split("&")[0])
+        if rnd in (33, 34, 35) or rnd < 5:
+            return _Resp([])
+        day = (pd.Timestamp("2026-10-01")
+               + pd.Timedelta(days=rnd)).strftime("%Y-%m-%dT00:00:00Z")
+        return _Resp([{"MatchData": {
+            "SIMatchID": f"M{rnd}", "Date": day,
+            "HomeTeam": {"Abv": "BOS"}, "AwayTeam": {"Abv": "LAL"}}}])
+
+    monkeypatch.setattr(requests, "get", fake_get)
+    by_day, _by_pair = mr.live_match_index(season=2026)
+    resolved = set(by_day.values())
+    assert "M36" in resolved, "three empty rounds must not end the scan"
+    assert "M200" in resolved, "the sweep must reach a full season's rounds"
