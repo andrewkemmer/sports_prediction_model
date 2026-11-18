@@ -342,7 +342,14 @@ def refresh(rounds: int = ROUNDS, days: float = DAYS,
             out["skipped"] = f"no base history at {OUT}"
             return out
         cur_season, cur_round = _read_cursor()
-        season = int(season or cur_season or _now().year)
+        # The cursor can point at a season the backfill finished on. Follow the
+        # calendar instead: SI numbers a season by the year it starts, so a
+        # stale cursor must not freeze the daily refresh on last season.
+        season = int(season or 0)
+        if not season:
+            season = cur_season if cur_season >= _now().year else _now().year
+        if season != cur_season:
+            cur_round = 0
         games, last_round = enumerate_recent(season, cur_round, rounds)
         if not games:
             out["skipped"] = f"no rounds enumerated for {season}"

@@ -52,3 +52,31 @@ def test_missing_unstamped_and_pre_game_rows_all_get_requested():
     # A row with no capture stamp is not a proven closing line, even when it
     # is older than the re-price window; the stamped closing row is left.
     assert got == {"known_today", "unstamped", "missing"}
+
+
+def test_a_stale_cursor_season_rolls_forward(monkeypatch, tmp_path):
+    """SI numbers a season by the year it starts; a 2025 cursor must not
+    freeze a 2026 refresh on last season (NHL lacked this guard)."""
+    seen = {}
+    monkeypatch.setattr(oh, "_read_cursor", lambda: (2025, 80))
+    monkeypatch.setattr(oh, "_now",
+                        lambda: pd.Timestamp("2026-10-05T00:00:00Z"))
+    monkeypatch.setattr(oh, "OUT", tmp_path / "history.csv")
+    pd.DataFrame({"match_id": ["old"],
+                  "fetched_utc": ["2026-10-01T00:00:00Z"]}).to_csv(
+        oh.OUT, index=False)
+    monkeypatch.setattr(oh, "LOCK", tmp_path / "no-such.lock")
+    monkeypatch.setattr(oh, "_locked", lambda: None)
+    monkeypatch.setattr(oh, "_save_cursor", lambda season, rnd: None)
+
+    def fake_enumerate(season, cursor, rounds):
+        seen["call"] = (season, cursor)
+        return [{"match_id": "x", "season": season, "round": 41,
+                 "date": "2026-10-04T00:00:00Z"}], 41
+
+    monkeypatch.setattr(oh, "enumerate_recent", fake_enumerate)
+    monkeypatch.setattr(oh, "plan_fetch",
+                        lambda games, base, now, days: [])
+    out = oh.refresh()
+    assert out["ok"] is True
+    assert seen["call"] == (2026, 0)
