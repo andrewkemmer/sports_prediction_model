@@ -216,6 +216,12 @@ def write_moneyline_json(path, slate: pd.DataFrame, p_home, p_home_cal,
             "market_book": (None if not pd.notna(game.get("market_book"))
                             else str(game.get("market_book")).strip().lower()
                             or None),
+            # When that price was struck, and how old it already was at
+            # publish. Without these the card cannot say "as of 00:03" and a
+            # reader has no way to tell a fresh quote from a lagging feed.
+            "market_price_utc": (None if not pd.notna(game.get("price_utc"))
+                                 else str(game.get("price_utc"))),
+            "market_stale_minutes": _clean(game.get("stale_minutes")),
         }
         player = leaders.get(str(game.get("game_id")), {})
         for field in config.PLAYER_FIELDS:
