@@ -1929,7 +1929,7 @@ def run(run_date: str | None = None, out_dir: str | Path | None = None,
                 from backend import odds_history as _odds_hist
             except ImportError:
                 import odds_history as _odds_hist
-            _oh = _odds_hist.refresh(end=ingestion.window()[1])
+            _oh = _odds_hist.refresh()
             logger.info("odds history: %s rows (+%s new, %s moved) from %s request(s) in %ss",
                         _oh.get("rows"), _oh.get("added"), _oh.get("updated"),
                         _oh.get("fetched"), _oh.get("elapsed"))

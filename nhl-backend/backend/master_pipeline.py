@@ -403,7 +403,7 @@ def main(argv: list[str] | None = None) -> int:
     else:
         try:
             import odds_history as _odds_hist
-            _oh = _odds_hist.refresh(end=end_date)
+            _oh = _odds_hist.refresh()
             if _oh.get("ok"):
                 logger.info("odds history: %d rows (+%d new, %d moved) "
                             "from %d price request(s) in %.1fs",

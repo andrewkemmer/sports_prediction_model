@@ -69,7 +69,7 @@ def test_a_stale_cursor_season_rolls_forward(monkeypatch, tmp_path):
     monkeypatch.setattr(oh, "_locked", lambda: None)
     monkeypatch.setattr(oh, "_save_cursor", lambda season, rnd: None)
 
-    def fake_enumerate(season, cursor, rounds, end=None):
+    def fake_enumerate(season, cursor, rounds):
         seen["call"] = (season, cursor)
         return [{"match_id": "x", "season": season, "round": 41,
                  "date": "2026-10-04T00:00:00Z"}], 41
@@ -80,39 +80,3 @@ def test_a_stale_cursor_season_rolls_forward(monkeypatch, tmp_path):
     out = oh.refresh()
     assert out["ok"] is True
     assert seen["call"] == (2026, 0)
-
-
-
-def test_no_price_is_requested_after_the_pipeline_end_date(monkeypatch):
-    """A game past END_DATE is never priced by the model, so it is not
-    enumerated and never costs a price request (2026-11-18)."""
-    rounds = {50: [_m("today", "2026-11-18T23:00:00Z")],
-              94: [_m("dec", "2026-12-31T23:00:00Z")]}
-    monkeypatch.setattr(oh, "matches_for",
-                        lambda season, rnd: rounds.get(rnd, []))
-    monkeypatch.setattr(oh, "_now",
-                        lambda: pd.Timestamp("2026-11-18T00:00:00Z"))
-    monkeypatch.setattr(oh, "EMPTY_LIMIT", 200)
-    games, _ = oh.enumerate_recent(2026, 50, 30, end="2026-11-18")
-    ids = {g["match_id"] for g in games}
-    assert "today" in ids
-    assert "dec" not in ids
-
-
-def test_the_forward_walk_stops_at_the_end_date(monkeypatch):
-    asked = []
-    rounds = {50: [_m("today", "2026-11-18T23:00:00Z")],
-              51: [_m("later", "2026-11-25T00:00:00Z")],
-              94: [_m("dec", "2026-12-31T23:00:00Z")]}
-
-    def listing(season, rnd):
-        asked.append(rnd)
-        return rounds.get(rnd, [])
-
-    monkeypatch.setattr(oh, "matches_for", listing)
-    monkeypatch.setattr(oh, "_now",
-                        lambda: pd.Timestamp("2026-11-18T00:00:00Z"))
-    monkeypatch.setattr(oh, "EMPTY_LIMIT", 200)
-    games, _ = oh.enumerate_recent(2026, 50, 30, end="2026-11-18")
-    assert 94 not in asked, "rounds past END_DATE must not be requested"
-    assert {g["match_id"] for g in games} == {"today"}
