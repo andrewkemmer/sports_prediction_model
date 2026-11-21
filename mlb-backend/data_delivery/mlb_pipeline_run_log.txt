@@ -423,3 +423,166 @@ run ratings: 87 causal fits, 30 teams, coverage off_rating_diff 96.6%, off_ratin
   PHASE 5 — GitHub Sync — push new artifacts
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
+  📋 Staging 23 files:
+    mlb-backend/data_delivery/game_level_features.csv
+    mlb-backend/data_delivery/calibration_20270324.json
+    mlb-backend/data_delivery/features_metadata_20270324.json
+    mlb-backend/data_delivery/lineups.parquet
+    mlb-backend/data_delivery/mlb_pipeline_run_log.txt
+    mlb-backend/data_delivery/model_history.json
+    mlb-backend/data_delivery/model_monitor_20270324.json
+    mlb-backend/data_delivery/model_version_history.json
+    mlb-backend/data_delivery/models/ensemble_latest.joblib
+    mlb-backend/data_delivery/pbp_defense_20270324.meta.json
+    mlb-backend/data_delivery/pbp_defense_20270324.parquet
+    mlb-backend/data_delivery/power_rankings_20270324.csv
+    mlb-backend/data_delivery/predictions_history_20270324.csv
+    mlb-backend/data_delivery/rolling_brier_20270324.json
+    mlb-backend/data_delivery/run_engine_markets_20270324.csv
+    mlb-backend/data_delivery/run_engine_markets_20270324.meta.json
+    mlb-backend/data_delivery/run_engine_monitor_20270324.json
+    mlb-backend/data_delivery/run_engine_oof_20270324.csv
+    mlb-backend/data_delivery/run_engine_totals_history.csv
+    mlb-backend/data_delivery/run_engine_totals_history.meta.json
+    mlb-backend/data_delivery/todays_games_20270324.csv
+    mlb-backend/data_delivery/umpire_map.csv
+    mlb-backend/data_delivery/umpire_stats.csv
+  ✅ Pushed and remotely verified 23 files — confirmed on sports_prediction_model@main
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  PHASE 6 — Stale artifact cleanup (final step)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  synced clone to remote tip f97f5f2b8b (main)
+  🛡️  Kept 67 protected file(s) (never deleted)
+  📅 Kept 17 artifact(s) within the retention window (anchor 20270324 -10d)
+  🧹 Removing 111 stale files:
+    mlb-backend/data_delivery/calibration_20261025.json
+    mlb-backend/data_delivery/calibration_20261026.json
+    mlb-backend/data_delivery/calibration_20261027.json
+    mlb-backend/data_delivery/calibration_20261028.json
+    mlb-backend/data_delivery/calibration_20261030.json
+    mlb-backend/data_delivery/calibration_20261103.json
+    mlb-backend/data_delivery/calibration_20261104.json
+    mlb-backend/data_delivery/exp2_slate_20261026.parquet
+    mlb-backend/data_delivery/exp2_slate_20261027.parquet
+    mlb-backend/data_delivery/exp2_slate_20261028.parquet
+    mlb-backend/data_delivery/feature_coverage_20261025.csv
+    mlb-backend/data_delivery/feature_coverage_20261026.csv
+    mlb-backend/data_delivery/feature_coverage_20261027.csv
+    mlb-backend/data_delivery/feature_coverage_20261028.csv
+    mlb-backend/data_delivery/feature_coverage_20261030.csv
+    mlb-backend/data_delivery/feature_coverage_20261103.csv
+    mlb-backend/data_delivery/feature_coverage_20261104.csv
+    mlb-backend/data_delivery/feature_drift_20261025.csv
+    mlb-backend/data_delivery/feature_drift_20261026.csv
+    mlb-backend/data_delivery/feature_drift_20261027.csv
+    mlb-backend/data_delivery/feature_drift_20261028.csv
+    mlb-backend/data_delivery/feature_drift_20261030.csv
+    mlb-backend/data_delivery/feature_drift_20261103.csv
+    mlb-backend/data_delivery/feature_drift_20261104.csv
+    mlb-backend/data_delivery/features_metadata_20261025.json
+    mlb-backend/data_delivery/features_metadata_20261026.json
+    mlb-backend/data_delivery/features_metadata_20261027.json
+    mlb-backend/data_delivery/features_metadata_20261028.json
+    mlb-backend/data_delivery/features_metadata_20261030.json
+    mlb-backend/data_delivery/features_metadata_20261103.json
+    mlb-backend/data_delivery/features_metadata_20261104.json
+    mlb-backend/data_delivery/lineup_slate_20261026.parquet
+    mlb-backend/data_delivery/lineup_slate_20261027.parquet
+    mlb-backend/data_delivery/lineup_slate_20261028.parquet
+    mlb-backend/data_delivery/mlb_pitchingplus_replacement_ab_20261025.json
+    mlb-backend/data_delivery/model_monitor_20261025.json
+    mlb-backend/data_delivery/model_monitor_20261026.json
+    mlb-backend/data_delivery/model_monitor_20261027.json
+    mlb-backend/data_delivery/model_monitor_20261028.json
+    mlb-backend/data_delivery/model_monitor_20261030.json
+    mlb-backend/data_delivery/model_monitor_20261103.json
+    mlb-backend/data_delivery/model_monitor_20261104.json
+    mlb-backend/data_delivery/pbp_defense_20261025.meta.json
+    mlb-backend/data_delivery/pbp_defense_20261025.parquet
+    mlb-backend/data_delivery/pbp_defense_20261026.meta.json
+    mlb-backend/data_delivery/pbp_defense_20261026.parquet
+    mlb-backend/data_delivery/pbp_defense_20261027.meta.json
+    mlb-backend/data_delivery/pbp_defense_20261027.parquet
+    mlb-backend/data_delivery/pbp_defense_20261028.meta.json
+    mlb-backend/data_delivery/pbp_defense_20261028.parquet
+    mlb-backend/data_delivery/pbp_defense_20261030.meta.json
+    mlb-backend/data_delivery/pbp_defense_20261030.parquet
+    mlb-backend/data_delivery/pbp_defense_20261103.meta.json
+    mlb-backend/data_delivery/pbp_defense_20261103.parquet
+    mlb-backend/data_delivery/pbp_defense_20261104.meta.json
+    mlb-backend/data_delivery/pbp_defense_20261104.parquet
+    mlb-backend/data_delivery/pl_slate_20261026.parquet
+    mlb-backend/data_delivery/pl_slate_20261027.parquet
+    mlb-backend/data_delivery/pl_slate_20261028.parquet
+    mlb-backend/data_delivery/power_rankings_20261025.csv
+    mlb-backend/data_delivery/power_rankings_20261026.csv
+    mlb-backend/data_delivery/power_rankings_20261027.csv
+    mlb-backend/data_delivery/power_rankings_20261028.csv
+    mlb-backend/data_delivery/power_rankings_20261030.csv
+    mlb-backend/data_delivery/power_rankings_20261103.csv
+    mlb-backend/data_delivery/power_rankings_20261104.csv
+    mlb-backend/data_delivery/predictions_history_20261024.csv
+    mlb-backend/data_delivery/rolling_brier_20261025.json
+    mlb-backend/data_delivery/rolling_brier_20261026.json
+    mlb-backend/data_delivery/rolling_brier_20261027.json
+    mlb-backend/data_delivery/rolling_brier_20261028.json
+    mlb-backend/data_delivery/rolling_brier_20261030.json
+    mlb-backend/data_delivery/rolling_brier_20261103.json
+    mlb-backend/data_delivery/rolling_brier_20261104.json
+    mlb-backend/data_delivery/run_engine_feature_coverage_20261025.csv
+    mlb-backend/data_delivery/run_engine_feature_coverage_20261026.csv
+    mlb-backend/data_delivery/run_engine_feature_coverage_20261027.csv
+    mlb-backend/data_delivery/run_engine_feature_coverage_20261028.csv
+    mlb-backend/data_delivery/run_engine_feature_coverage_20261030.csv
+    mlb-backend/data_delivery/run_engine_feature_coverage_20261103.csv
+    mlb-backend/data_delivery/run_engine_feature_coverage_20261104.csv
+    mlb-backend/data_delivery/run_engine_feature_drift_20261025.csv
+    mlb-backend/data_delivery/run_engine_feature_drift_20261026.csv
+    mlb-backend/data_delivery/run_engine_feature_drift_20261027.csv
+    mlb-backend/data_delivery/run_engine_feature_drift_20261028.csv
+    mlb-backend/data_delivery/run_engine_feature_drift_20261030.csv
+    mlb-backend/data_delivery/run_engine_feature_drift_20261103.csv
+    mlb-backend/data_delivery/run_engine_feature_drift_20261104.csv
+    mlb-backend/data_delivery/run_engine_markets_20261025.csv
+    mlb-backend/data_delivery/run_engine_markets_20261025.meta.json
+    mlb-backend/data_delivery/run_engine_markets_20261026.csv
+    mlb-backend/data_delivery/run_engine_markets_20261026.meta.json
+    mlb-backend/data_delivery/run_engine_markets_20261027.csv
+    mlb-backend/data_delivery/run_engine_markets_20261027.meta.json
+    mlb-backend/data_delivery/run_engine_markets_20261028.csv
+    mlb-backend/data_delivery/run_engine_markets_20261028.meta.json
+    mlb-backend/data_delivery/run_engine_markets_20261030.csv
+    mlb-backend/data_delivery/run_engine_markets_20261030.meta.json
+    mlb-backend/data_delivery/run_engine_markets_20261103.csv
+    mlb-backend/data_delivery/run_engine_markets_20261103.meta.json
+    mlb-backend/data_delivery/run_engine_markets_20261104.csv
+    mlb-backend/data_delivery/run_engine_markets_20261104.meta.json
+    mlb-backend/data_delivery/run_engine_oof_20261024.csv
+    mlb-backend/data_delivery/shap_game_20261024_TB@MIL.csv
+    mlb-backend/data_delivery/todays_games_20261025.csv
+    mlb-backend/data_delivery/todays_games_20261026.csv
+    mlb-backend/data_delivery/todays_games_20261027.csv
+    mlb-backend/data_delivery/todays_games_20261028.csv
+    mlb-backend/data_delivery/todays_games_20261030.csv
+    mlb-backend/data_delivery/todays_games_20261103.csv
+    mlb-backend/data_delivery/todays_games_20261104.csv
+  ✅ Removed 111 stale files — confirmed on sports_prediction_model@main
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  DONE ✅ — 
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  Games: 7418  |  Pitches: 2,179,883  |  Columns: 292 game + 88 pbp
+  Output: /content/mlb_clean_data
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  run delivery
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  status ok
+  artifacts — 23 file(s) committed to main at f97f5f2b8b, remotely verified
+  run log — this file, re-delivered after the sync so the run's final state ships with it
+  📝 Final run-log delivery — pushing the complete log (Phase 5 staged a snapshot before Phase 5/6 finished)
+  synced clone to remote tip 0b8e094f4f (main)
