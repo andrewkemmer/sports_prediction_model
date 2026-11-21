@@ -776,8 +776,9 @@ def _pts_per_minute(frame: pd.DataFrame) -> pd.Series:
     """Per-player expected scoring rate (points per minute) for the O-PTS arm.
 
     ``x_pts_100`` (DARKO expected points per 100 possessions, attached by
-    ``apply_darko_rating`` via the strictly-prior asof join) times the
-    player's expected possessions per minute: ``x_pace`` (same DARKO row)
+    ``apply_darko_rating`` via the on-day asof join - the pre-game row dated
+    the target game, falling back to the last prior row) times the player's
+    expected possessions per minute: ``x_pace`` (same DARKO row)
     possessions per 48 minutes, over 48. The pace fallback chain is the
     frame's own finite mean, then 100.0 (league-average pace) - never a
     teammate's rate, never the game being priced. A player with no finite

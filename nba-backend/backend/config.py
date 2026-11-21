@@ -151,7 +151,20 @@ RFE_MAX_STEPS = 120
 # Team-DARKO C did not beat B (band log loss +0.00038 vs B, interval
 # includes zero), so no replacement leg was added. Rebuild features, OOF
 # and refits together - this narrows the binary contract to 92.
-FEATURE_SET_VERSION = "nba-prod-v3.6-noelo"
+# v3.7 moves the DARKO input row from the player's previous game to the
+# pre-game row dated the target game itself (2026-11-21, structural
+# adoption, no performance claim): apply_darko_rating now joins with
+# allow_exact_matches=True for dpm/o_dpm/d_dpm/x_pace/x_pts_100/x_fg_pct,
+# the same row darko_x_minutes has always used. The audit of 79,417
+# within-season player-game transitions found the values move every game
+# (mean |change| 0.080 o_dpm / 0.063 d_dpm) but not with the opponent
+# (Jokic, 291 games: corr(change, opponent defence) -0.01 o / -0.03 d),
+# so this is a freshness/alignment change, not a matchup one; the
+# 2026-11-20 slate's implied pl_ shift was ~0.04 points/game on average
+# (max 0.11). seconds_played is still never read. Rebuild features, OOF
+# and refits together - the contract width stays 92, but the rating, O/D,
+# pace and expected-points values move (x_minutes already read this row).
+FEATURE_SET_VERSION = "nba-prod-v3.7-ondaydarko"
 
 #: The raw per-side metrics behind the diff contract. Every ``*_diff`` in the
 #: list below is a home-minus-away comparison of a ladder statistic; the
@@ -283,9 +296,11 @@ MONEYLINE_FEATURE_COLS = [
     #   projected_game_pace_{total,home,away}               : tempo triplet
     #   pl_net_o_{home,away} : (home_OFF - away_DEF) x s and mirror
     # Built over the WHOLE decided frame, strictly point-in-time on both
-    # axes: ratings sum only games STRICTLY BEFORE each target, and a
-    # player designated Out/Doubtful/Recovery in the last pre-tipoff
-    # report is removed from THAT game's pool only.
+    # axes: ratings read the pre-game row dated each target (which
+    # summarises only games before it; a player without a game that day
+    # falls back to his last prior row), and a player designated
+    # Out/Doubtful/Recovery in the last pre-tipoff report is removed from
+    # THAT game's pool only.
     "pl_o_dpm_home", "pl_o_dpm_away", "pl_o_dpm_diff",
     "pl_d_dpm_home", "pl_d_dpm_away", "pl_d_dpm_diff",
     "projected_game_pace_total", "projected_game_pace_home",
@@ -937,7 +952,7 @@ PLAYER_MATCHUP_JSON = "nba_player_leader_matchup_{date}.json"
 PLAYER_RAPM_CSV = "nba_player_rapm_{date}.csv"
 PLAYER_RAPM_AGG_CSV = "nba_player_rapm_lineups_{date}.csv"
 # Rating source for the player frame that feeds the nine and the star-out block.
-# "darko": raw DPM as of the prior day replaces the RAPM rating value.
+# "darko": raw DPM from the game's pre-game row replaces the RAPM rating value.
 # "rapm": the incumbent RAPM path, kept as a fall-back.
 PLAYER_RATING_SOURCE = os.environ.get("NBA_PLAYER_RATING_SOURCE", "darko")
 FEATURE_JSON = "nba_feature_v1_{date}.json"

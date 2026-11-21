@@ -3,6 +3,29 @@
 Standalone NBA moneyline and totals/spread backend structurally mirroring the
 MLB/NFL/NHL production contracts.
 
+## On-day DARKO row — 2026-11-21
+
+Current representation: **`nba-prod-v3.7-ondaydarko`**. The contract width is
+unchanged at **92 columns**; the rating, O/D, pace and expected-points values
+move (`darko_x_minutes` already read this row). `apply_darko_rating` now reads
+the pre-game row dated the target game itself (`allow_exact_matches` becomes
+true for `dpm`, `o_dpm`, `d_dpm`, `x_pace`, `x_pts_100` and `x_fg_pct`), the
+same row `darko_x_minutes` has always used. A player with no game that day
+falls back to the last prior row; `seconds_played` on the on-day row is the
+post-game actual and is never read, so the target game's result cannot leak in.
+
+This is a structural adoption, not a performance claim. The audit of 79,417
+within-season player-game transitions found the values move every game (mean
+absolute change 0.080 `o_dpm` / 0.063 `d_dpm`) but not with the opponent
+(Jokic, 291 games: correlation of the on-day change with opponent defensive
+rating -0.01 for `o_dpm`, -0.03 for `d_dpm`), so this is a freshness and
+row-alignment change rather than a matchup one. The 2026-11-20 slate's implied
+`pl_` shift was about 0.04 points/game on average, 0.11 at the maximum. The
+actual matchup term remains the locally built `pl_net_o` cross-match.
+
+Rebuild features, OOF, blend/calibration and refits together. The shipped
+model still carries the v3.6 values until the next full production run.
+
 ## B-arm Elo/win% retirement — 2026-11-21
 
 Current representation: **`nba-prod-v3.6-noelo`**. The moneyline contract now

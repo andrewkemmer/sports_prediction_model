@@ -470,11 +470,12 @@ _FAMILY: dict[str, dict] = {
             "Position-segmented DARKO daily plus-minus for the center pool of the "
             "projected lineup, minutes-weighted and injury-filtered "
             "(Out/Doubtful/Recovery excluded before tip-off). Rating source is "
-            "DARKO DPM as of the prior day (NBA_PLAYER_RATING_SOURCE=darko); "
-            "rows without DARKO coverage keep the incumbent game-level MIN/48 ridge value."),
+            "DARKO DPM from the target game's pre-game row "
+            "(NBA_PLAYER_RATING_SOURCE=darko); rows without DARKO coverage "
+            "keep the incumbent game-level MIN/48 ridge value."),
         "formula": "pl_dpm_c_home − pl_dpm_c_away",
-        "source": "DARKO DPM history fetched in-memory per pipeline run (darko.app player history, last row strictly before target date) → projected position average; dated official NBA roster membership (7-day expiry; strict-prior appearance fallback); incumbent ridge proxy only as fallback (not possession/stint RAPM)",
-        "window": "DARKO DPM as of prior day; no local history file",
+        "source": "DARKO DPM history fetched in-memory per pipeline run (darko.app player history, pre-game row dated the target game, else last prior row) → projected position average; dated official NBA roster membership (7-day expiry; strict-prior appearance fallback); incumbent ridge proxy only as fallback (not possession/stint RAPM)",
+        "window": "DARKO pre-game row for the target game; no local history file",
         "units": "DARKO DPM points (per-game impact)",
         "direction": "higher = home advantage",
         "direction_level": "higher = stronger side pool",
@@ -485,11 +486,12 @@ _FAMILY: dict[str, dict] = {
         "definition": (
             "Position-segmented DARKO daily plus-minus for the forward pool of the "
             "projected lineup, minutes-weighted and injury-filtered. Rating source is "
-            "DARKO DPM as of the prior day (NBA_PLAYER_RATING_SOURCE=darko); "
-            "rows without DARKO coverage keep the incumbent game-level MIN/48 ridge value."),
+            "DARKO DPM from the target game's pre-game row "
+            "(NBA_PLAYER_RATING_SOURCE=darko); rows without DARKO coverage "
+            "keep the incumbent game-level MIN/48 ridge value."),
         "formula": "pl_dpm_f_home − pl_dpm_f_away",
-        "source": "DARKO DPM history fetched in-memory per pipeline run (darko.app player history, last row strictly before target date) → projected position average; dated official NBA roster membership (7-day expiry; strict-prior appearance fallback); incumbent ridge proxy only as fallback (not possession/stint RAPM)",
-        "window": "DARKO DPM as of prior day; no local history file",
+        "source": "DARKO DPM history fetched in-memory per pipeline run (darko.app player history, pre-game row dated the target game, else last prior row) → projected position average; dated official NBA roster membership (7-day expiry; strict-prior appearance fallback); incumbent ridge proxy only as fallback (not possession/stint RAPM)",
+        "window": "DARKO pre-game row for the target game; no local history file",
         "units": "DARKO DPM points (per-game impact)",
         "direction": "higher = home advantage",
         "direction_level": "higher = stronger side pool",
@@ -500,11 +502,12 @@ _FAMILY: dict[str, dict] = {
         "definition": (
             "Position-segmented DARKO daily plus-minus for the guard pool of the "
             "projected lineup, minutes-weighted and injury-filtered. Rating source is "
-            "DARKO DPM as of the prior day (NBA_PLAYER_RATING_SOURCE=darko); "
-            "rows without DARKO coverage keep the incumbent game-level MIN/48 ridge value."),
+            "DARKO DPM from the target game's pre-game row "
+            "(NBA_PLAYER_RATING_SOURCE=darko); rows without DARKO coverage "
+            "keep the incumbent game-level MIN/48 ridge value."),
         "formula": "pl_dpm_g_home − pl_dpm_g_away",
-        "source": "DARKO DPM history fetched in-memory per pipeline run (darko.app player history, last row strictly before target date) → projected position average; dated official NBA roster membership (7-day expiry; strict-prior appearance fallback); incumbent ridge proxy only as fallback (not possession/stint RAPM)",
-        "window": "DARKO DPM as of prior day; no local history file",
+        "source": "DARKO DPM history fetched in-memory per pipeline run (darko.app player history, pre-game row dated the target game, else last prior row) → projected position average; dated official NBA roster membership (7-day expiry; strict-prior appearance fallback); incumbent ridge proxy only as fallback (not possession/stint RAPM)",
+        "window": "DARKO pre-game row for the target game; no local history file",
         "units": "DARKO DPM points (per-game impact)",
         "direction": "higher = home advantage",
         "direction_level": "higher = stronger side pool",
@@ -518,8 +521,8 @@ _FAMILY: dict[str, dict] = {
             "scaled by the projected-game pace over 100. Replaces the retired "
             "position-segmented pl_dpm_* (still attached as legacy)."),
         "formula": "pl_o_dpm_home − pl_o_dpm_away",
-        "source": "DARKO o_dpm as of prior day + DARKO expected minutes (same-day) → team blend → pace scale",
-        "window": "DARKO as of prior day; pace trailing 30-day league mean",
+        "source": "DARKO o_dpm from the target game's pre-game row + DARKO expected minutes (same row) → team blend → pace scale",
+        "window": "DARKO pre-game row for the target game; pace trailing 30-day league mean",
         "units": "points/game",
         "direction": "higher = home advantage",
         "direction_level": "higher = stronger home offense",
@@ -531,8 +534,8 @@ _FAMILY: dict[str, dict] = {
             "Team-level DARKO defensive DPM blend, same weights and pace scale "
             "as pl_o_dpm."),
         "formula": "pl_d_dpm_home − pl_d_dpm_away",
-        "source": "DARKO d_dpm as of prior day + DARKO expected minutes (same-day) → team blend → pace scale",
-        "window": "DARKO as of prior day; pace trailing 30-day league mean",
+        "source": "DARKO d_dpm from the target game's pre-game row + DARKO expected minutes (same row) → team blend → pace scale",
+        "window": "DARKO pre-game row for the target game; pace trailing 30-day league mean",
         "units": "points/game",
         "direction": "higher = home advantage",
         "direction_level": "higher = stronger home defense",
@@ -558,11 +561,12 @@ _FAMILY: dict[str, dict] = {
             "designated Out/Doubtful/Recovery before tipoff, over the top "
             "three's total minutes weight. Positive means positive talent is "
             "unavailable; negative means the absent player was rated below "
-            "replacement. Ratings are DARKO DPM as of the prior day."),
+            "replacement. Ratings are DARKO DPM from the target game's "
+            "pre-game row."),
         "formula": "star_out_impact_home − star_out_impact_away",
-        "source": ("DARKO DPM as of prior day (in-memory fetch) + last pre-tipoff official "
-                   "injury designation"),
-        "window": "DARKO DPM as of prior day; last pre-tipoff report",
+        "source": ("DARKO DPM from the target game's pre-game row (in-memory fetch) + "
+                   "last pre-tipoff official injury designation"),
+        "window": "DARKO pre-game row for the target game; last pre-tipoff report",
         "units": "DARKO DPM points (per-game impact)",
         "direction": ("higher = home is more depleted of positive talent "
                       "(worse for home)"),
@@ -577,8 +581,8 @@ _FAMILY: dict[str, dict] = {
             "designated Out/Doubtful/Recovery before tipoff. Separates a "
             "missing top-three role from the missing player's rating."),
         "formula": "star_out_weight_share_home − star_out_weight_share_away",
-        "source": ("Strictly-prior player ratings + last pre-tipoff official "
-                   "injury designation"),
+        "source": ("Pre-game player ratings (target-game row where present, else "
+                   "last prior) + last pre-tipoff official injury designation"),
         "window": "season to date; last pre-tipoff report",
         "units": "share (0–1)",
         "direction": ("higher = home has a larger share of its top-three "
@@ -595,8 +599,8 @@ _FAMILY: dict[str, dict] = {
             "at final opportunity (expected-minutes) weights. Absorbed "
             "out-star minutes reprice at the survivor's rate by construction."),
         "formula": "pl_o_pts_home − pl_o_pts_away",
-        "source": "DARKO x_pts_100 + expected minutes + expected pace (same-day), strictly-prior designations",
-        "window": "DARKO as of prior day; last pre-tipoff report",
+        "source": "DARKO x_pts_100/x_pace/x_minutes from the target game's pre-game row, strictly-prior designations",
+        "window": "DARKO pre-game row for the target game; last pre-tipoff report",
         "units": "points/game",
         "direction": "higher = home advantage",
         "direction_level": "higher = stronger home expected scoring",
@@ -625,8 +629,8 @@ _FAMILY: dict[str, dict] = {
             "projected pace scales the OFF/DEF legs (over 100), so diffs stay "
             "exactly home - away. Adopted with the D arm 2026-10-31."),
         "formula": "home x away / trailing-30d league mean of team_pace",
-        "source": "DARKO x_pace + expected minutes (same-day), team aggregates",
-        "window": "trailing blend as of gameday; 30-day league mean",
+        "source": "DARKO x_pace + expected minutes (target game's pre-game row), team aggregates",
+        "window": "target game's pre-game row; 30-day league mean",
         "units": "possessions per 48 minutes",
         "direction": "higher = faster expected tempo (style, not quality)",
         "direction_level": "higher = faster expected tempo",
@@ -724,8 +728,8 @@ _STANDALONE = {
             "mean, where each side pace is its trailing minutes-weighted "
             "DARKO x_pace blend as of gameday. Adopted with the D arm 2026-10-31."),
         "formula": "projected_game_pace_home x projected_game_pace_away / trailing-30d league mean",
-        "source": "DARKO x_pace + expected minutes (same-day), team aggregates",
-        "window": "trailing blend as of gameday; 30-day league mean",
+        "source": "DARKO x_pace + expected minutes (target game's pre-game row), team aggregates",
+        "window": "target game's pre-game row; 30-day league mean",
         "units": "possessions per 48 minutes",
         "direction": "higher = faster expected tempo (style, not quality)",
     },

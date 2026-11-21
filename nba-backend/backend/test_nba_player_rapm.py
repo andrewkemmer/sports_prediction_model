@@ -1218,7 +1218,9 @@ class TestStrictPregameRegression:
             assert not missing
             docs = metadata[stem + "_diff"]
             assert "100 possessions" not in docs["units"]
-            assert "48" in docs["units"]
+            # Units moved with the DARKO source switch: the published label
+            # states the per-game basis rather than the ridge's 48-minute one.
+            assert "per-game" in docs["units"]
 
 
 class TestPlayerRapmWithoutInputs:
@@ -1823,3 +1825,64 @@ class TestGameCarryover:
         ra = self._on_day(oa, "2024-11-05").set_index("player_id").rapm_raw
         rb = self._on_day(ob, "2024-11-05").set_index("player_id").rapm_raw
         assert float(ra["s"]) != pytest.approx(float(rb["s"]))
+
+
+class TestDarkoOnDayRow:
+    """The rating reads the target game's own pre-game DARKO row."""
+
+    @staticmethod
+    def _ratings(player="203999"):
+        return pd.DataFrame({
+            "target_date": ["2024-01-10"],
+            "player_id": [player],
+            "rapm_shrunk": [1.0],
+            "rapm_raw": [1.0],
+        })
+
+    @staticmethod
+    def _history(player=203999):
+        return pd.DataFrame({
+            "nba_id": [player, player, player],
+            "date": ["2024-01-05", "2024-01-10", "2024-01-12"],
+            "dpm": [5.0, 6.0, 7.0],
+            "o_dpm": [3.0, 4.0, 5.0],
+            "d_dpm": [2.0, 2.0, 2.0],
+            "x_minutes": [31.0, 33.0, 35.0],
+            "x_pace": [98.0, 99.0, 100.0],
+            "x_pts_100": [30.0, 31.0, 32.0],
+            "x_fg_pct": [0.50, 0.51, 0.52],
+            "seconds_played": [2000.0, 2400.0, 2100.0],
+        })
+
+    def test_the_target_dates_own_pre_game_row_supplies_the_rating(self):
+        out = rapm.apply_darko_rating(self._ratings(), self._history())
+        assert out.loc[0, "rapm_shrunk"] == pytest.approx(6.0)
+        assert out.loc[0, "rapm_raw"] == pytest.approx(6.0)
+        assert out.loc[0, "o_dpm"] == pytest.approx(4.0)
+        assert out.loc[0, "d_dpm"] == pytest.approx(2.0)
+        assert out.loc[0, "darko_x_minutes"] == pytest.approx(33.0)
+        assert out.loc[0, "rating_source"] == "darko"
+
+    def test_a_later_row_is_never_read(self):
+        out = rapm.apply_darko_rating(self._ratings(), self._history())
+        assert out.loc[0, "rapm_shrunk"] != pytest.approx(7.0)
+        assert out.loc[0, "o_dpm"] != pytest.approx(5.0)
+
+    def test_the_post_game_actual_on_the_row_cannot_move_the_rating(self):
+        base = rapm.apply_darko_rating(self._ratings(), self._history())
+        history = self._history()
+        history.loc[1, "seconds_played"] = 1_000_000.0
+        changed = rapm.apply_darko_rating(self._ratings(), history)
+        pd.testing.assert_series_equal(base.loc[0], changed.loc[0])
+
+    def test_a_player_without_an_on_day_row_falls_back_to_the_last_prior_row(self):
+        history = self._history().iloc[[0, 2]]  # no 2024-01-10 row
+        out = rapm.apply_darko_rating(self._ratings(), history)
+        assert out.loc[0, "rapm_shrunk"] == pytest.approx(5.0)
+        assert out.loc[0, "o_dpm"] == pytest.approx(3.0)
+        assert np.isnan(out.loc[0, "darko_x_minutes"])
+
+    def test_no_darko_row_at_all_keeps_the_incumbent_rating(self):
+        out = rapm.apply_darko_rating(self._ratings(), self._history(player=999))
+        assert out.loc[0, "rapm_shrunk"] == pytest.approx(1.0)
+        assert out.loc[0, "rating_source"] == "incumbent"

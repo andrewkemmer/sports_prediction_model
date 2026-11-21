@@ -3,8 +3,10 @@
 Each player page on darko.app carries the full trajectory: one row per career
 game with that game's pre-game projection, under ``history: {keys, values}``
 in a SvelteKit ``/player/<nba_id>/__data.json`` payload. The row dated ``d``
-is the projection entering game ``d``, so ``apply_darko_rating`` can read the
-last row strictly before each target date and never see a game's own result.
+is the projection entering game ``d``, so ``apply_darko_rating`` reads the row
+dated the target game itself (falling back to the last earlier row when the
+player has no game that day); the post-game ``seconds_played`` on that row is
+never read, so the target game's own result never enters its features.
 
 The history is pulled in memory for the players in the rating frame on every
 run; nothing is written to disk and no manual step is needed.

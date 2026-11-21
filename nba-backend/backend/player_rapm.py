@@ -107,19 +107,23 @@ def _player_key(series: pd.Series) -> pd.Series:
 def apply_darko_rating(ratings: pd.DataFrame, history: pd.DataFrame) -> pd.DataFrame:
     """Replace the rating value with raw DARKO DPM where DARKO has a row.
 
-    The DPM is the last row strictly before each rating's target date
-    (``allow_exact_matches=False``: a rating for a game on D may not read the
-    row dated D, which is that game's own entry). Rows with no DARKO
-    observation keep the incumbent RAPM value, so segment membership cannot
-    shift. Only ``rapm_shrunk``, ``rapm_raw`` and ``rating_source`` change;
-    every row, key and minute is kept.
+    A rating for a game on D reads the DARKO row dated D itself: that row is
+    the pre-game projection entering the game being priced, so the rating,
+    pace, expected points and expected minutes all come from one pre-game
+    snapshot. The join allows exact matches; a player with no row on D (no
+    game that day, offseason gap, no DARKO node) falls back to the last row
+    strictly before D. ``seconds_played`` on the on-day row is the post-game
+    actual and is never read, so the target game's result cannot leak in.
 
-    Expected minutes (``darko_x_minutes``) use the OPPOSITE join: the row
-    dated exactly the target date (``date == target`` normalized to midnight),
-    which is the pre-game projection entering that game. ``seconds_played``
-    on that row is the post-game actual and is never read. A player with no
-    on-day row (not on the slate, offseason gap, no DARKO node) keeps NaN and
-    downstream blends fall back to trailing ``prior_minutes_per_game``.
+    Rows with no DARKO observation keep the incumbent RAPM value, so segment
+    membership cannot shift. Only ``rapm_shrunk``, ``rapm_raw`` and
+    ``rating_source`` change; every row, key and minute is kept.
+
+    ``o_dpm``, ``d_dpm``, ``x_pace``, ``x_pts_100`` and ``x_fg_pct`` ride the
+    same on-day row as the rating. Expected minutes (``darko_x_minutes``)
+    keep their equality join on the target date - the same row whenever one
+    exists; otherwise NaN and downstream blends fall back to trailing
+    ``prior_minutes_per_game``.
     """
     out = ratings.reset_index(drop=True).copy()
     left = pd.DataFrame({
@@ -143,7 +147,7 @@ def apply_darko_rating(ratings: pd.DataFrame, history: pd.DataFrame) -> pd.DataF
 
     merged = pd.merge_asof(left, right, left_on="_asof_target",
                            right_on="date", by="player_key",
-                           direction="backward", allow_exact_matches=False)
+                           direction="backward", allow_exact_matches=True)
     dpm = pd.Series(np.nan, index=out.index)
     dpm.iloc[merged["_pos"].to_numpy()] = pd.to_numeric(
         merged["dpm"], errors="coerce").to_numpy()
@@ -165,9 +169,10 @@ def apply_darko_rating(ratings: pd.DataFrame, history: pd.DataFrame) -> pd.DataF
             out[_col] = pd.to_numeric(_vals, errors="coerce")
         elif _col not in out.columns:
             out[_col] = np.nan
-    # Expected minutes: equality join on the target DATE (normalized), never
-    # the asof-backward join above. The on-day row is the pre-game projection
-    # for that game; reading any earlier row would be stale by construction.
+    # Expected minutes: equality join on the target DATE (normalized), kept
+    # separate from the asof join above. The on-day row is the pre-game
+    # projection for that game; a player without one gets NaN and the
+    # downstream blends fall back to trailing minutes.
     try:
         day = history.copy()
         day["player_key"] = pd.to_numeric(day["nba_id"], errors="coerce")

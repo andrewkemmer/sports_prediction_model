@@ -3,11 +3,12 @@
 Three PIT-safe proxies, all computed on saved OOF (n=3134), no market prices
 as model inputs anywhere:
 
-A. DARKO staleness: for each game, the asof lag of the DPM row the model
-   actually read (target_date - last row strictly before it) + the on-day
-   delta (|x_minutes(on-day) - x_minutes(last prior)| and |dpm(on-day) -
-   dpm(last prior)|). DARKO refits overnight; a big on-day jump = news the
-   model missed. Correlate with |edge| and with the signed error.
+A. DARKO row timing: for each game, the DPM row the model read (the on-day
+   pre-game row since v3.7; zero lag where one exists, else the prior-row
+   lag) + the on-day delta (|x_minutes(on-day) - x_minutes(last prior)| and
+   |dpm(on-day) - dpm(last prior)|). DARKO refits overnight; the jump now
+   enters the features, so it measures the freshest update's size rather
+   than news the model missed. Correlate with |edge| and the signed error.
    NOTE: pulls DARKO history live (darko.app). Slow (~hours for full league);
    samples 60 players x full history by default, or set FULL=1 for all.
 
