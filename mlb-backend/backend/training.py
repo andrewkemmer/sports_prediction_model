@@ -131,9 +131,30 @@ def get_last_fold_signature() -> str | None:
 MONEYLINE_FEATURE_COLS = [
     # 1. Baseline (home-field anchor; constant by construction)
     "is_home",
-    # 2–4. Core pre-game diffs
-    "win_pct_diff",
-    "elo_diff",
+    # 2–8. Two-sided run model — ADOPTED 2026-11-21 (MLB scenario C).
+    # The Elo/win-percentage block (elo_diff + the home_elo/away_elo and
+    # home_win_pct/away_win_pct levels) left the served universe and moved to
+    # config.RFE_CANDIDATE_COLS. In its place sit the seven columns fitted by
+    # team_run_ratings: a causal ridge of runs scored on side rows (two rows
+    # per game, team-offence and team-defence one-hots on the same row), so
+    # each team's number is estimated net of the opponents it actually faced.
+    # Signed higher-is-better: off_rating = runs/game the offence adds above
+    # league average, def_rating = runs/game the pitching/defence prevents
+    # above league average, net_rating_diff = the matchup number
+    # (off_home + def_home) - (off_away + def_away). Identity:
+    # net_rating_diff == off_rating_diff + def_rating_diff.
+    #
+    # Evidence (MLB A/B/C, kernel mlb-moneyline-a-b-c-run-model-v3, 4,500
+    # games through 2026-10): B (Elo/win% removed) 0.68309 pooled logloss,
+    # C (B + these seven) 0.68156 vs incumbent A 0.68242; in the 45-55%
+    # band C beats A by -0.00157 (98%) and beats B by -0.00191 (99%), with
+    # AUC 0.53531 vs 0.51961/0.52010. Scenario C is the only one of the
+    # four sports where removing the strength proxy is repaid by the
+    # replacement; NBA/NFL rejected it, NHL reached parity.
+    "off_rating_diff", "off_rating_home", "off_rating_away",
+    "def_rating_diff", "def_rating_home", "def_rating_away",
+    "net_rating_diff",
+    # Core pre-game diff
     "rest_days_diff",
     # 5–8. Starting pitcher diffs (season-to-date + last-5-start)
     "sp_xfip_diff",
@@ -208,12 +229,10 @@ MONEYLINE_FEATURE_COLS = [
     # Gives every member the raw home and away values alongside their diffs,
     # letting tree members discover side-specific thresholds and interactions
     # that a pure home-minus-away diff cannot express.
-    # Elo
-    "home_elo",
-    "away_elo",
-    # Win percentage
-    "home_win_pct",
-    "away_win_pct",    # SP K/9 (season-to-date)
+    # Elo / win-percentage levels REMOVED 2026-11-21 with their diffs (see the
+    # run-model adoption block at the top of this list). They stay generated
+    # and join config.RFE_CANDIDATE_COLS, so RFE may re-trial them.
+    # SP K/9 (season-to-date)
     "sp_k9_home", "sp_k9_away",
     # SP xwOBA allowed (last 6 starts)
     "sp_xwoba_home", "sp_xwoba_away",
@@ -1019,8 +1038,12 @@ LOGISTIC_USE_RAW_COLS = False
 # exp2, 6 interaction), so every served diff family's raw halves route
 # tree-only exactly like the originals.
 RAW_PER_SIDE_COLS = [
-    "home_elo", "away_elo",
-    "home_win_pct", "away_win_pct",
+    # 2026-11-21 (scenario C adoption): the Elo/win% levels left the universe
+    # with their diffs; the run model's four side levels take their tree-only
+    # seats. Net routing width is unchanged at 70 (70 - 4 + 4), while the
+    # logistic slice gains the three rating diffs (44 -> 45).
+    "off_rating_home", "off_rating_away",
+    "def_rating_home", "def_rating_away",
     "sp_k9_home", "sp_k9_away",
     "sp_xwoba_home", "sp_xwoba_away",
     "woba_30g_home", "woba_30g_away",

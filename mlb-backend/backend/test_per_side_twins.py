@@ -376,7 +376,7 @@ def test_run_engine_side_view_carries_every_served_feature():
         "frame extras must not change the side view")
     # Side-agnostic matchup gaps are shared environment — present in BOTH
     # side views; per-side levels appear in their own side's view.
-    for shared in ("win_pct_diff", "elo_diff", "bullpen_kbb_3g_diff",
+    for shared in ("off_rating_diff", "net_rating_diff", "bullpen_kbb_3g_diff",
                    "bullpen_meltdown_risk_diff",
                    "lineup_handedness_matchup_advantage_diff"):
         assert shared in home_cols and shared in away_cols, shared

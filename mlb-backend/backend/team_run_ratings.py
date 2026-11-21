@@ -1,10 +1,15 @@
-"""Two-sided MLB run model: team offence/defence ratings as served features.
+"""Two-sided MLB run model: the served team offence/defence ratings.
 
-The moneyline contract already carries ``elo_diff`` and ``win_pct_diff``, and
-the existing trial C arm is the arithmetic mean of the nine served
-position-pool xwOBA columns.  Neither is a strength estimate: the mean ignores
-which opponent each rate was earned against, and it collapses offence and
-defence into one number that is really only offence.
+ADOPTED 2026-11-21 (MLB scenario C): these seven columns are the moneyline
+contract's strength block.  They replaced ``elo_diff``/``win_pct_diff`` and
+the ``home_elo``/``away_elo``/``home_win_pct``/``away_win_pct`` levels, none
+of which is opponent-adjusted.  The A/B/C trial (kernel
+mlb-moneyline-a-b-c-run-model-v3) measured the swap at 0.68309 -> 0.68156
+pooled logloss, and in the 45-55% band C beat the incumbent by -0.00157
+(98%) with band AUC 0.53531 vs 0.51961.  The daily pipeline attaches the
+panel in master_pipeline before the decided snapshot (training + the
+re-exported CSV) and again on the history+slate concat, so tonight's board is
+priced from the same causal fit as history.
 
 This module fits the substitute.  The unit of observation is a *side row*: two
 rows per game, one for each team batting.  The target is runs scored.  The
@@ -125,6 +130,35 @@ def _num(frame: pd.DataFrame, column: str) -> pd.Series:
     return pd.Series(np.nan, index=frame.index, dtype=float)
 
 
+def _resolve_gameday(games: pd.DataFrame) -> pd.Series:
+    """The frame's date column as datetime.
+
+    The committed delivery frame and the production game frame name it
+    ``game_date``; the A/B/C harness renames it to ``gameday``.  Accept both
+    so the same fit serves research and production without a copy step.
+    """
+    column = "gameday" if "gameday" in games.columns else "game_date"
+    if column not in games.columns:
+        raise ValueError("team_run_ratings: frame has no gameday/game_date")
+    return pd.to_datetime(games[column], errors="coerce")
+
+
+def _resolve_season(games: pd.DataFrame, gameday: pd.Series) -> pd.Series:
+    """Season label, derived from the date when absent or NULL.
+
+    The run-model prior uses season S-1 for season S, so every row needs a
+    season even when the source frame does not carry one (the production
+    delivery CSV does not).  A slate row appended to history inherits its
+    date's year and never enters the fit (its scores are NULL).
+    """
+    season = _num(games, "season")
+    if season.isna().all():
+        season = gameday.dt.year.astype(float)
+    else:
+        season = season.fillna(gameday.dt.year.astype(float))
+    return season
+
+
 def _prior_runs(games: pd.DataFrame) -> pd.DataFrame:
     """Shrunk prior-season runs scored/allowed per (season, team).
 
@@ -159,13 +193,16 @@ def _prior_runs(games: pd.DataFrame) -> pd.DataFrame:
 def build_side_rows(games: pd.DataFrame) -> pd.DataFrame:
     """Two rows per game: one per team batting, with own/opponent features."""
     g = games.reset_index(drop=True)
+    gameday = _resolve_gameday(g)
+    g["gameday"] = gameday
+    g["season"] = _resolve_season(g, gameday)
     prior = _prior_runs(g)
     parts = []
     for side, other in (("home", "away"), ("away", "home")):
         part = pd.DataFrame({
             "pos": g.index.to_numpy(),
-            "gameday": pd.to_datetime(g["gameday"], errors="coerce").to_numpy(),
-            "season": g["season"].to_numpy() if "season" in g else np.nan,
+            "gameday": gameday.to_numpy(),
+            "season": g["season"].to_numpy(),
             "team": g[f"{side}_team"].to_numpy(),
             "opp": g[f"{other}_team"].to_numpy(),
             "runs": pd.to_numeric(g[f"{side}_score"], errors="coerce").to_numpy(),
@@ -275,7 +312,7 @@ def build_causal_panel(games: pd.DataFrame, alpha: float = ALPHA,
                        own_starter: bool = False) -> pd.DataFrame:
     """As-of rating panel aligned to ``games``' positional order."""
     g = games.reset_index(drop=True)
-    gameday = pd.to_datetime(g["gameday"], errors="coerce")
+    gameday = _resolve_gameday(g)
     if gameday.isna().all():
         raise ValueError("team_run_ratings: frame has no gameday")
     rows = build_side_rows(g)

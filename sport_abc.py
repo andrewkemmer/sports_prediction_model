@@ -31,9 +31,14 @@ MLB  seven fitted columns from a causal ridge of runs scored on side rows:
      ``off_rating_{home,away,diff}``, ``def_rating_{home,away,diff}`` and
      ``net_rating_diff``.  Signed so higher is better.
 
-The ratings are trial-only columns.  They are registered in the process-local
-known pool and the side levels are routed tree-only, exactly like the existing
-trial families; no production contract is changed.
+MLB adopted its fitted rating into production on 2026-11-21 (scenario C), so
+``arm_columns`` detects that the rating is already served and rebuilds the
+pre-adoption incumbent A from the retired Elo/win-percentage columns (still
+generated, still in the known pool).  The same A/B/C comparison therefore
+stays runnable after adoption instead of collapsing to A == C.  NBA/NHL/NFL
+ratings remain trial-only: registered in the process-local known pool with
+their side levels routed tree-only, exactly like the existing trial families,
+and no production contract is changed.
 
 Usage
 -----
@@ -62,6 +67,12 @@ DROP = {
     "home_elo", "away_elo", "home_win_pct", "away_win_pct",
 }
 RATING_COLS = ["team_rating_diff", "team_rating_home", "team_rating_away"]
+#: The strength block the fitted sports retired.  Still generated and still in
+#: the known pool after adoption, so the harness can reconstruct arm A.
+RETIRED_ELO_WIN_PCT = [
+    "win_pct_diff", "elo_diff",
+    "home_elo", "away_elo", "home_win_pct", "away_win_pct",
+]
 #: MLB's fitted two-sided run-model columns (kept local to avoid importing the
 #: backend module at harness import time; ``team_run_ratings`` owns the fit).
 RUN_RATING_COLS = [
@@ -333,6 +344,17 @@ def arm_columns(mods, sport: str) -> dict[str, list[str]]:
         base = [c for c in active if c not in NBA_STRENGTH_COLS]
         return {"A": active, "B": base,
                 "C": base + [c for c in FITTED_RATING_COLS if c not in base]}
+    if sport in FITTED_SPORTS:
+        served = [c for c in FITTED_RATING_COLS if c in active]
+        if served:
+            # The fitted rating IS the served strength block now (MLB adopted
+            # scenario C on 2026-11-21).  Reconstruct the pre-adoption
+            # incumbent from the retired Elo/win% columns so A/B/C keeps
+            # measuring the adoption decision rather than becoming A == C.
+            base = [c for c in active if c not in served]
+            retired = [c for c in RETIRED_ELO_WIN_PCT
+                       if c in mods.contract.KNOWN_FEATURE_COLS]
+            return {"A": base + retired, "B": base, "C": base + served}
     base = [c for c in active if c not in DROP]
     extra = FITTED_RATING_COLS if sport in FITTED_SPORTS else RATING_COLS
     return {

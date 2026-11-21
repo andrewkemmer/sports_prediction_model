@@ -185,3 +185,64 @@ def test_defaults_are_the_shipped_configuration():
     for column in trr.RUN_RATING_COLS:
         assert np.allclose(default[column].to_numpy(), explicit[column].to_numpy(),
                            equal_nan=True), column
+
+
+# ---------------------------------------------------------------------------
+# Production contract (adopted 2026-11-21, MLB scenario C): the seven fitted
+# columns are the served strength block, and the daily pipeline must be able
+# to attach them to the delivered frame shape (game_date, no gameday/season).
+
+
+def test_production_universe_serves_the_run_ratings():
+    import training
+
+    for column in trr.RUN_RATING_COLS:
+        assert column in training.MONEYLINE_FEATURE_COLS, column
+    for retired in ("elo_diff", "win_pct_diff", "home_elo", "away_elo",
+                    "home_win_pct", "away_win_pct"):
+        assert retired not in training.MONEYLINE_FEATURE_COLS, retired
+        # Retired from serving, NOT from the pool: RFE may re-trial them and
+        # a bundle recording the old width must still validate.
+        assert retired in training.KNOWN_FEATURE_COLS, retired
+    assert set(trr.SIDE_RATING_COLS) <= set(training.RAW_PER_SIDE_COLS)
+    logistic = set(training._logistic_feature_cols())
+    assert set(trr.SIDE_RATING_COLS).isdisjoint(logistic)
+    assert {"off_rating_diff", "def_rating_diff",
+            "net_rating_diff"} <= logistic
+
+
+def test_delivery_frame_shape_attaches_without_gameday_or_season():
+    """Production's frame names the date game_date and carries no season."""
+    frame = _frame().rename(columns={"gameday": "game_date"})
+    frame = frame.drop(columns=["season"])
+    out = trr.attach_run_ratings(frame, refit_days=7, min_train_games=40)
+    assert out["net_rating_diff"].notna().mean() > 0.5
+    reference = trr.attach_run_ratings(_frame(), refit_days=7,
+                                       min_train_games=40)
+    assert np.allclose(out["net_rating_diff"].to_numpy(),
+                       reference["net_rating_diff"].to_numpy(),
+                       equal_nan=True)
+
+
+def test_an_appended_slate_row_is_priced_from_history():
+    """A target-date row with NULL scores gets a rating and changes nothing."""
+    frame = _frame()
+    target = pd.Timestamp(frame["gameday"].max()) + pd.Timedelta(days=1)
+    slate = pd.DataFrame([{
+        "game_pk": 10 ** 9, "gameday": target, "season": target.year,
+        "home_team": "T0", "away_team": "T1",
+        "home_score": np.nan, "away_score": np.nan,
+    }])
+    combined = trr.attach_run_ratings(
+        pd.concat([frame, slate], ignore_index=True),
+        refit_days=7, min_train_games=40)
+    row = combined.iloc[-1]
+    for column in trr.RUN_RATING_COLS:
+        assert np.isfinite(row[column]), column
+    history = combined.iloc[:-1].reset_index(drop=True)
+    reference = trr.attach_run_ratings(frame, refit_days=7,
+                                       min_train_games=40)
+    for column in trr.RUN_RATING_COLS:
+        assert np.allclose(history[column].to_numpy(),
+                           reference[column].to_numpy(),
+                           equal_nan=True), column

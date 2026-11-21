@@ -243,7 +243,8 @@ def test_genuinely_orphaned_entry_still_warns(monkeypatch):
 def test_metadata_still_covers_the_full_serving_width():
     """The fix narrows the WARNING, not the metadata itself."""
     meta, _ = feature_metadata.build_features_metadata()
-    assert len(meta) == len(training.MONEYLINE_FEATURE_COLS) == 114  # 112 + handedness trio
+    # 115 = 114 − Elo/win% + the seven run-model columns (scenario C, 2026-11-21)
+    assert len(meta) == len(training.MONEYLINE_FEATURE_COLS) == 115
     assert all(row.get("tooltip") for row in meta.values())
 
 

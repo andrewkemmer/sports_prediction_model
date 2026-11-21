@@ -612,6 +612,7 @@ from explainability import (
     drift_windows,
 )
 from feature_metadata import generate_features_metadata
+from team_run_ratings import attach_run_ratings
 
 # C2 k-edge expansion RETIRED then REMOVED (2026-09-27): the board prices
 # the RAW λ pair — the diagnostic run_engine_k_edge.py module (monitor-only
@@ -2419,6 +2420,22 @@ def run_daily_pipeline(
             logger.warning("Env-level feature pass failed (level columns may "
                            "be absent this run): %s", exc)
 
+        # Two-sided run-model ratings (ADOPTED 2026-11-21, scenario C).
+        # Built HERE, after the weather / env passes and before the decided
+        # snapshot, so the fit sees the same park/weather context the models
+        # train on and both shipping consumers get the columns: the walk-
+        # forward training frame below and the re-exported
+        # game_level_features.csv. The panel is causal by construction
+        # (every anchor refits on strictly-prior games only), so attaching it
+        # leaks nothing into the OOF. A failure is loud rather than a silent
+        # all-NULL column: the coverage contract below refuses to train.
+        import time as _time
+        _ratings_t0 = _time.time()
+        games = attach_run_ratings(games)
+        logger.info(
+            "Run-model ratings attached in %.1fs (off/def/net, causal panel)",
+            _time.time() - _ratings_t0)
+
         # Canonical decided frame snapshot -- captured ONCE after official
         # results AND after the weather + env-level feature passes, so the
         # drift/coverage/run-engine consumers see the SAME 65-feature view
@@ -2627,8 +2644,17 @@ def run_daily_pipeline(
                 # test_run_engine_contract.py) but are no longer on the run path.
                 if weather:
                     slate = apply_weather_features(slate, weather)
-                games = pd.concat([games, slate], ignore_index=True)
-                target_games = slate.copy()
+                # Re-attach the run-model ratings on the combined frame: the
+                # slate rows carry NULL scores, so they must be PRICED by an
+                # anchor fitted on strictly-prior decided games. The decided
+                # rows are recomputed identically (the fit is deterministic
+                # and looks only at earlier games), and splitting the concat
+                # tail keeps target_games on the attached frame instead of a
+                # copy that predates this pass.
+                _n_slate = len(slate)
+                games = attach_run_ratings(
+                    pd.concat([games, slate], ignore_index=True))
+                target_games = games.tail(_n_slate).reset_index(drop=True)
             else:
                 # OFF-DAY HONESTY (2026-09-28 incident): a failed/empty
                 # schedule fetch on a no-games day used to recycle the most

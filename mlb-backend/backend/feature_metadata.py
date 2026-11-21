@@ -45,6 +45,106 @@ _RICH: dict[str, dict[str, str]] = {
         "units": "binary",
         "direction": "n/a (constant)",
     },
+    # ---- two-sided run model (adopted 2026-11-21, MLB scenario C) --------
+    # team_run_ratings.py fits these causally: two side rows per game, a
+    # team-offence one-hot and a team-defence one-hot on the same row, target
+    # runs scored, ridge with a recency half-life, refit every 7 days on
+    # strictly-prior games only. Signed higher-is-better.
+    "off_rating_diff": {
+        "summary": "Home offence minus away offence, in runs/game (fitted)",
+        "definition": (
+            "Opponent-adjusted two-sided run model's estimate of how many more "
+            "runs per game the home offence adds above league average than the "
+            "away offence does. The team coefficient is estimated net of the "
+            "opponents each offence actually faced."
+        ),
+        "formula": "off_rating_home − off_rating_away",
+        "source": "team_run_ratings: causal ridge on side rows (runs scored), team offence/defence one-hots + park/weather/starter/bullpen/prior blocks",
+        "window": "all strictly-prior games, exponential recency half-life 120 days; refit every 7 days",
+        "units": "runs per game above league average",
+        "direction": "higher = home offence advantage",
+    },
+    "off_rating_home": {
+        "summary": "Home offence's fitted runs/game above league average",
+        "definition": (
+            "The home team's offensive coefficient from the causal two-sided "
+            "run model. Positive means the offence scores more runs per game "
+            "than a league-average offence against the same schedule."
+        ),
+        "formula": "ridge coefficient on the home team's offence one-hot (+ intercept share)",
+        "source": "team_run_ratings: causal ridge on side rows (runs scored)",
+        "window": "strictly-prior games, 120-day recency half-life, 7-day refit grid",
+        "units": "runs per game above league average",
+        "direction": "higher = better offence",
+    },
+    "off_rating_away": {
+        "summary": "Away offence's fitted runs/game above league average",
+        "definition": (
+            "The away team's offensive coefficient from the causal two-sided "
+            "run model, on the same scale as the home rating."
+        ),
+        "formula": "ridge coefficient on the away team's offence one-hot (+ intercept share)",
+        "source": "team_run_ratings: causal ridge on side rows (runs scored)",
+        "window": "strictly-prior games, 120-day recency half-life, 7-day refit grid",
+        "units": "runs per game above league average",
+        "direction": "higher = better offence",
+    },
+    "def_rating_diff": {
+        "summary": "Home run prevention minus away run prevention (fitted)",
+        "definition": (
+            "How many more runs per game the home team's pitching and defence "
+            "prevent above league average than the away team's do, net of the "
+            "offences they actually faced. Sign is flipped from the raw "
+            "runs-allowed coefficient so higher is better."
+        ),
+        "formula": "def_rating_home − def_rating_away",
+        "source": "team_run_ratings: causal ridge on side rows, team-defence one-hot on the opposing side of the row",
+        "window": "all strictly-prior games, 120-day recency half-life, 7-day refit grid",
+        "units": "runs per game prevented above league average",
+        "direction": "higher = home run-prevention advantage",
+    },
+    "def_rating_home": {
+        "summary": "Home pitching/defence's fitted runs prevented above average",
+        "definition": (
+            "Opponent-adjusted run prevention for the home team: the fitted "
+            "runs-allowed coefficient with its sign flipped, so a positive "
+            "value means the staff prevents more runs than league average "
+            "against the lineups it actually faced. Includes the rotation."
+        ),
+        "formula": "−1 × ridge coefficient on the home team's defence one-hot",
+        "source": "team_run_ratings: causal ridge on side rows (runs allowed), opposing starter and bullpen blocks included",
+        "window": "strictly-prior games, 120-day recency half-life, 7-day refit grid",
+        "units": "runs per game prevented above league average",
+        "direction": "higher = better run prevention",
+    },
+    "def_rating_away": {
+        "summary": "Away pitching/defence's fitted runs prevented above average",
+        "definition": (
+            "The away team's opponent-adjusted run prevention, same sign and "
+            "scale as the home rating."
+        ),
+        "formula": "−1 × ridge coefficient on the away team's defence one-hot",
+        "source": "team_run_ratings: causal ridge on side rows (runs allowed)",
+        "window": "strictly-prior games, 120-day recency half-life, 7-day refit grid",
+        "units": "runs per game prevented above league average",
+        "direction": "higher = better run prevention",
+    },
+    "net_rating_diff": {
+        "summary": "The matchup number: home (offence + prevention) minus away",
+        "definition": (
+            "Home offence plus home run prevention minus the away pair, in "
+            "runs per game. Equals home offence against away pitching minus "
+            "away offence against home pitching, and equals "
+            "off_rating_diff + def_rating_diff by construction. Kept as one "
+            "summary for tree members."
+        ),
+        "formula": "(off_rating_home + def_rating_home) − (off_rating_away + def_rating_away)",
+        "source": "team_run_ratings: derived from the fitted offence/defence coefficients",
+        "window": "strictly-prior games, 120-day recency half-life, 7-day refit grid",
+        "units": "runs per game",
+        "direction": "higher = home matchup advantage",
+    },
+
     # ---- core pre-game diffs --------------------------------------------
     "win_pct_diff": {
         "summary": "Home win% − away win% (smoothed to .500 early season)",
