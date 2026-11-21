@@ -140,14 +140,25 @@ RFE_MAX_STEPS = 120
 # Paired walk-forward: full-window t -2.04, edge-vs-close (>3%) slice t -2.40
 # - both under the 2.5 adopt bar, so this is a directive override, not a
 # gate pass; C significantly worsened and stays out. Rebuild features, OOF
-# and refits together - this widens the binary contract to 85.
-FEATURE_SET_VERSION = "nba-prod-v3.5-opts"
+# and refits together - this widens the binary contract to 98.
+# v3.6 retires the six Elo/win% columns (the B arm, 2026-11-21):
+# ``elo_diff``, ``elo_home``, ``elo_away``, ``win_pct_diff``,
+# ``win_pct_home``, ``win_pct_away`` leave the served contract. In the
+# 40-60% home band B improved log loss -0.00270 [-0.00518, -0.00011] and
+# Brier -0.00132 [-0.00254, -0.00004] against the 98-column incumbent; the
+# band AUC gain (+0.0089 [-0.0042, +0.0210]) was not significant and the
+# full-window result was neutral (log loss +0.00046 [-0.00114, +0.00204]).
+# Team-DARKO C did not beat B (band log loss +0.00038 vs B, interval
+# includes zero), so no replacement leg was added. Rebuild features, OOF
+# and refits together - this narrows the binary contract to 92.
+FEATURE_SET_VERSION = "nba-prod-v3.6-noelo"
 
 #: The raw per-side metrics behind the diff contract. Every ``*_diff`` in the
 #: list below is a home-minus-away comparison of a ladder statistic; the
 #: families here publish that statistic's home and away values alongside the
-#: difference, the way ``elo_home``/``elo_away`` and the ``event_*_diff``
-#: family's structure (and the NFL ``pace_plays_min_home/_away`` pattern) do.
+#: difference, the way the retired ``elo_home``/``elo_away`` pair did and the
+#: ``event_*_diff`` family's structure (and the NFL
+#: ``pace_plays_min_home/_away`` pattern) do.
 #: The mapping is ladder column -> published stem, declared once so the
 #: builder, the contract and the provenance map cannot drift apart: a stem
 #: named here gets ``{stem}_home``/``{stem}_away`` published, joins the served
@@ -227,6 +238,14 @@ O_PTS_FEATURE_COLS: list[str] = (
     [f"pl_o_pts_{side}" for side in ("away", "home", "diff")]
     + [f"star_out_pts_{side}" for side in ("away", "home", "diff")])
 
+#: Six incumbent columns RETIRED from the served contract in v3.6 (the B arm,
+#: 2026-11-21). They remain registered so old frames still parse and an
+#: explicit trial can re-select them, but neither production view serves them.
+RETIRED_ELO_WINPCT_COLS: list[str] = [
+    "elo_diff", "elo_home", "elo_away",
+    "win_pct_diff", "win_pct_home", "win_pct_away",
+]
+
 # One authoritative moneyline feature contract.  Every model, monitor,
 # manifest, and run-line regressor projects this list.
 #
@@ -237,11 +256,10 @@ O_PTS_FEATURE_COLS: list[str] = (
 # list takes; a level feature would let the model learn a team's standing
 # rather than the matchup.
 MONEYLINE_FEATURE_COLS = [
-    "elo_diff", "win_pct_diff", "rest_days_diff", "back_to_back_diff",
+    "rest_days_diff", "back_to_back_diff",
     "ewm_net_points_diff", "ewm_off_rating_diff", "ewm_def_rating_diff",
     "ewm_pace_diff", "ewm_efg_pct_diff", "ewm_turnover_margin_diff",
     "ewm_rebound_margin_diff", "ewm_ast_per_game_diff", "is_playoffs",
-    "elo_home", "elo_away", "win_pct_home", "win_pct_away",
     "ewm_off_rating_home", "ewm_off_rating_away",
     "ewm_def_rating_home", "ewm_def_rating_away", "rest_days_home",
     "rest_days_away",
@@ -402,6 +420,8 @@ SCHED_DENSITY_LEVEL_COLS = frozenset({
     "sched_trip_away",
 })
 RAW_PER_SIDE_COLS = frozenset({
+    # Retired from the served contract in v3.6; retained here so legacy frames
+    # and explicit trials can still select the raw Elo/win% levels (tree-only).
     "elo_home", "elo_away", "win_pct_home", "win_pct_away",
     "ewm_off_rating_home", "ewm_off_rating_away",
     "ewm_def_rating_home", "ewm_def_rating_away", "rest_days_home",
@@ -1370,6 +1390,7 @@ KNOWN_FEATURE_COLS = list(dict.fromkeys(
     + LINEUP_RAPM_IMPACT_FEATURE_COLS + SPLIT_OD_RAPM_FEATURE_COLS
     + O_PTS_FEATURE_COLS
     + FG_PCT_FEATURE_COLS
+    + RETIRED_ELO_WINPCT_COLS
     + LEGACY_PL_DPM_FEATURE_COLS))
 #: How far the injury-stint table may trail the decided frame before the
 #: staleness tripwire fires, mirroring MLB's IL_STINT_MAX_LAG_DAYS. Offseason

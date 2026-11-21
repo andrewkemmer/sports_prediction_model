@@ -748,6 +748,22 @@ class TestEventFeatures:
         # families changed nothing about that rule.
         assert "elo_home" not in linear and "elo_away" not in linear
 
+    def test_elo_and_win_pct_are_retired_from_the_served_contract(self):
+        """v3.6's B arm removes the six Elo/win% columns from production."""
+        retired = set(config.RETIRED_ELO_WINPCT_COLS)
+        assert len(config.MONEYLINE_FEATURE_COLS) == 92
+        assert not retired & set(config.MONEYLINE_FEATURE_COLS)
+        assert retired <= set(config.KNOWN_FEATURE_COLS)
+        assert {"elo_home", "elo_away", "win_pct_home", "win_pct_away"} <= set(
+            config.RAW_PER_SIDE_COLS)
+        built = feat.build_game_features(self._ladder_rows(), None,
+                                         self._event_stats())
+        # The builder still attaches them for old frames and rollback trials.
+        assert retired <= set(built.columns)
+        assert built["elo_diff"].notna().any()
+        assert not retired & set(feat.linear_feature_columns())
+        assert not retired & set(feat.tree_view(built).columns)
+
 
 # ---------------------------------------------------------------------------
 # HTTP

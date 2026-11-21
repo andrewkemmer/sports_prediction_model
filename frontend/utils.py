@@ -4983,9 +4983,9 @@ def load_nba_history_games(date_str: str) -> pd.DataFrame:
 
 
 NBA_FEATURE_DESCRIPTIONS = {
-    # Plain-language twins of the NBA served contract, kept on the frontend so
-    # the shared Feature Drift table renders a description for every feature
-    # even for rows a run's features_metadata does not cover. Per-side raw
+    # Plain-language twins of the NBA served contract, plus the six Elo/win%
+    # labels retired in v3.6 so historical monitor snapshots still render
+    # their authored wording. Per-side raw
     # levels get their OWN wording (an exact match wins over describe_feature's
     # diff-twin + side-suffix fallback, which used to render elo_home as
     # "Home Elo − away Elo ... — home team").

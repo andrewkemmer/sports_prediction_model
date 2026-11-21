@@ -3,9 +3,29 @@
 Standalone NBA moneyline and totals/spread backend structurally mirroring the
 MLB/NFL/NHL production contracts.
 
+## B-arm Elo/win% retirement — 2026-11-21
+
+Current representation: **`nba-prod-v3.6-noelo`**. The moneyline contract now
+serves **92 columns**: v3.5's 98 minus `elo_diff`, `elo_home`, `elo_away`,
+`win_pct_diff`, `win_pct_home` and `win_pct_away`. The six were removed after
+the A/B/C walk-forward put B (no Elo/win%) ahead of the incumbent in the
+40-60% home band: log loss -0.00270 [-0.00518, -0.00011], Brier -0.00132
+[-0.00254, -0.00004], band AUC +0.0089 [-0.0042, +0.0210]. The full-window
+result was neutral (log loss +0.00046 [-0.00114, +0.00204]). Team-DARKO C did
+not beat B in the band (log loss +0.00038 vs B, interval includes zero), so no
+replacement leg was added. The retired names remain in `KNOWN_FEATURE_COLS`
+and the raw side levels in `RAW_PER_SIDE_COLS` so old frames parse and an
+explicit trial can re-select them; neither production view serves them.
+
+Rebuild features, OOF, blend/calibration and refits together. The code change
+does not retrain the shipped model: `nba_ensemble_latest.joblib` still carries
+the 98-column v3.5 contract. The next full production run must regenerate OOF
+and refits before v3.6 is served; until then the deployed artifacts remain
+v3.5.
+
 ## O-PTS expected-points promotion — 2026-11-01
 
-Current representation: **nba-prod-v3.5-opts**. The moneyline contract now serves **85 columns**: the previous 79 plus the six pl_o_pts_* / star_out_pts_* expected-points features from the B arm (additive team expected points from DARKO x_pts_100 x pace blended by expected minutes, plus the star-out points leg). Walk-forward verdict: B full-window paired t -2.04, edge-vs-close (>3%) slice t -2.40 — both under the 2.5 adopt bar, so this ships as an owner-directive override with the re-test standing, not a gate pass. C significantly worsened the baseline and stays out. Rebuild features, OOF and refits together; the served bundle must be refit on the widened contract before these columns move a prediction.
+Representation at this promotion: **nba-prod-v3.5-opts**. The moneyline contract now serves **98 columns**: the previous 92 plus the six pl_o_pts_* / star_out_pts_* expected-points features from the B arm (additive team expected points from DARKO x_pts_100 x pace blended by expected minutes, plus the star-out points leg). Walk-forward verdict: B full-window paired t -2.04, edge-vs-close (>3%) slice t -2.40 — both under the 2.5 adopt bar, so this ships as an owner-directive override with the re-test standing, not a gate pass. C significantly worsened the baseline and stays out. Rebuild features, OOF and refits together; the served bundle must be refit on the widened contract before these columns move a prediction.
 
 ## Star-out availability promotion — 2026-10-26
 

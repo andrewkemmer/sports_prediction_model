@@ -529,7 +529,8 @@ class TestFeatureDriftMachinery:
         baseline = pd.DataFrame(
             {"is_playoffs": (rng.random(300) < 0.0725).astype(float)})
         current = pd.DataFrame({"is_playoffs": np.ones(60)})
-        row = mon.feature_drift(baseline, current)[0]
+        row = mon.feature_drift(baseline, current,
+                                feature_cols=["is_playoffs"])[0]
         assert row["status"] == "ALERT" and row["location_shift"]
 
 
@@ -625,7 +626,8 @@ class TestCarryProvenance:
         rng = np.random.default_rng(3)
         baseline = pd.DataFrame({"elo_diff": rng.normal(0, 1, 300)})
         current = pd.DataFrame({"elo_diff": rng.normal(0, 1, 80)})
-        row = mon.feature_drift(baseline, current)[0]
+        row = mon.feature_drift(baseline, current,
+                                feature_cols=["elo_diff"])[0]
         assert row["status"] == "OK" and not row["location_shift"]
         assert row["psi"] <= row["noise_floor"] * 1.5
 
@@ -633,14 +635,16 @@ class TestCarryProvenance:
         rng = np.random.default_rng(5)
         baseline = pd.DataFrame({"elo_diff": rng.normal(0, 1, 300)})
         current = pd.DataFrame({"elo_diff": rng.normal(0, 1, 80) + 5.0})
-        row = mon.feature_drift(baseline, current)[0]
+        row = mon.feature_drift(baseline, current,
+                                feature_cols=["elo_diff"])[0]
         assert row["status"] == "ALERT" and row["location_shift"]
 
     def test_a_tiny_window_reports_insufficient_and_never_pages(self):
         rng = np.random.default_rng(7)
         baseline = pd.DataFrame({"elo_diff": rng.normal(0, 1, 50)})
         current = pd.DataFrame({"elo_diff": rng.normal(0, 1, 10) + 9.0})
-        row = mon.feature_drift(baseline, current)[0]
+        row = mon.feature_drift(baseline, current,
+                                feature_cols=["elo_diff"])[0]
         assert row["status"] == "INSUFFICIENT"
 
     def test_a_playoff_tail_baseline_is_composition_matched(self):
@@ -725,7 +729,8 @@ class TestCarryProvenance:
         baseline = pd.DataFrame({"elo_diff": [0.5, np.nan] * 150})
         current = pd.DataFrame({"elo_diff": np.ones(80)})
         by = {(r["window"], r["feature"]): r["pct_measured"]
-              for r in mon.coverage(baseline, current)}
+              for r in mon.coverage(baseline, current,
+                                    feature_cols=["elo_diff"])}
         assert by[("baseline", "elo_diff")] == 50.0
         assert by[("current", "elo_diff")] == 100.0
 
@@ -847,11 +852,14 @@ class TestFeatureImportanceWeights:
             {"xgboost": {"model": tree}}, {"xgboost": 1.0})
         top = max(weights.values())
         assert top <= 100.0
-        baseline = pd.DataFrame({c: np.random.default_rng(1).normal(0, 1, 300)
-                                 for c in ["elo_diff"]})
-        current = pd.DataFrame({"elo_diff": np.random.default_rng(2).normal(0, 1, 40)})
-        row = mon.feature_drift(baseline, current, weights)[0]
-        assert row["weight_pct"] == weights["elo_diff"]
+        # Elo is retired in v3.6, so use a served feature for the pass-through
+        # check; the arithmetic is representation-independent.
+        col = config.active_moneyline_feature_cols()[0]
+        baseline = pd.DataFrame({col: np.random.default_rng(1).normal(0, 1, 300)})
+        current = pd.DataFrame({col: np.random.default_rng(2).normal(0, 1, 40)})
+        row = mon.feature_drift(baseline, current, weights,
+                                feature_cols=[col])[0]
+        assert row["weight_pct"] == weights[col]
 
     def test_elasticnet_importance_is_per_sd_not_std_scaled(self):
         """``coef_`` is fit on z-scored columns, so |coef| already IS
@@ -1464,7 +1472,9 @@ class TestFoldEarlyStopIsPointInTime:
         import inspect
         import moneyline as ml_mod
         params = inspect.signature(ml_mod._fit_member).parameters
-        assert list(params) == ["name", "train"]
+        # base_margin is the market-offset arm's keyword, not a validation
+        # slice; the point of this test is that no validation data is passed.
+        assert list(params) == ["name", "train", "base_margin"]
 
     def test_walk_forward_folds_fit_strictly_prior_rows_only(self, monkeypatch):
         import moneyline as ml_mod
@@ -1545,7 +1555,7 @@ class TestCausalMoneylineParity:
         import moneyline as ml
         frame = TestFoldEarlyStopIsPointInTime._decided(90)
         seen = []
-        def fit(name, train):
+        def fit(name, train, base_margin=None):
             seen.append((name, train.game_id.tolist()))
             return object(), None
         monkeypatch.setattr(ml, "_fit_member", fit)

@@ -456,6 +456,10 @@ def _attach_contract(df: pd.DataFrame, ladder: pd.DataFrame) -> pd.DataFrame:
     # slower. The concat produces the identical frame — same columns, same
     # order, same dtypes — without the block explosion.
     new: dict[str, object] = {}
+    # Elo/win% are RETIRED from the served contract in v3.6 (the B arm), but
+    # still built: historical frames, rollback trials and legacy diagnostics
+    # need them. tree_view/linear_view select only active columns, so they
+    # cannot leak into a production matrix.
     new["elo_diff"] = _diff(ladder, ids, "elo_entering")
     new["win_pct_diff"] = _diff(ladder, ids, "win_pct")
     new["rest_days_diff"] = _diff(ladder, ids, "rest_days")
