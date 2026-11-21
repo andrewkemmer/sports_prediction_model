@@ -256,7 +256,16 @@ def _plays_per_game(frame: pd.DataFrame, side: str) -> pd.Series:
 
 
 def _nfl_team_rating(out: pd.DataFrame) -> None:
-    """Sum the per-game DVOA legs, subtract per-game defensive EPA."""
+    """Sum the per-game DVOA legs, subtract per-game defensive EPA.
+
+    The defence term prefers the opponent-adjusted series
+    (``pbp_def_epa_play_opp_adj_ewm_*``), which subtracts the quality of the
+    offence actually faced.  When that trial column is absent the raw series
+    is used, so the arm still builds on an older frame.
+    """
+    adjusted = "pbp_def_epa_play_opp_adj_ewm_home" in out.columns
+    source = ("pbp_def_epa_play_opp_adj_ewm" if adjusted
+              else "pbp_def_epa_play_ewm")
     for side, other in (("home", "away"), ("away", "home")):
         legs = [pd.to_numeric(out.get(f"pl_dvoa_{p}_{side}"), errors="coerce")
                 for p in NFL_DVOA_POSITIONS]
@@ -268,10 +277,10 @@ def _nfl_team_rating(out: pd.DataFrame) -> None:
         # The defence faces the OPPONENT's offence, so its volume is the
         # opponent's projected plays, not its own.
         volume = _plays_per_game(out, other)
-        allowed = (pd.to_numeric(out.get(f"pbp_def_epa_play_ewm_{side}"),
+        allowed = (pd.to_numeric(out.get(f"{source}_{side}"),
                                  errors="coerce") * volume)
         out[f"team_rating_{side}"] = off - allowed
-    print("NFL rating: DVOA legs summed, defensive EPA/play x opponent plays",
+    print(f"NFL rating: DVOA legs summed, {source} x opponent plays",
           flush=True)
 
 

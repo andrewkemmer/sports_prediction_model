@@ -419,12 +419,26 @@ PBP_CANDIDATE_TRAILING_SPECS: dict[str, tuple[str, ...]] = {
 # trailing windows in PBP_OPP_ADJ_TRAILING_SPECS.
 PBP_OPP_ADJ_METRICS: dict[str, str] = {
     "epa_play": "def_epa_play",
+    # Defensive mirror (2026-11-21): a defence is adjusted against the
+    # OFFENSIVE quality it faced. ``epa_play`` is higher-is-better, so the
+    # same ``base + (league_mean - strength)`` form subtracts for a strong
+    # opponent and adds for a weak one -- exactly the mirror of the
+    # offensive case, where a good defence (lower def_epa_play) adds.
+    #
+    # Without this, every defensive number in the pipeline is schedule-blind,
+    # including the ``def_epa_play`` that the offensive adjustment itself uses
+    # as its strength, so the one-sided adjustment was anchored on a
+    # contaminated yardstick.
+    "def_epa_play": "epa_play",
 }
 
 # Trailing windows for the opponent-adjusted series (same causal primitives;
 # the flat window is the long-standing OPP_ADJ_WINDOW knob, finally armed).
 PBP_OPP_ADJ_TRAILING_SPECS: dict[str, tuple[str, ...]] = {
     "epa_play_opp_adj": ("ewm", "roll_opp"),
+    # Served as pbp_def_epa_play_opp_adj_ewm_{home,away,diff} by the generic
+    # trailing machinery. Trial-only: not in MONEYLINE_FEATURE_COLS.
+    "def_epa_play_opp_adj": ("ewm",),
 }
 
 # Trench-edge series (2026-11-01 trial): per-game net incoming pressure

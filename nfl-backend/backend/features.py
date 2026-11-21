@@ -969,15 +969,20 @@ def snap_counts_team_agg(snaps: pd.DataFrame | None) -> pd.DataFrame:
 # ---------------------------------------------------------------------------
 # Opponent adjustment — production rescaled by the defense actually faced
 # ---------------------------------------------------------------------------
-# For each (base, defense) pair in config.PBP_OPP_ADJ_METRICS the per-game
-# series becomes
+# For each (base, opponent_metric) pair in config.PBP_OPP_ADJ_METRICS the
+# per-game series becomes
 #
-#   <base>_opp_adj = base + (shrunk opponent prior def_−def_epa_play)
+#   <base>_opp_adj = base + (prior league mean - shrunk opponent prior)
 #
-# where the opponent prior is the opponent's shift(1) halflife-EWM of the
-# defensive metric shrunk toward the prior expanding league mean — producing
-# against a good (negative-EPA-allowed) defense RAISES the adjusted value,
-# producing against a bad one LOWERS it. Every input is strictly prior: the
+# where the opponent prior is the opponent's shift(1) halflife-EWM of
+# ``opponent_metric`` shrunk toward the prior expanding league mean. The
+# mapping now runs BOTH ways and the same form is correct for both because
+# the sign lives in the metric: producing against a good defence (low
+# def_epa_play, below the mean) RAISES the offensive value, and allowing
+# production to a good offence (high epa_play, above the mean) LOWERS the
+# defensive value. Before the defensive entry existed, every defensive
+# number here was schedule-blind — including the ``def_epa_play`` the
+# offensive adjustment used as its strength. Every input is strictly prior: the
 # strength series is the ordinary shift(1) primitive, and the league mean is
 # the expanding mean of the same shifted series (so game t's strength uses
 # only games strictly before t). The adjusted series is then consumed by the
@@ -990,10 +995,13 @@ def _add_opp_adj_metrics(srt: pd.DataFrame) -> None:
 
     Row (team T, opponent B, game g):
       adj = base_T(g) + (league_mean(g) − strength_B(g))
-    where strength_B(g) is B's defensive quality entering game g — the
-    shift(1) halflife-EWM of B's defensive metric on B's OWN timeline,
+    where strength_B(g) is B's quality in the metric the pair names, entering
+    game g — the shift(1) halflife-EWM of that metric on B's OWN timeline,
     shrunk toward the expanding prior league mean with weight
-    n_B / (n_B + OPP_ADJ_SHRINKAGE), n_B = B's games strictly before g.
+    n_B / (n_B + OPP_ADJ_SHRINKAGE), n_B = B's games strictly before g. For
+    the offensive entries B's quality is defensive (lower is better); for
+    the defensive entry it is offensive (higher is better), which flips the
+    sign of the adjustment without changing this expression.
     league_mean(g) is the expanding mean over gameday of per-team shift(1)
     defensive values, so every input is strictly prior and game g's own
     performances never enter either side's adjustment."""

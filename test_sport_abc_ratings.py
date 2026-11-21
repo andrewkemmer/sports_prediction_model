@@ -70,6 +70,23 @@ def test_nfl_defence_volume_is_the_opponents_pace():
     assert np.isclose(out["team_rating_away"].iloc[0], -0.1 * 60.0)
 
 
+def test_nfl_prefers_the_opponent_adjusted_defence():
+    """When the adjusted series exists it must win over the raw one."""
+    frame = _nfl_frame(pbp_def_epa_play_ewm_home=0.10,
+                       pbp_def_epa_play_ewm_away=0.10,
+                       pbp_def_epa_play_opp_adj_ewm_home=0.02,
+                       pbp_def_epa_play_opp_adj_ewm_away=0.02)
+    out = sa.attach_team_rating(frame, "nfl")
+    assert np.isclose(out["team_rating_home"].iloc[0], -0.02 * 60.0)
+
+
+def test_nfl_falls_back_to_the_raw_defence():
+    frame = _nfl_frame(pbp_def_epa_play_ewm_home=0.10,
+                       pbp_def_epa_play_ewm_away=0.10)
+    out = sa.attach_team_rating(frame, "nfl")
+    assert np.isclose(out["team_rating_home"].iloc[0], -0.10 * 60.0)
+
+
 def test_nfl_rating_diff_is_home_minus_away():
     frame = _nfl_frame(pl_dvoa_qb_home=3.0, pl_dvoa_qb_away=1.0)
     out = sa.attach_team_rating(frame, "nfl")
