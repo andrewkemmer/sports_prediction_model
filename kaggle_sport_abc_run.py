@@ -22,27 +22,27 @@ ROOT = Path(__file__).resolve().parent
 base.COLLECT_ROOT = ROOT / "kaggle_sport_abc_output"
 base.KERNELS = {
     "nba": {
-        "slug": "nba-moneyline-retune-v36",
+        "slug": "nba-moneyline-retune-v3-6",
         "title": "NBA moneyline retune v3.6",
         "notebook": ROOT / "kaggle_nba_retune_v36.ipynb",
         "datasets": [],
     },
     "nhl": {
-        "slug": "nhl-moneyline-abc-noelo-v2",
+        "slug": "nhl-moneyline-a-b-c-no-elo-v2",
         "title": "NHL moneyline A/B/C no-Elo v2",
         "notebook": ROOT / "kaggle_nhl_abc_v2.ipynb",
         "datasets": [],
     },
     "nfl": {
-        "slug": "nfl-moneyline-abc-noelo-v2",
+        "slug": "nfl-moneyline-a-b-c-no-elo-v2",
         "title": "NFL moneyline A/B/C no-Elo v2",
         "notebook": ROOT / "kaggle_nfl_abc_v2.ipynb",
         "datasets": [],
     },
     "mlb": {
-        "slug": "mlb-moneyline-abc-noelo-v2",
-        "title": "MLB moneyline A/B/C no-Elo v2",
-        "notebook": ROOT / "kaggle_mlb_abc_v2.ipynb",
+        "slug": "mlb-moneyline-a-b-c-run-model-v3",
+        "title": "MLB moneyline A/B/C run model v3",
+        "notebook": ROOT / "kaggle_mlb_abc_v3.ipynb",
         "datasets": [],
     },
 }

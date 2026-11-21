@@ -3,11 +3,16 @@
 Arms
 ----
 A  incumbent moneyline, no market offset, full active contract.
-B  A minus ``elo_diff``, ``elo_home``, ``elo_away``, ``win_pct_diff``,
-   ``win_pct_home`` and ``win_pct_away``.
-C  B plus a team-level rating triple.  The rating is the sport's analogue of
-   NBA team DARKO: a single team strength built from player-quality columns
-   already present in B.
+B  A minus every Elo and win-percentage name the contract serves.  The
+   contracts spell these two ways, so both are dropped:
+   ``elo_diff``/``elo_home``/``elo_away``/``win_pct_diff``/``win_pct_home``/
+   ``win_pct_away`` (NBA/NHL/NFL) and ``home_elo``/``away_elo``/
+   ``home_win_pct``/``away_win_pct`` (MLB's raw per-side twins).  MLB used to
+   keep four of these because only the diff spellings were listed.
+C  B plus a team-level rating.  For NBA/NHL/NFL the rating is arithmetic on
+   columns B already serves; for MLB it is a fitted two-sided run model
+   (``team_run_ratings``), because no served column contains a
+   opponent-adjusted offence/defence split in runs.
 
 C ratings
 ---------
@@ -17,7 +22,9 @@ NHL  mean of the eight served player rates (``pl_evo_*`` and ``pl_ppo_*``
      across C/L/R/D).
 NFL  mean of the four served player EPA rates minus trailing defensive EPA
      allowed (lower defensive EPA is better).
-MLB  mean of the nine served position-pool xwOBA rates.
+MLB  seven fitted columns from a causal ridge of runs scored on side rows:
+     ``off_rating_{home,away,diff}``, ``def_rating_{home,away,diff}`` and
+     ``net_rating_diff``.  Signed so higher is better.
 
 The ratings are trial-only columns.  They are registered in the process-local
 known pool and the side levels are routed tree-only, exactly like the existing
@@ -43,10 +50,24 @@ import pandas as pd
 
 ROOT = Path(__file__).resolve().parent
 DROP = {
+    # NBA / NHL / NFL spellings
     "elo_diff", "elo_home", "elo_away",
     "win_pct_diff", "win_pct_home", "win_pct_away",
+    # MLB spells the raw per-side twins this way
+    "home_elo", "away_elo", "home_win_pct", "away_win_pct",
 }
 RATING_COLS = ["team_rating_diff", "team_rating_home", "team_rating_away"]
+#: MLB's fitted two-sided run-model columns (kept local to avoid importing the
+#: backend module at harness import time; ``team_run_ratings`` owns the fit).
+RUN_RATING_COLS = [
+    "off_rating_diff", "off_rating_home", "off_rating_away",
+    "def_rating_diff", "def_rating_home", "def_rating_away",
+    "net_rating_diff",
+]
+RUN_SIDE_RATING_COLS = [
+    "off_rating_home", "off_rating_away",
+    "def_rating_home", "def_rating_away",
+]
 ARMS = ("A", "B", "C")
 EPS = 1e-7
 
@@ -220,10 +241,11 @@ def attach_team_rating(frame: pd.DataFrame, sport: str) -> pd.DataFrame:
                 errors="coerce")
             out[f"team_rating_{side}"] = off - defn
     elif sport == "mlb":
-        positions = ("c", "fb", "sb", "ss", "tb", "rf", "cf", "lf", "dh")
-        for side in ("home", "away"):
-            out[f"team_rating_{side}"] = _mean_columns(
-                out, [f"pl_{p}_xwoba_{side}" for p in positions])
+        # Fitted, not recombined: the run model refits on a causal grid and
+        # returns its own seven columns.  There is no ``team_rating_*`` for
+        # MLB; arm C is the run-model family alone.
+        from team_run_ratings import attach_run_ratings  # noqa: E402
+        return attach_run_ratings(out)
     else:
         raise SystemExit(f"no team-rating definition for {sport}")
 
@@ -243,15 +265,17 @@ def attach_team_rating(frame: pd.DataFrame, sport: str) -> pd.DataFrame:
     return out
 
 
-def register_trial_columns(mods) -> None:
+def register_trial_columns(mods, sport: str) -> None:
     """Make the trial rating legal for subset validation and member routing."""
     contract = mods.contract
     known = getattr(contract, "KNOWN_FEATURE_COLS")
-    for col in RATING_COLS:
+    columns = RUN_RATING_COLS if sport == "mlb" else RATING_COLS
+    for col in columns:
         if col not in known:
             known.append(col)
     raw = getattr(contract, "RAW_PER_SIDE_COLS")
-    side = {"team_rating_home", "team_rating_away"}
+    side = (set(RUN_SIDE_RATING_COLS) if sport == "mlb"
+            else {"team_rating_home", "team_rating_away"})
     if isinstance(raw, set):
         contract.RAW_PER_SIDE_COLS = frozenset(set(raw) | side)
     elif isinstance(raw, frozenset):
@@ -262,13 +286,14 @@ def register_trial_columns(mods) -> None:
                 raw.append(col)
 
 
-def arm_columns(mods) -> dict[str, list[str]]:
+def arm_columns(mods, sport: str) -> dict[str, list[str]]:
     active = list(mods.contract.active_moneyline_feature_cols())
     base = [c for c in active if c not in DROP]
+    extra = RUN_RATING_COLS if sport == "mlb" else RATING_COLS
     return {
         "A": active,
         "B": base,
-        "C": base + [c for c in RATING_COLS if c not in base],
+        "C": base + [c for c in extra if c not in base],
     }
 
 
@@ -384,7 +409,7 @@ def evaluate(sport: str, mods, frame: pd.DataFrame, out_dir: Path,
         if max_folds:
             folds = folds[:max_folds]
         print(f"{sport}: {len(frame)} games, {len(folds)} folds", flush=True)
-    arms = arm_columns(mods)
+    arms = arm_columns(mods, sport)
     print("arms: " + ", ".join(f"{k}={len(v)}" for k, v in arms.items()),
           flush=True)
 
@@ -462,7 +487,7 @@ def evaluate(sport: str, mods, frame: pd.DataFrame, out_dir: Path,
         "drop": sorted(DROP),
         "drop_present": sorted(DROP & set(arms["A"])),
         "drop_absent": sorted(DROP - set(arms["A"])),
-        "rating_columns": RATING_COLS,
+        "rating_columns": (RUN_RATING_COLS if sport == "mlb" else RATING_COLS),
         "arms": meta,
         "metrics": metrics.to_dict(orient="records"),
         "paired_deltas": deltas.to_dict(orient="records"),
@@ -504,7 +529,7 @@ def main(argv: list[str] | None = None) -> int:
                              index=False)
 
     frame = attach_team_rating(frame, args.sport)
-    register_trial_columns(mods)
+    register_trial_columns(mods, args.sport)
     evaluate(args.sport, mods, frame, out_dir, args.bootstrap, args.seed,
              max_folds=args.max_folds)
     return 0
