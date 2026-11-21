@@ -116,13 +116,19 @@ def notebook(cells):
 
 
 SPECS = {
-    "nhl": ("NHL moneyline A/B/C: Elo + win% vs team player rating",
-            "A incumbent, B removes the six Elo/win% names, C adds a "
-            "team rating from the eight served player evo/PP rate columns.",
+    "nhl": ("NHL moneyline A/B/C: Elo + win% vs on-ice-weighted team rating",
+            "A incumbent, B removes the six Elo/win% names, C adds a team "
+            "rating that weights the served xPM/60 cells by who is on the "
+            "ice (3F:2D even strength, 4F:1D power play, 88:12 ice share) "
+            "and adds goalie goals saved above the expanding league save "
+            "percentage. Replaces the equal eight-way mean.",
             "pandas numpy scipy sklearn xgboost lightgbm pyarrow requests tqdm"),
-    "nfl": ("NFL moneyline A/B/C: Elo + win% vs team player rating",
-            "A incumbent, B removes the six Elo/win% names, C adds a "
-            "team rating from player EPA minus defensive EPA allowed.",
+    "nfl": ("NFL moneyline A/B/C: Elo + win% vs summed DVOA team rating",
+            "A incumbent, B removes the six Elo/win% names, C sums the four "
+            "per-game DVOA legs (defence-adjusted) and subtracts defensive "
+            "EPA/play converted to EPA/game using the opponent's projected "
+            "plays. Replaces the four-way mean that mixed EPA/game with "
+            "EPA/play.",
             "pandas numpy scipy sklearn xgboost lightgbm pyarrow nflreadpy "
             "polars tqdm gitpython"),
     "mlb": ("MLB moneyline A/B/C: Elo + win% vs two-sided run model",
@@ -136,8 +142,8 @@ SPECS = {
 
 #: Kernel notebook filenames.  MLB moved to v3 with the two-sided run model;
 #: the other three keep their v2 kernels untouched.
-NOTEBOOKS = {"nhl": "kaggle_nhl_abc_v2.ipynb",
-             "nfl": "kaggle_nfl_abc_v2.ipynb",
+NOTEBOOKS = {"nhl": "kaggle_nhl_abc_v3.ipynb",
+             "nfl": "kaggle_nfl_abc_v3.ipynb",
              "mlb": "kaggle_mlb_abc_v3.ipynb"}
 
 

@@ -28,15 +28,15 @@ base.KERNELS = {
         "datasets": [],
     },
     "nhl": {
-        "slug": "nhl-moneyline-a-b-c-no-elo-v2",
-        "title": "NHL moneyline A/B/C no-Elo v2",
-        "notebook": ROOT / "kaggle_nhl_abc_v2.ipynb",
+        "slug": "nhl-moneyline-a-b-c-v3",
+        "title": "NHL moneyline A/B/C v3",
+        "notebook": ROOT / "kaggle_nhl_abc_v3.ipynb",
         "datasets": [],
     },
     "nfl": {
-        "slug": "nfl-moneyline-a-b-c-no-elo-v2",
-        "title": "NFL moneyline A/B/C no-Elo v2",
-        "notebook": ROOT / "kaggle_nfl_abc_v2.ipynb",
+        "slug": "nfl-moneyline-a-b-c-v3",
+        "title": "NFL moneyline A/B/C v3",
+        "notebook": ROOT / "kaggle_nfl_abc_v3.ipynb",
         "datasets": [],
     },
     "mlb": {
