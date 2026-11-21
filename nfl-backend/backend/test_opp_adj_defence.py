@@ -89,3 +89,14 @@ def test_both_directions_are_configured():
     assert config.PBP_OPP_ADJ_METRICS["epa_play"] == "def_epa_play"
     assert config.PBP_OPP_ADJ_METRICS["def_epa_play"] == "epa_play"
     assert "def_epa_play_opp_adj" in config.PBP_OPP_ADJ_TRAILING_SPECS
+
+
+def test_candidate_manifest_documents_the_defensive_mirror():
+    # manifest._build_candidate_manifest() runs at import and indexes a
+    # per-metric doc table; an undocumented metric aborts the pipeline at
+    # import, before Phase 1 (2026-11-21: def_epa_play_opp_adj).
+    import manifest
+    for col in ("pbp_def_epa_play_opp_adj_ewm_home",
+                "pbp_def_epa_play_opp_adj_ewm_away",
+                "pbp_def_epa_play_opp_adj_ewm_diff"):
+        assert col in manifest.CANDIDATE_MANIFEST, col
