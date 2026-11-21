@@ -1014,6 +1014,13 @@ def _apply_roster_observation(snapshot, observed, known, target, lg, k,
     satisfy the existing evidence floor for a projected rotation slot.
     """
     members = observed[["player_id", "team", "position", "positions"]].copy()
+    # Pandas 3 infers Arrow-backed strings for these columns; assigning a
+    # mapped label (or NaN) into an Arrow string column raises instead of
+    # widening it. The membership fields are free-form labels, not a fixed
+    # categorical vocabulary, so keep them object-backed across the merge.
+    for col in ("position", "positions"):
+        if col in members:
+            members[col] = members[col].astype(object)
     # Membership can be known while position is unpublished. Retain a
     # strictly-prior label if one exists; never guess a newcomer's segment.
     previous = snapshot.set_index("player_id")
