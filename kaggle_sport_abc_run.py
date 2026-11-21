@@ -27,6 +27,12 @@ base.KERNELS = {
         "notebook": ROOT / "kaggle_nba_retune_v36.ipynb",
         "datasets": [],
     },
+    "nba": {
+        "slug": "nba-moneyline-a-b-c-point-rating-v1",
+        "title": "NBA moneyline A/B/C point rating v1",
+        "notebook": ROOT / "kaggle_nba_abc_point_v1.ipynb",
+        "datasets": [],
+    },
     "nhl": {
         "slug": "nhl-moneyline-a-b-c-v3",
         "title": "NHL moneyline A/B/C v3",

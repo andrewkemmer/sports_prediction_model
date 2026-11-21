@@ -75,6 +75,22 @@ RUN_SIDE_RATING_COLS = [
     "off_rating_home", "off_rating_away",
     "def_rating_home", "def_rating_away",
 ]
+#: Sports whose arm C is a *fitted* two-sided rating rather than arithmetic on
+#: served columns.  Both export the same seven names.
+FITTED_SPORTS = ("nba", "mlb")
+FITTED_RATING_COLS = RUN_RATING_COLS
+FITTED_SIDE_RATING_COLS = RUN_SIDE_RATING_COLS
+#: NBA's incumbent strength block: the pace-scaled DARKO offence/defence
+#: blends, the pre-computed matchup net and the expected-points sum.  B drops
+#: all eleven; C puts a fitted, schedule-adjusted replacement back.  The
+#: availability family (``star_out_*``) stays in both arms so the comparison
+#: isolates strength.
+NBA_STRENGTH_COLS = [
+    "pl_o_dpm_home", "pl_o_dpm_away", "pl_o_dpm_diff",
+    "pl_d_dpm_home", "pl_d_dpm_away", "pl_d_dpm_diff",
+    "pl_net_o_home", "pl_net_o_away",
+    "pl_o_pts_home", "pl_o_pts_away", "pl_o_pts_diff",
+]
 ARMS = ("A", "B", "C")
 EPS = 1e-7
 
@@ -304,25 +320,10 @@ def attach_team_rating(frame: pd.DataFrame, sport: str) -> pd.DataFrame:
     """Attach the trial team rating triple without touching a contract."""
     out = frame.copy()
     if sport == "nba":
-        if all(c in out.columns for c in
-               ("team_darko_home", "team_darko_away", "team_darko_diff")):
-            for src, dst in zip(
-                    ("team_darko_home", "team_darko_away", "team_darko_diff"),
-                    RATING_COLS[1:] + RATING_COLS[:1]):
-                out[dst] = pd.to_numeric(out[src], errors="coerce")
-        else:
-            pace = pd.to_numeric(
-                out.get("projected_game_pace_total", np.nan),
-                errors="coerce") / 100.0
-            for side in ("home", "away"):
-                off = pd.to_numeric(out.get(f"pl_o_dpm_{side}", np.nan),
-                                    errors="coerce")
-                dfn = pd.to_numeric(out.get(f"pl_d_dpm_{side}", np.nan),
-                                    errors="coerce")
-                total = off + dfn
-                out[f"team_rating_{side}"] = np.where(
-                    np.isfinite(pace) & (pace > 0) & np.isfinite(total),
-                    5.0 * total / pace, np.nan)
+        # Fitted, not recombined: the point model refits on a causal grid from
+        # points per 100 possessions and returns its own seven columns.
+        from team_point_ratings import attach_point_ratings  # noqa: E402
+        return attach_point_ratings(out)
     elif sport == "nhl":
         _nhl_team_rating(out)
     elif sport == "nfl":
@@ -356,12 +357,13 @@ def register_trial_columns(mods, sport: str) -> None:
     """Make the trial rating legal for subset validation and member routing."""
     contract = mods.contract
     known = getattr(contract, "KNOWN_FEATURE_COLS")
-    columns = RUN_RATING_COLS if sport == "mlb" else RATING_COLS
+    fitted = sport in FITTED_SPORTS
+    columns = FITTED_RATING_COLS if fitted else RATING_COLS
     for col in columns:
         if col not in known:
             known.append(col)
     raw = getattr(contract, "RAW_PER_SIDE_COLS")
-    side = (set(RUN_SIDE_RATING_COLS) if sport == "mlb"
+    side = (set(FITTED_SIDE_RATING_COLS) if fitted
             else {"team_rating_home", "team_rating_away"})
     if isinstance(raw, set):
         contract.RAW_PER_SIDE_COLS = frozenset(set(raw) | side)
@@ -375,8 +377,14 @@ def register_trial_columns(mods, sport: str) -> None:
 
 def arm_columns(mods, sport: str) -> dict[str, list[str]]:
     active = list(mods.contract.active_moneyline_feature_cols())
+    if sport == "nba":
+        # NBA already retired Elo/win%, so B removes the strength block and C
+        # puts a fitted, schedule-adjusted replacement back.
+        base = [c for c in active if c not in NBA_STRENGTH_COLS]
+        return {"A": active, "B": base,
+                "C": base + [c for c in FITTED_RATING_COLS if c not in base]}
     base = [c for c in active if c not in DROP]
-    extra = RUN_RATING_COLS if sport == "mlb" else RATING_COLS
+    extra = FITTED_RATING_COLS if sport in FITTED_SPORTS else RATING_COLS
     return {
         "A": active,
         "B": base,
@@ -574,7 +582,8 @@ def evaluate(sport: str, mods, frame: pd.DataFrame, out_dir: Path,
         "drop": sorted(DROP),
         "drop_present": sorted(DROP & set(arms["A"])),
         "drop_absent": sorted(DROP - set(arms["A"])),
-        "rating_columns": (RUN_RATING_COLS if sport == "mlb" else RATING_COLS),
+        "rating_columns": (FITTED_RATING_COLS if sport in FITTED_SPORTS
+                           else RATING_COLS),
         "arms": meta,
         "metrics": metrics.to_dict(orient="records"),
         "paired_deltas": deltas.to_dict(orient="records"),

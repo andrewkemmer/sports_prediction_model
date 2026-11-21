@@ -116,6 +116,16 @@ def notebook(cells):
 
 
 SPECS = {
+    "nba": ("NBA moneyline A/B/C: DARKO strength block vs fitted point rating",
+            "A incumbent 92 columns. B removes the eleven-column strength "
+            "block (pace-scaled DARKO offence/defence blends, expected "
+            "points, the pre-computed matchup net). C adds the seven "
+            "columns from a causal ridge of points per 100 possessions on "
+            "team-game rows: off/def rating home/away/diff plus "
+            "net_rating_diff. Availability (star_out_*) stays in both arms "
+            "so the comparison isolates strength.",
+            "pandas numpy scipy sklearn xgboost lightgbm pyarrow "
+            "pdfplumber tqdm gitpython openpyxl requests"),
     "nhl": ("NHL moneyline A/B/C: Elo + win% vs on-ice-weighted team rating",
             "A incumbent, B removes the six Elo/win% names, C adds a team "
             "rating that weights the served xPM/60 cells by who is on the "
@@ -142,7 +152,8 @@ SPECS = {
 
 #: Kernel notebook filenames.  MLB moved to v3 with the two-sided run model;
 #: the other three keep their v2 kernels untouched.
-NOTEBOOKS = {"nhl": "kaggle_nhl_abc_v3.ipynb",
+NOTEBOOKS = {"nba": "kaggle_nba_abc_point_v1.ipynb",
+             "nhl": "kaggle_nhl_abc_v3.ipynb",
              "nfl": "kaggle_nfl_abc_v3.ipynb",
              "mlb": "kaggle_mlb_abc_v3.ipynb"}
 
