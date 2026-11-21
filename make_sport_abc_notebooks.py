@@ -88,7 +88,8 @@ print((OUT / "metrics.json").read_text()[:30000])
          "outputs": [], "source": [CLONE]},
         {"cell_type": "code", "execution_count": None, "metadata": {},
          "outputs": [], "source": [install(
-             "pandas numpy scipy sklearn xgboost lightgbm pyarrow pdfplumber tqdm")]},
+             "pandas numpy scipy sklearn xgboost lightgbm pyarrow "
+             "pdfplumber tqdm gitpython openpyxl")]},
         {"cell_type": "code", "execution_count": None, "metadata": {},
          "outputs": [], "source": [run]},
     ]
@@ -115,7 +116,8 @@ SPECS = {
     "nfl": ("NFL moneyline A/B/C: Elo + win% vs team player rating",
             "A incumbent, B removes the six Elo/win% names, C adds a "
             "team rating from player EPA minus defensive EPA allowed.",
-            "pandas numpy scipy sklearn xgboost lightgbm pyarrow nflreadpy tqdm gitpython"),
+            "pandas numpy scipy sklearn xgboost lightgbm pyarrow nflreadpy "
+            "polars tqdm gitpython"),
     "mlb": ("MLB moneyline A/B/C: Elo + win% vs team lineup rating",
             "A incumbent, B removes the Elo/win% names present in the "
             "adopted serving contract, C adds mean position-pool xwOBA.",
