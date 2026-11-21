@@ -106,6 +106,10 @@ def _calibration_record() -> dict:
         "n_eval": int(sum(counts)),
         "league_total": 4,
         "trained_at": "2026-08-31T01:00:00.000000Z",
+        # Provenance pin: the header must name the model/contract that
+        # produced the KPIs, not just the artifact date.
+        "version": "v2099.12.31",
+        "feature_schema_version": "mlb-v5-test",
         "metrics": {"auc": 0.6911, "brier": 0.2113, "logloss": 0.6329,
                     "ece": 0.0349, "brier_calibrated": 0.2040,
                     "logloss_calibrated": 0.6333, "ece_calibrated": 0.0290},
@@ -675,7 +679,9 @@ def run() -> int:
         #     legitimately 0-0 with 'No upsets today' — the lifetime OOF
         #     pool must never masquerade as today's results.
         for key, needle in [("header", "Model Calibration Dashboard"),
-                            ("record", "Today's Record:")]:
+                            ("record", "Today's Record:"),
+                            ("model-version", "Model v2099.12.31"),
+                            ("feature-schema", "feature schema mlb-v5-test")]:
             if needle not in text:
                 problems.append(f"missing [{key}] = {needle!r}")
         if "✓ 0-0" not in text:

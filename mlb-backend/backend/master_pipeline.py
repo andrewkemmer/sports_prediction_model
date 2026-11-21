@@ -579,6 +579,7 @@ from config import (
     DATA_DELIVERY_DIR,
     DATE_FMT,
     DATE_READABLE_FMT,
+    FEATURE_SCHEMA_VERSION,
     MIN_VAL_FOLD_GAMES,
     MODEL_MONITOR,
     NEXT_RUN_HEURISTIC_DAYS,
@@ -1386,6 +1387,7 @@ def _calibration_json(
     n_games: int,
     oof: Optional[pd.DataFrame] = None,
     evening_games: Optional[int] = None,
+    version: Optional[str] = None,
 ) -> Path:
     """Write calibration_YYYYMMDD.json artifact.
 
@@ -1462,6 +1464,12 @@ def _calibration_json(
         # metrics "n = 4 games" (2026-10-07 dashboard/pooled-run review).
         "n_games": int(len(y_true)),
         "trained_at": datetime.now().strftime("%Y-%m-%d %H:%M"),
+        # Provenance: the dashboard can prove which run/contract produced
+        # these pooled metrics. Without it a fresh artifact that happens to
+        # land on the same rounded AUC/logloss is indistinguishable from a
+        # stale one (the failure mode investigated 2026-11-21).
+        "version": version,
+        "feature_schema_version": FEATURE_SCHEMA_VERSION,
         "metrics": metrics,
         "calibration_buckets": buckets,
         "n_eval": int(len(y_true)),
@@ -2794,6 +2802,7 @@ def run_daily_pipeline(
                 pooled_metrics, cal_yt, cal_yp, target_date_str, len(target_games),
                 oof=all_predictions,
                 evening_games=_count_evening_games(target_games),
+                version=version,
             )
             summary["artifacts"].append(str(path))
             hist_path = _predictions_history_csv(all_predictions, target_date_str)

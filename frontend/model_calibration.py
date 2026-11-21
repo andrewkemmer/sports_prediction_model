@@ -55,6 +55,17 @@ kpis = cal.get("kpis", {})
 curve = cal.get("calibration_curve", [])
 record = cal.get("today_record", {})
 upsets = cal.get("upsets", [])
+# Provenance lets a reader tell a fresh run from a stale snapshot even when
+# the rounded AUC/log-loss happen to be unchanged (2026-11-21 investigation:
+# the adopted run model moved predictions but not the 4-decimal KPIs).
+_model_version = cal.get("version") or cal.get("model_version")
+_feature_schema = cal.get("feature_schema_version")
+_provenance = " · ".join(
+    part for part in (
+        f"Model {_model_version}" if _model_version else "",
+        f"feature schema {_feature_schema}" if _feature_schema else "",
+    ) if part
+)
 
 
 def _trained_label(raw: str) -> str:
@@ -77,6 +88,7 @@ st.markdown(
                 border:1px solid #1E293B;border-radius:999px;padding:3px 12px;font-size:0.85rem;">
       As of {utils.format_date_long(artifact_date)} · n = {n_games:,} games · Trained {_trained_label(cal.get('trained_at', ''))}
     </div>
+    {f'<div style="color:#64748B;font-size:0.82rem;margin-top:2px;">{_provenance}</div>' if _provenance else ''}
     {f'<div style="color:#64748B;font-size:0.82rem;margin-top:2px;">ℹ No artifact for {utils.format_date_long(date_str)} — showing latest snapshot ({utils.format_date_long(artifact_date)})</div>' if artifact_date != date_str else ''}
     <div style="color:#94A3B8;font-size:0.9rem;margin-top:4px;">
       Assessing prediction reliability and accuracy across probability buckets
