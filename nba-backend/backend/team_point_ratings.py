@@ -56,8 +56,16 @@ SIDE_POINT_RATING_COLS = [
     "def_rating_home", "def_rating_away",
 ]
 
-CONTEXT = ("rest_days", "back_to_back", "is_playoffs")
+CONTEXT = ("rest_days", "back_to_back")
+#: Columns served once per GAME rather than once per side.
+GAME_LEVEL = ("is_playoffs",)
 AVAILABILITY = ("star_out_impact", "star_out_weight_share")
+
+
+def _context(games: pd.DataFrame, name: str, side: str) -> pd.Series:
+    """Read a context column, honouring the per-side vs per-game split."""
+    column = name if name in GAME_LEVEL else f"{name}_{side}"
+    return _num(games, column)
 
 
 def _num(frame: pd.DataFrame, column: str) -> pd.Series:
@@ -108,16 +116,14 @@ def build_side_rows(games: pd.DataFrame) -> pd.DataFrame:
             # Points per 100 possessions, the unit the market prices.
             "rating": 100.0 * points.to_numpy(float) / possessions.to_numpy(float),
         })
-        for name in CONTEXT:
-            part[name] = _num(g, f"{name}_{side}").to_numpy()
-        for name in AVAILABILITY:
-            part[name] = _num(g, f"{name}_{side}").to_numpy()
+        for name in CONTEXT + GAME_LEVEL + AVAILABILITY:
+            part[name] = _context(g, name, side).to_numpy()
         parts.append(part)
     return pd.concat(parts, ignore_index=True)
 
 
 def _numeric_columns(rows: pd.DataFrame) -> list[str]:
-    cols = ["is_home"] + list(CONTEXT) + list(AVAILABILITY)
+    cols = ["is_home"] + list(CONTEXT) + list(GAME_LEVEL) + list(AVAILABILITY)
     return [c for c in cols if c in rows.columns]
 
 

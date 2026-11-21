@@ -18,13 +18,11 @@ C ratings
 ---------
 NBA  ``5 * (pl_o_dpm + pl_d_dpm) / (projected_game_pace_total / 100)``,
      i.e. the existing team-DARKO formula.
-NHL  on-ice-weighted skater xPM/60 plus goalie goals saved above average.
-     Each ``pl_evo_*`` cell is already the TOI-weighted mean of that
-     position's healthy pool, so the only remaining choice is how to weight
-     the cells against each other.  The old C averaged all eight equally,
-     which handed the power play 50% of the weight and defence 25%; this
-     weights them by who is actually on the ice (3F:2D at even strength,
-     4F:1D on the power play) and by the situations' share of ice time.
+NHL  seven fitted columns from a causal ridge of goals per 60 on side rows
+     with team offence/defence one-hots.  The earlier NHL C was a weighted
+     mean of the eight served xPM cells plus a goalie term -- a recombination
+     of columns B already carries, which measured flat (0.00009).  The fit
+     replaces it with an explicit opponent-adjusted team effect.
 NFL  SUM of the four per-game DVOA legs (defence-adjusted) minus the
      defence's EPA/play converted to EPA/game.  The old C averaged the
      legs, which divided the quarterback's contribution by four, and
@@ -77,7 +75,7 @@ RUN_SIDE_RATING_COLS = [
 ]
 #: Sports whose arm C is a *fitted* two-sided rating rather than arithmetic on
 #: served columns.  Both export the same seven names.
-FITTED_SPORTS = ("nba", "mlb")
+FITTED_SPORTS = ("nba", "nhl", "mlb")
 FITTED_RATING_COLS = RUN_RATING_COLS
 FITTED_SIDE_RATING_COLS = RUN_SIDE_RATING_COLS
 #: NBA's incumbent strength block: the pace-scaled DARKO offence/defence
@@ -216,29 +214,10 @@ def build_frame(mods, sport: str) -> pd.DataFrame:
     return frame
 
 
-def _mean_columns(frame: pd.DataFrame, columns: list[str]) -> pd.Series:
-    available = [c for c in columns if c in frame.columns]
-    if not available:
-        return pd.Series(np.nan, index=frame.index, dtype=float)
-    parts = [pd.to_numeric(frame[c], errors="coerce") for c in available]
-    return pd.concat(parts, axis=1).mean(axis=1, skipna=True)
-
-
 #: NFL skill groups whose per-game DVOA legs sum to the offence's total.
 NFL_DVOA_POSITIONS = ("qb", "wr", "te", "rb")
 #: Fallback team plays/game when ``pace_plays_min`` is unusable.
 NFL_FALLBACK_PLAYS = 62.0
-#: NHL on-ice composition and situation mix.  A regulation game is ~45 even
-#: strength minutes and ~6 power-play minutes, so EV:PP is 88:12 of the ice
-#: the two served situations cover.
-NHL_EV_SHARE = 0.88
-NHL_PP_SHARE = 0.12
-NHL_EV_FORWARDS, NHL_EV_DEFENCE = 3.0 / 5.0, 2.0 / 5.0
-NHL_PP_FORWARDS, NHL_PP_DEFENCE = 4.0 / 5.0, 1.0 / 5.0
-#: Fallback league save percentage before the expanding mean has any history.
-NHL_FALLBACK_SV = 0.900
-
-
 def _plays_per_game(frame: pd.DataFrame, side: str) -> pd.Series:
     """Team plays per game, reconstructed from the served pace rate.
 
@@ -284,47 +263,6 @@ def _nfl_team_rating(out: pd.DataFrame) -> None:
           flush=True)
 
 
-def _expanding_league_sv(frame: pd.DataFrame) -> pd.Series:
-    """League save percentage from strictly earlier dates, never this one."""
-    parts = [pd.to_numeric(frame.get(c), errors="coerce")
-             for c in ("goalie_sv_pct_home", "goalie_sv_pct_away")]
-    parts = [p for p in parts if p is not None]
-    if not parts or "gameday" not in frame.columns:
-        return pd.Series(NHL_FALLBACK_SV, index=frame.index, dtype=float)
-    values = pd.concat(parts, axis=1).mean(axis=1)
-    daily = values.groupby(pd.to_datetime(frame["gameday"],
-                                          errors="coerce")).mean()
-    prior = daily.sort_index().shift(1).expanding().mean()
-    mapped = pd.to_datetime(frame["gameday"], errors="coerce").map(prior)
-    return pd.to_numeric(mapped, errors="coerce").fillna(NHL_FALLBACK_SV)
-
-
-def _nhl_team_rating(out: pd.DataFrame) -> None:
-    """On-ice-weighted skater xPM/60 plus goalie goals saved above average."""
-    league_sv = _expanding_league_sv(out)
-    for side in ("home", "away"):
-        def cell(name: str) -> pd.Series:
-            return pd.to_numeric(out.get(f"{name}_{side}"), errors="coerce")
-
-        ev_f = _mean_columns(out, [f"pl_evo_{p}_{side}"
-                                   for p in ("c", "l", "r")])
-        ev_d = cell("pl_evo_d")
-        pp_f = _mean_columns(out, [f"pl_ppo_{p}_{side}"
-                                   for p in ("c", "l", "r")])
-        pp_d = cell("pl_ppo_d")
-        # Five skaters are on the ice in both situations, so the weighted
-        # mean of their rates x5 is the team's goals above replacement per
-        # 60 team-minutes, i.e. per regulation game.
-        even = 5.0 * (NHL_EV_FORWARDS * ev_f + NHL_EV_DEFENCE * ev_d)
-        power = 5.0 * (NHL_PP_FORWARDS * pp_f + NHL_PP_DEFENCE * pp_d)
-        skater = NHL_EV_SHARE * even + NHL_PP_SHARE * power
-        shot_volume = cell("shots_against_per_game")
-        goalie = (cell("goalie_sv_pct") - league_sv) * shot_volume
-        out[f"team_rating_{side}"] = skater + goalie
-    print("NHL rating: 3F:2D even / 4F:1D power play, plus goalie GSAx/game",
-          flush=True)
-
-
 def attach_team_rating(frame: pd.DataFrame, sport: str) -> pd.DataFrame:
     """Attach the trial team rating triple without touching a contract."""
     out = frame.copy()
@@ -334,7 +272,10 @@ def attach_team_rating(frame: pd.DataFrame, sport: str) -> pd.DataFrame:
         from team_point_ratings import attach_point_ratings  # noqa: E402
         return attach_point_ratings(out)
     elif sport == "nhl":
-        _nhl_team_rating(out)
+        # Fitted, not recombined: the goal model refits on a causal grid from
+        # goals per 60 and returns its own seven columns.
+        from team_goal_ratings import attach_goal_ratings  # noqa: E402
+        return attach_goal_ratings(out)
     elif sport == "nfl":
         _nfl_team_rating(out)
     elif sport == "mlb":

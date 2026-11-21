@@ -34,9 +34,9 @@ base.KERNELS = {
         "datasets": [],
     },
     "nhl": {
-        "slug": "nhl-moneyline-a-b-c-v3",
-        "title": "NHL moneyline A/B/C v3",
-        "notebook": ROOT / "kaggle_nhl_abc_v3.ipynb",
+        "slug": "nhl-moneyline-a-b-c-goal-rating-v1",
+        "title": "NHL moneyline A/B/C goal rating v1",
+        "notebook": ROOT / "kaggle_nhl_abc_goal_v1.ipynb",
         "datasets": [],
     },
     "nfl": {

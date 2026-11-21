@@ -30,17 +30,6 @@ def _nfl_frame(**over) -> pd.DataFrame:
     return _frame(**cols)
 
 
-def _nhl_frame(**over) -> pd.DataFrame:
-    cols = {f"pl_{sit}_{p}_{side}": 0.0
-            for sit in ("evo", "ppo") for p in ("c", "l", "r", "d")
-            for side in ("home", "away")}
-    cols.update({"goalie_sv_pct_home": 0.900, "goalie_sv_pct_away": 0.900,
-                 "shots_against_per_game_home": 0.0,
-                 "shots_against_per_game_away": 0.0})
-    cols.update(over)
-    return _frame(**cols)
-
-
 # ---------------------------------------------------------------- NFL
 
 def test_nfl_sums_the_four_dvoa_legs():
@@ -94,50 +83,3 @@ def test_nfl_rating_diff_is_home_minus_away():
                        out["team_rating_home"] - out["team_rating_away"])
 
 
-# ---------------------------------------------------------------- NHL
-
-def test_nhl_uniform_rates_give_five_skaters_worth():
-    cols = {f"pl_{sit}_{p}_{side}": 1.0
-            for sit in ("evo", "ppo") for p in ("c", "l", "r", "d")
-            for side in ("home", "away")}
-    out = sa.attach_team_rating(_nhl_frame(**cols), "nhl")
-    # Five skaters on the ice, all at 1.0 xPM/60, no goalie edge.
-    assert np.isclose(out["team_rating_home"].iloc[0], 5.0)
-
-
-def test_nhl_power_play_does_not_get_half_the_weight():
-    over = {**{f"pl_evo_{p}_home": 0.0 for p in ("c", "l", "r", "d")},
-            **{f"pl_ppo_{p}_home": 1.0 for p in ("c", "l", "r", "d")}}
-    out = sa.attach_team_rating(_nhl_frame(**over), "nhl")
-    got = out["team_rating_home"].iloc[0]
-    assert np.isclose(got, 0.12 * 5.0)
-    assert not np.isclose(got, 0.5)  # what the equal-weight mean produced
-
-
-def test_nhl_defence_is_two_fifths_of_even_strength():
-    over = {f"pl_evo_{p}_home": 0.0 for p in ("c", "l", "r")}
-    over["pl_evo_d_home"] = 1.0
-    out = sa.attach_team_rating(_nhl_frame(**over), "nhl")
-    # 5 skaters x (2/5 defence weight) x 1.0, at 88% of the ice.
-    assert np.isclose(out["team_rating_home"].iloc[0], 0.88 * 5.0 * 0.4)
-
-
-def test_nhl_goalie_goals_saved_above_league():
-    over = {"goalie_sv_pct_home": [0.900, 0.930],
-            "goalie_sv_pct_away": [0.900, 0.930],
-            "shots_against_per_game_home": 30.0}
-    out = sa.attach_team_rating(_nhl_frame(**over), "nhl")
-    # First date has no prior league history, so it falls back to 0.900.
-    assert np.isclose(out["team_rating_home"].iloc[0], 0.0)
-    # Second date's league mean is the first date's 0.900.
-    assert np.isclose(out["team_rating_home"].iloc[1], 0.03 * 30.0)
-
-
-def test_nhl_availability_flows_through_the_served_starter():
-    """The goalie term must move when the expected starter changes."""
-    over = {"goalie_sv_pct_home": [0.900, 0.930],
-            "goalie_sv_pct_away": [0.900, 0.880],
-            "shots_against_per_game_home": 30.0,
-            "shots_against_per_game_away": 30.0}
-    out = sa.attach_team_rating(_nhl_frame(**over), "nhl")
-    assert out["team_rating_home"].iloc[1] > out["team_rating_away"].iloc[1]

@@ -126,12 +126,14 @@ SPECS = {
             "so the comparison isolates strength.",
             "pandas numpy scipy sklearn xgboost lightgbm pyarrow "
             "pdfplumber tqdm gitpython openpyxl requests"),
-    "nhl": ("NHL moneyline A/B/C: Elo + win% vs on-ice-weighted team rating",
-            "A incumbent, B removes the six Elo/win% names, C adds a team "
-            "rating that weights the served xPM/60 cells by who is on the "
-            "ice (3F:2D even strength, 4F:1D power play, 88:12 ice share) "
-            "and adds goalie goals saved above the expanding league save "
-            "percentage. Replaces the equal eight-way mean.",
+    "nhl": ("NHL moneyline A/B/C: Elo + win% vs fitted goal rating",
+            "A incumbent, B removes the six Elo/win% names, C adds the seven "
+            "columns from a causal ridge of goals per 60 minutes of team "
+            "ice time on side rows, with a team-offence and a team-defence "
+            "one-hot on the same row so each effect is estimated net of the "
+            "opponents faced: off/def rating home/away/diff plus "
+            "net_rating_diff. Replaces the recombination of xPM cells that "
+            "arm B already serves.",
             "pandas numpy scipy sklearn xgboost lightgbm pyarrow requests tqdm"),
     "nfl": ("NFL moneyline A/B/C: Elo + win% vs summed DVOA team rating",
             "A incumbent, B removes the six Elo/win% names, C sums the four "
@@ -150,10 +152,10 @@ SPECS = {
 }
 
 
-#: Kernel notebook filenames.  MLB moved to v3 with the two-sided run model;
-#: the other three keep their v2 kernels untouched.
+#: Kernel notebook filenames.  Each sport gets a fresh kernel when its C arm
+#: changes shape, so an old result is never overwritten by a new model.
 NOTEBOOKS = {"nba": "kaggle_nba_abc_point_v1.ipynb",
-             "nhl": "kaggle_nhl_abc_v3.ipynb",
+             "nhl": "kaggle_nhl_abc_goal_v1.ipynb",
              "nfl": "kaggle_nfl_abc_v3.ipynb",
              "mlb": "kaggle_mlb_abc_v3.ipynb"}
 
