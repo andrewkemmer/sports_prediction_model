@@ -45,6 +45,12 @@ base.KERNELS = {
         "notebook": ROOT / "kaggle_nfl_abc_v3.ipynb",
         "datasets": [],
     },
+    "mlb_c_opt": {
+        "slug": "mlb-c-arm-optimisation-v1",
+        "title": "MLB C arm optimisation v1",
+        "notebook": ROOT / "kaggle_mlb_c_optimise_v1.ipynb",
+        "datasets": [],
+    },
     "mlb": {
         "slug": "mlb-moneyline-a-b-c-run-model-v3",
         "title": "MLB moneyline A/B/C run model v3",
@@ -60,7 +66,7 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("action", nargs="?", default="all",
                     choices=("all", "push", "watch", "collect", "status"))
     ap.add_argument("--sports", nargs="*", default=list(SPORTS),
-                    choices=SPORTS)
+                    choices=tuple(KERNELS))
     ap.add_argument("--poll-seconds", type=float, default=600.0)
     ap.add_argument("--max-wait-minutes", type=float, default=720.0)
     ap.add_argument("--force", action="store_true")

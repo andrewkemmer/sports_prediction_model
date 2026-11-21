@@ -125,3 +125,63 @@ def test_empty_frame_raises():
     with pytest.raises(ValueError):
         trr.attach_run_ratings(pd.DataFrame({"gameday": [], "home_team": [],
                                              "away_team": []}))
+
+
+# ---------------------------------------------------------------------------
+# The opt-in knobs used by the optimisation study.  Their defaults must stay
+# exactly the shipped configuration, or the study would be measuring a
+# different model from the one in the A/B/C harness.
+
+
+def test_design_blocks_shrink_the_numeric_block():
+    rows = trr.build_side_rows(_frame(per_season=8))
+    full = trr._numeric_columns(rows, trr.DESIGN_BLOCKS, False)
+    bare = trr._numeric_columns(rows, (), False)
+    context = trr._numeric_columns(rows, ("context",), False)
+    assert bare == ["is_home"]
+    assert len(context) > len(bare)
+    assert len(full) > len(context)
+
+
+def test_own_starter_block_is_opt_in():
+    frame = _frame(per_season=8)
+    for name in trr.OWN_STARTER_COMPONENTS:
+        frame[f"{name}_home"] = 4.0
+        frame[f"{name}_away"] = 4.5
+    rows = trr.build_side_rows(frame)
+    off = trr._numeric_columns(rows, trr.DESIGN_BLOCKS, False)
+    on = trr._numeric_columns(rows, trr.DESIGN_BLOCKS, True)
+    assert set(on) - set(off) == {f"own_{n}" for n in trr.OWN_STARTER_COMPONENTS}
+    # The home side row must carry the HOME starter, not the visitor's.
+    home = rows[rows["pos"] == 0].iloc[0]
+    assert np.isclose(home["own_sp_xfip_5g"], 4.0)
+
+
+def test_poisson_likelihood_runs_the_whole_panel():
+    frame = _frame(per_season=150)
+    panel = trr.build_causal_panel(frame, refit_days=7, min_train_games=40,
+                                   likelihood="poisson")
+    assert panel["net_rating_diff"].notna().mean() > 0.5
+    assert np.isfinite(panel["net_rating_diff"].dropna()).all()
+
+
+def test_unknown_likelihood_is_rejected():
+    rows = trr.build_side_rows(_frame(per_season=8))
+    teams = sorted(set(rows["team"]))
+    anchor = pd.Timestamp(rows["gameday"].quantile(0.7))
+    train = rows[rows["gameday"] < anchor]
+    with pytest.raises(ValueError, match="likelihood"):
+        trr._fit_once(train, teams, anchor, 50.0, 120.0, likelihood="tweedie")
+
+
+def test_defaults_are_the_shipped_configuration():
+    frame = _frame(per_season=150)
+    default = trr.build_causal_panel(frame, refit_days=7, min_train_games=40)
+    explicit = trr.build_causal_panel(
+        frame, refit_days=7, min_train_games=40,
+        alpha=trr.ALPHA, half_life_days=trr.HALF_LIFE_DAYS,
+        blocks=trr.DESIGN_BLOCKS, likelihood=trr.LIKELIHOOD,
+        own_starter=trr.OWN_STARTER)
+    for column in trr.RUN_RATING_COLS:
+        assert np.allclose(default[column].to_numpy(), explicit[column].to_numpy(),
+                           equal_nan=True), column

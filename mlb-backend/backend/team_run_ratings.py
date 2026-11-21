@@ -85,6 +85,26 @@ CONTEXT = (
     "wind_advantage_flyball_factor",
     "air_density_velocity_boost",
 )
+#: The team's OWN starting pitcher.  Not in the design by default, so the
+#: shipped ``def_rating`` is total run prevention (rotation included).  Turned
+#: on, the coefficient becomes defence net of the starter on the mound, which
+#: is the version that composes with the model's own starter columns instead
+#: of double-counting them.
+OWN_STARTER_COMPONENTS = (
+    "sp_xfip_5g",
+    "sp_k9_5g",
+    "sp_xwoba",
+    "sp_fbvelo_3g",
+    "sp_whiff_3g",
+)
+#: Which nuisance blocks sit beside the team one-hots.  The default is every
+#: block, i.e. the configuration that has been through the A/B/C harness.
+DESIGN_BLOCKS = ("components", "context", "prior")
+#: Residual family.  ``poisson`` is the correctly-specified one for run
+#: counts; ``gaussian`` is what shipped.
+LIKELIHOOD = "gaussian"
+#: Whether the own-starter block is part of the default design (it is not).
+OWN_STARTER = False
 
 RUN_RATING_COLS = [
     "off_rating_diff", "off_rating_home", "off_rating_away",
@@ -158,6 +178,9 @@ def build_side_rows(games: pd.DataFrame) -> pd.DataFrame:
         ).mean(axis=1, skipna=True).to_numpy()
         for name in OPP_COMPONENTS:
             part[f"opp_{name}"] = _num(g, f"{name}_{other}").to_numpy()
+        for name in OWN_STARTER_COMPONENTS:
+            # The base names already carry the ``sp_`` prefix.
+            part[f"own_{name}"] = _num(g, f"{name}_{side}").to_numpy()
         for name in CONTEXT:
             part[name] = _num(g, name).to_numpy()
         if not prior.empty:
@@ -176,15 +199,23 @@ def build_side_rows(games: pd.DataFrame) -> pd.DataFrame:
     return rows
 
 
-def _numeric_columns(rows: pd.DataFrame) -> list[str]:
+def _numeric_columns(rows: pd.DataFrame, blocks=DESIGN_BLOCKS,
+                     own_starter: bool = OWN_STARTER) -> list[str]:
+    blocks = tuple(blocks)
     cols: list[str] = []
-    for name in OFF_COMPONENTS:
-        cols.append(f"off_{name}")
-    cols.append("off_pool_xwoba")
-    for name in OPP_COMPONENTS:
-        cols.append(f"opp_{name}")
-    cols.extend(CONTEXT)
-    cols.extend(["is_home", "own_p_rs", "own_p_ra", "opp_p_rs", "opp_p_ra"])
+    if "components" in blocks:
+        for name in OFF_COMPONENTS:
+            cols.append(f"off_{name}")
+        cols.append("off_pool_xwoba")
+        for name in OPP_COMPONENTS:
+            cols.append(f"opp_{name}")
+    if "context" in blocks:
+        cols.extend(CONTEXT)
+    if "prior" in blocks:
+        cols.extend(["own_p_rs", "own_p_ra", "opp_p_rs", "opp_p_ra"])
+    if own_starter:
+        cols.extend([f"own_{n}" for n in OWN_STARTER_COMPONENTS])
+    cols.append("is_home")
     return [c for c in cols if c in rows.columns]
 
 
@@ -199,11 +230,13 @@ def _design(rows: pd.DataFrame, teams: list[str],
 
 
 def _fit_once(train: pd.DataFrame, teams: list[str], anchor: pd.Timestamp,
-              alpha: float, half_life_days: float) -> dict[str, float]:
+              alpha: float, half_life_days: float,
+              blocks=DESIGN_BLOCKS, likelihood: str = LIKELIHOOD,
+              own_starter: bool = False) -> dict[str, float]:
     """One weighted fit.  Refuses to look at or past ``anchor``."""
     if (train["gameday"] >= anchor).any():
         raise ValueError("team_run_ratings: training row on or after the anchor")
-    numeric = _numeric_columns(train)
+    numeric = _numeric_columns(train, blocks, own_starter)
     train = train.dropna(subset=["runs"])
     if train.empty:
         raise ValueError("team_run_ratings: no decided rows to fit")
@@ -215,16 +248,31 @@ def _fit_once(train: pd.DataFrame, teams: list[str], anchor: pd.Timestamp,
     design[numeric] = (design[numeric] - mu) / sd
     age = (anchor - train["gameday"]).dt.days.to_numpy(float)
     weight = np.power(0.5, age / float(half_life_days))
-    model = Ridge(alpha=alpha, fit_intercept=True)
-    model.fit(design.to_numpy(float), train["runs"].to_numpy(float),
-              sample_weight=weight)
+    y = train["runs"].to_numpy(float)
+    X = design.to_numpy(float)
+    if likelihood == "poisson":
+        # PoissonRegressor minimises (1/2n) * deviance + alpha * ||w||^2 while
+        # Ridge minimises ||y - Xw||^2 + alpha * ||w||^2, so the same alpha is
+        # 2n times stronger here; rescale so a sweep point means the same
+        # thing in both families.
+        from sklearn.linear_model import PoissonRegressor
+        model = PoissonRegressor(alpha=float(alpha) / (2.0 * len(y)),
+                                 fit_intercept=True, max_iter=400)
+        model.fit(X, y, sample_weight=weight)
+    elif likelihood == "gaussian":
+        model = Ridge(alpha=alpha, fit_intercept=True)
+        model.fit(X, y, sample_weight=weight)
+    else:
+        raise ValueError(f"team_run_ratings: unknown likelihood {likelihood!r}")
     return dict(zip(design.columns, model.coef_))
 
 
 def build_causal_panel(games: pd.DataFrame, alpha: float = ALPHA,
                        refit_days: int = REFIT_DAYS,
                        half_life_days: float = HALF_LIFE_DAYS,
-                       min_train_games: int = MIN_TRAIN_GAMES) -> pd.DataFrame:
+                       min_train_games: int = MIN_TRAIN_GAMES,
+                       blocks=DESIGN_BLOCKS, likelihood: str = LIKELIHOOD,
+                       own_starter: bool = False) -> pd.DataFrame:
     """As-of rating panel aligned to ``games``' positional order."""
     g = games.reset_index(drop=True)
     gameday = pd.to_datetime(g["gameday"], errors="coerce")
@@ -248,7 +296,9 @@ def build_causal_panel(games: pd.DataFrame, alpha: float = ALPHA,
         train = rows[rows["gameday"] < anchor]
         if train["pos"].nunique() < min_train_games:
             continue
-        coef = _fit_once(train, teams, anchor, alpha, half_life_days)
+        coef = _fit_once(train, teams, anchor, alpha, half_life_days,
+                         blocks=blocks, likelihood=likelihood,
+                         own_starter=own_starter)
         off = {t: coef.get(f"toff_{t}", 0.0) for t in teams}
         dfn = {t: -coef.get(f"tdef_{t}", 0.0) for t in teams}
         net = {t: off[t] + dfn[t] for t in teams}
