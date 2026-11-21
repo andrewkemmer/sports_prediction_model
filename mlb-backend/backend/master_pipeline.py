@@ -3370,6 +3370,40 @@ if "MLB_END_DATE" in os.environ and os.environ["MLB_END_DATE"].strip():
 else:
     _anchor_date = _dt.datetime.now(
         ZoneInfo("America/New_York")).strftime("%Y-%m-%d")
+
+
+def _newest_decided_compact() -> str:
+    """Newest decided game date (YYYYMMDD) in the delivered prediction
+    history, or "" when no history is readable.
+
+    The retention anchor clamp below needs the data horizon, not the run's
+    target: a forward-dated slate (2027-03-24) has no games of its own.
+    """
+    try:
+        candidates = sorted(DATA_DELIVERY_DIR.glob("predictions_history_*.csv"))
+        if not candidates:
+            return ""
+        gd = pd.to_datetime(
+            pd.read_csv(candidates[-1], usecols=["game_date"])["game_date"],
+            errors="coerce").dropna()
+        return gd.max().strftime("%Y%m%d") if not gd.empty else ""
+    except Exception:
+        return ""
+
+
+# FORWARD-SLATE CLAMP (2026-11-21): the blanket window is anchor..anchor-10
+# and files NEWER than the anchor are kept, so a future anchor makes every
+# real, already-delivered artifact fall outside the window — the 2027-03-24
+# run pruned 111 files (all boards, calibrations, monitors and drift) and
+# left the dashboard with a single empty forward board. Retention must
+# describe the data horizon, not the slate date: clamp a future anchor to
+# the newest decided game. This run's own artifacts are staged ("seen"), so
+# nothing it wrote is affected; historical and backfill anchors are
+# untouched.
+_newest_decided = _newest_decided_compact()
+if _newest_decided and _anchor_date.replace("-", "") > _newest_decided:
+    _anchor_date = (f"{_newest_decided[:4]}-{_newest_decided[4:6]}-"
+                    f"{_newest_decided[6:]}")
 _anchor_compact = _anchor_date.replace("-", "")  # YYYYMMDD
 
 # Blanket retention window (policy 2026-09-14): anchor .. anchor-10. EVERY

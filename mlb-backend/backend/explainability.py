@@ -569,17 +569,32 @@ def drift_windows(
     byte-identical to the pre-2026-10-14 inline construction.
     """
     gd = pd.to_datetime(decided["game_date"])
-    width = DRIFT_CURRENT_WINDOW_DAYS
-    cutoff = pd.Timestamp(target_date) - pd.Timedelta(days=width)
-    current = decided[gd >= cutoff]
     dated = gd.dropna()
+    # FUTURE-SLATE ANCHOR (2026-11-21): a run may target a date beyond the
+    # newest decided game (a deliberate forward slate, or an off-day after
+    # the last game). Anchoring the current window at that future date makes
+    # it empty for EVERY width — the 2027-03-24 run judged 0/115 features,
+    # wrote no feature_drift CSV, and the monitor rendered "No drift data".
+    # Describe the LATEST OBSERVED window instead: anchor one day past the
+    # newest decided game. Normal runs (target within the decided horizon)
+    # keep the exact pre-fix geometry, so their windows stay byte-identical.
+    anchor = pd.Timestamp(target_date)
+    if not dated.empty and anchor > dated.max() + pd.Timedelta(days=1):
+        anchor = dated.max() + pd.Timedelta(days=1)
+        logger.info(
+            "Drift anchor re-based to %s (target %s is beyond the newest "
+            "decided game %s)", anchor.date(), pd.Timestamp(target_date).date(),
+            dated.max().date())
+    width = DRIFT_CURRENT_WINDOW_DAYS
+    cutoff = anchor - pd.Timedelta(days=width)
+    current = decided[gd >= cutoff]
     earliest = dated.min() if not dated.empty else None
     while (len(current) < DRIFT_JUDGE_MIN_CURRENT
            and width < DRIFT_CURRENT_WINDOW_MAX_DAYS
            and (earliest is None or cutoff > earliest)):
         width = min(width + DRIFT_CURRENT_WINDOW_DAYS,
                     DRIFT_CURRENT_WINDOW_MAX_DAYS)
-        cutoff = pd.Timestamp(target_date) - pd.Timedelta(days=width)
+        cutoff = anchor - pd.Timedelta(days=width)
         current = decided[gd >= cutoff]
     prior = decided[gd < cutoff]
     baseline = (prior.tail(max(3 * len(current), 250))

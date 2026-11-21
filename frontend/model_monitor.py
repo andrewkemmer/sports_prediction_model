@@ -212,6 +212,16 @@ st.markdown(
 # Feature drift matrix
 # ---------------------------------------------------------------------------
 st.markdown("### Feature Drift Analysis (PSI Scores)")
+# A forward-dated run has no games of its own; the backend re-bases the
+# drift windows to the latest decided game and records that anchor. Show
+# it, so the table is never read as "drift on the empty slate date".
+_dw = mon.get("drift_window") or {}
+if _dw.get("note"):
+    st.caption(
+        f"Drift window: {_dw.get('current_start', '—')} → "
+        f"{_dw.get('anchor_end', '—')} "
+        f"({_dw.get('current_games', '—')} games, baseline "
+        f"{_dw.get('baseline_games', '—')}). {_dw['note']}")
 drift = mon.get("feature_drift", [])
 features_metadata = mon.get("features_metadata", {}) or {}
 if drift:

@@ -1582,8 +1582,17 @@ def _navigable_dates() -> tuple[str, ...]:
     Cached on the same ttl as the union itself; other sports' pages and
     the shared union (Calibration / Monitor / Power Rankings rails) are
     untouched."""
+    dates = list(utils.valid_dates("mlb"))
+    # The NEWEST artifact is always reachable, even when its board is the
+    # pipeline's honest header-only off-day snapshot: a forward-dated run
+    # (2027-03-24) ships exactly that, and filtering it out left the rail
+    # with no dates at all — the page could not show the run it had just
+    # received. Older empty boards stay out of the rail (they would flood
+    # it with off-days); a selected newest empty date renders the explicit
+    # "No games scheduled" state below, never a recycled board.
+    newest = dates[0] if dates else None
     keep: list[str] = []
-    for d in utils.valid_dates("mlb"):
+    for d in dates:
         try:
             board = utils.load_todays_games(d, sport="mlb")
         except Exception:
@@ -1596,6 +1605,9 @@ def _navigable_dates() -> tuple[str, ...]:
         except Exception:
             hist = None
         if hist is not None and len(hist):
+            keep.append(d)
+            continue
+        if d == newest and utils.board_snapshot_exists_but_empty(d, sport="mlb"):
             keep.append(d)
     return tuple(keep)
 
