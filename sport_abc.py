@@ -399,22 +399,17 @@ def evaluate(sport: str, mods, frame: pd.DataFrame, out_dir: Path,
         }
         print(f"[{label}] done {meta[label]}", flush=True)
 
-    merged = pieces[0]
-    for part in pieces[1:]:
+    # Merge only the arm-specific columns.  Carrying fold_id (present in the
+    # NHL/NFL/NBA OOFs but not MLB's combined frame) through repeated outer
+    # merges creates fold_id_dup twice and pandas rejects it.  Labels and the
+    # date come from arm A; every arm is aligned on game_id alone.
+    merged = pieces[0][["game_id", "gameday", "home_win",
+                        "p_A", "p_A_cal", "grades_A"]].copy()
+    for label, part in zip(ARMS[1:], pieces[1:]):
         merged = merged.merge(
-            part.drop(columns=[c for c in ("home_win", "gameday")
-                               if c in part.columns]),
-            on="game_id", how="outer", suffixes=("", "_dup"))
-    # One canonical label/date/grade column for paired work.
-    for col in ("home_win", "gameday"):
-        alt = f"{col}_dup"
-        if alt in merged:
-            merged[col] = merged[col].fillna(merged[alt])
-            merged = merged.drop(columns=alt)
-    grade_alt = "grades_A_dup"
-    if grade_alt in merged:
-        merged["grades_A"] = merged["grades_A"].fillna(merged[grade_alt])
-        merged = merged.drop(columns=grade_alt)
+            part[["game_id", f"p_{label}", f"p_{label}_cal",
+                  f"grades_{label}"]],
+            on="game_id", how="outer")
     merged["grades_A"] = merged["grades_A"].fillna(False).astype(bool)
     merged.to_csv(out_dir / "oof_merged.csv", index=False)
 
