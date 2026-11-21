@@ -89,6 +89,20 @@ def _build_nfl_frame(mods) -> pd.DataFrame:
     schedule = ingestion.load_schedule(seasons=seasons, use_cache=True)
     schedule = ingestion.eligible_games(schedule)
     schedule["gameday"] = pd.to_datetime(schedule["gameday"], errors="coerce")
+    # nflverse publishes the whole upcoming season.  Rows without finals are
+    # not decided games: their margin is NaN, but build_game_features turns
+    # ``margin > 0`` into home_win=0, so leaving them in the frame grades
+    # unplayed games as away wins.  Keep only finals on or before today.
+    before = len(schedule)
+    schedule = schedule[schedule["gameday"].notna()].copy()
+    schedule = schedule[
+        schedule["gameday"] <= pd.Timestamp.today().normalize()].copy()
+    for col in ("home_score", "away_score"):
+        schedule[col] = pd.to_numeric(schedule[col], errors="coerce")
+    schedule = schedule[schedule["home_score"].notna()
+                        & schedule["away_score"].notna()].copy()
+    print(f"NFL decided frame: {len(schedule)} of {before} scheduled rows "
+          f"through {pd.Timestamp.today().date()}", flush=True)
     try:
         pit_weather = weather_mod.cached_weather_for_games(schedule)
     except Exception as exc:  # noqa: BLE001 - weather is allowed to stay NaN
