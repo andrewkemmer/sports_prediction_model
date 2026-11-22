@@ -4,139 +4,143 @@
   PHASE 1 — configuration (date window, repull, library stack)  (0s)
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-2026-11-21 15:37:23,549 INFO nflverse date window: 2016-01-01..2026-11-22 (seasons 2016..2026)
-2026-11-21 15:37:24,734 INFO NFL_FULL_REPULL=1 — nflverse cache cleared for full rebuild (0 local parquet file(s) removed; nflreadpy cache off)
-2026-11-21 15:37:24,750 INFO library stack: {"scipy": "1.16.3", "sklearn": "1.6.1", "xgboost": "3.2.0", "lightgbm": "4.6.0", "pandas": "2.3.3", "numpy": "2.0.2"}
+2026-11-22 06:58:58,914 INFO nflverse date window: 2016-01-01..2026-11-22 (seasons 2016..2026)
+2026-11-22 06:59:00,180 INFO NFL_FULL_REPULL=1 — nflverse cache cleared for full rebuild (0 local parquet file(s) removed; nflreadpy cache off)
+2026-11-22 06:59:00,196 INFO library stack: {"scipy": "1.16.3", "sklearn": "1.6.1", "xgboost": "3.2.0", "lightgbm": "4.6.0", "pandas": "2.3.3", "numpy": "2.0.2"}
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
   PHASE 2 — nflverse ingestion  (1s)
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-2026-11-21 15:37:25,575 INFO schedule rows (date window): 2923
-2026-11-21 15:37:25,920 INFO PIT weather archive: 35 window(s) x 3 batch(es) of 15 stadiums = 105 request batches
-PIT weather archive batches: 100%|##########| 105/105 [04:09<00:00,  2.38s/it]
-2026-11-21 15:41:35,791 INFO PIT weather batches: skipped 28 gameless window(s) (2016-09-08→2026-11-20 span) — no Open-Meteo requests sent for them
-2026-11-21 15:41:37,155 INFO PIT weather: 2081/2081 eligible games available from strict pre-kickoff hourly records
-2026-11-21 15:41:37,563 INFO PIT weather rows: 2081
-2026-11-21 15:41:37,565 INFO ingestion window 2016-01-01 .. 2026-11-22 in 67 x 60-day chunks (MLB parity)
-2026-11-21 15:41:37,565 INFO nflverse population: 108 season/source units {"ftn_charting": 5, "injuries": 11, "injuries_weekly": 11, "nextgen": 33, "pbp": 11, "player_stats": 12, "snap_counts": 14, "weekly_rosters": 11}
-2026-11-21 15:41:37,566 INFO loading pbp season 2016
-2026-11-21 15:41:38,820 INFO loading pbp season 2017
-2026-11-21 15:41:40,152 INFO loading pbp season 2018
-2026-11-21 15:41:41,492 INFO loading pbp season 2019
-2026-11-21 15:41:42,460 INFO loading pbp season 2020
-2026-11-21 15:41:43,416 INFO loading pbp season 2021
-2026-11-21 15:41:44,571 INFO loading pbp season 2022
-2026-11-21 15:41:45,506 INFO loading pbp season 2023
-2026-11-21 15:41:46,436 INFO loading pbp season 2024
-2026-11-21 15:41:47,355 INFO loading pbp season 2025
-2026-11-21 15:41:48,279 INFO loading pbp season 2026
-2026-11-21 15:41:49,018 INFO pbp rows: 510648
-2026-11-21 15:41:49,019 INFO loading player stats season 2015
-2026-11-21 15:41:49,273 INFO loading player stats season 2016
-2026-11-21 15:41:49,543 INFO loading player stats season 2017
-2026-11-21 15:41:49,793 INFO loading player stats season 2018
-2026-11-21 15:41:50,046 INFO loading player stats season 2019
-2026-11-21 15:41:50,268 INFO loading player stats season 2020
-2026-11-21 15:41:50,511 INFO loading player stats season 2021
-2026-11-21 15:41:50,743 INFO loading player stats season 2022
-2026-11-21 15:41:50,969 INFO loading player stats season 2023
-2026-11-21 15:41:51,301 INFO loading player stats season 2024
-2026-11-21 15:41:51,551 INFO loading player stats season 2025
-2026-11-21 15:41:52,047 INFO loading player stats season 2026
-2026-11-21 15:41:52,270 INFO ngs published from 2016 — skipping [2015] (documented window)
-2026-11-21 15:41:52,271 INFO loading ngs passing season 2016
-2026-11-21 15:41:52,464 INFO loading ngs rushing season 2016
-2026-11-21 15:41:52,655 INFO loading ngs receiving season 2016
-2026-11-21 15:41:52,863 INFO loading ngs passing season 2017
-2026-11-21 15:41:52,896 INFO loading ngs rushing season 2017
-2026-11-21 15:41:52,925 INFO loading ngs receiving season 2017
-2026-11-21 15:41:52,967 INFO loading ngs passing season 2018
-2026-11-21 15:41:53,001 INFO loading ngs rushing season 2018
-2026-11-21 15:41:53,038 INFO loading ngs receiving season 2018
-2026-11-21 15:41:53,080 INFO loading ngs passing season 2019
-2026-11-21 15:41:53,113 INFO loading ngs rushing season 2019
-2026-11-21 15:41:53,143 INFO loading ngs receiving season 2019
-2026-11-21 15:41:53,184 INFO loading ngs passing season 2020
-2026-11-21 15:41:53,215 INFO loading ngs rushing season 2020
-2026-11-21 15:41:53,244 INFO loading ngs receiving season 2020
-2026-11-21 15:41:53,283 INFO loading ngs passing season 2021
-2026-11-21 15:41:53,315 INFO loading ngs rushing season 2021
-2026-11-21 15:41:53,343 INFO loading ngs receiving season 2021
-2026-11-21 15:41:53,381 INFO loading ngs passing season 2022
-2026-11-21 15:41:53,412 INFO loading ngs rushing season 2022
-2026-11-21 15:41:53,441 INFO loading ngs receiving season 2022
-2026-11-21 15:41:53,480 INFO loading ngs passing season 2023
-2026-11-21 15:41:53,511 INFO loading ngs rushing season 2023
-2026-11-21 15:41:53,541 INFO loading ngs receiving season 2023
-2026-11-21 15:41:53,581 INFO loading ngs passing season 2024
-2026-11-21 15:41:53,612 INFO loading ngs rushing season 2024
-2026-11-21 15:41:53,641 INFO loading ngs receiving season 2024
-2026-11-21 15:41:53,680 INFO loading ngs passing season 2025
-2026-11-21 15:41:53,712 INFO loading ngs rushing season 2025
-2026-11-21 15:41:53,742 INFO loading ngs receiving season 2025
-2026-11-21 15:41:53,781 INFO loading ngs passing season 2026
-2026-11-21 15:41:53,812 INFO loading ngs rushing season 2026
-2026-11-21 15:41:53,841 INFO loading ngs receiving season 2026
-2026-11-21 15:41:53,892 INFO loading snap counts season 2013
-2026-11-21 15:41:54,228 INFO loading snap counts season 2014
-2026-11-21 15:41:54,604 INFO loading snap counts season 2015
-2026-11-21 15:41:54,922 INFO loading snap counts season 2016
-2026-11-21 15:41:55,246 INFO loading snap counts season 2017
-2026-11-21 15:41:55,574 INFO loading snap counts season 2018
-2026-11-21 15:41:55,856 INFO loading snap counts season 2019
-2026-11-21 15:41:56,171 INFO loading snap counts season 2020
-2026-11-21 15:41:56,488 INFO loading snap counts season 2021
-2026-11-21 15:41:56,804 INFO loading snap counts season 2022
-2026-11-21 15:41:57,119 INFO loading snap counts season 2023
-2026-11-21 15:41:57,412 INFO loading snap counts season 2024
-2026-11-21 15:41:57,742 INFO loading snap counts season 2025
-2026-11-21 15:41:58,033 INFO loading snap counts season 2026
-2026-11-21 15:41:58,437 INFO ftn charting published from 2022 — skipping [2016, 2017, 2018, 2019, 2020, 2021] (documented window)
-2026-11-21 15:41:58,438 INFO loading ftn charting season 2022
-2026-11-21 15:41:58,780 INFO loading ftn charting season 2023
-2026-11-21 15:41:59,101 INFO loading ftn charting season 2024
-2026-11-21 15:41:59,427 INFO loading ftn charting season 2025
-2026-11-21 15:41:59,726 INFO loading ftn charting season 2026
-2026-11-21 15:42:04,386 INFO loading weekly injury report season 2016
-2026-11-21 15:42:04,424 INFO loading weekly injury report season 2017
-2026-11-21 15:42:04,463 INFO loading weekly injury report season 2018
-2026-11-21 15:42:04,504 INFO loading weekly injury report season 2019
-2026-11-21 15:42:04,543 INFO loading weekly injury report season 2020
-2026-11-21 15:42:04,583 INFO loading weekly injury report season 2021
-2026-11-21 15:42:04,625 INFO loading weekly injury report season 2022
-2026-11-21 15:42:04,665 INFO loading weekly injury report season 2023
-2026-11-21 15:42:04,704 INFO loading weekly injury report season 2024
-2026-11-21 15:42:04,746 INFO loading weekly injury report season 2025
-2026-11-21 15:42:04,786 INFO loading weekly injury report season 2026
-2026-11-21 15:42:05,145 INFO loading weekly roster snapshot season 2016
-2026-11-21 15:42:05,554 INFO loading weekly roster snapshot season 2017
-2026-11-21 15:42:05,978 INFO loading weekly roster snapshot season 2018
-2026-11-21 15:42:06,411 INFO loading weekly roster snapshot season 2019
-2026-11-21 15:42:06,838 INFO loading weekly roster snapshot season 2020
-2026-11-21 15:42:07,273 INFO loading weekly roster snapshot season 2021
-2026-11-21 15:42:07,683 INFO loading weekly roster snapshot season 2022
-2026-11-21 15:42:08,065 INFO loading weekly roster snapshot season 2023
-2026-11-21 15:42:08,480 INFO loading weekly roster snapshot season 2024
-2026-11-21 15:42:08,906 INFO loading weekly roster snapshot season 2025
-2026-11-21 15:42:09,315 INFO loading weekly roster snapshot season 2026
+2026-11-22 06:59:01,031 INFO schedule rows (date window): 2923
+2026-11-22 06:59:01,399 INFO PIT weather archive: 35 window(s) x 3 batch(es) of 15 stadiums = 105 request batches
+PIT weather archive batches: 100%|##########| 105/105 [06:02<00:00,  3.46s/it]
+2026-11-22 07:05:04,244 INFO PIT weather recent: fetching 2026-08-23..2026-11-22 observed (forecast endpoint) for 38 stadiums
+2026-11-22 07:06:08,075 WARNING Open-Meteo batch failed (2026-08-23..2026-11-22, 38 locations, source=open_meteo_forecast): HTTPSConnectionPool(host='api.open-meteo.com', port=443): Read timed out. (read timeout=20) [Sports Authority Field at Mile High,M&T Bank Stadium,EverBank Field,Arrowhead Stadium,MetLife Stadium,Lincoln Financial Field,Nissan Stadium,CenturyLink Field,Lucas Oil Stadium,FedExField,Levi's Stadium,New Era Field,Bank of America Stadium,FirstEnergy Stadium,Gillette Stadium,Heinz Field,Los Angeles Memorial Coliseum,Oakland-Alameda County Coliseum,Qualcomm Stadium,Soldier Field,Paul Brown Stadium,Lambeau Field,Hard Rock Stadium,Raymond James Stadium,Wembley Stadium,Twickenham Stadium,Azteca Stadium,NRG Stadium,StubHub Center,Mercedes-Benz Stadium,University of Phoenix Stadium,Tottenham Stadium,AT&T Stadium,Allianz Arena,Deutsche Bank Park,Arena Corinthians,Maracana Stadium,Estadio Banorte]
+2026-11-22 07:07:11,663 WARNING Open-Meteo batch failed (2026-11-22..2026-11-23, 38 locations, source=open_meteo_forecast): HTTPSConnectionPool(host='api.open-meteo.com', port=443): Read timed out. (read timeout=20) [Sports Authority Field at Mile High,M&T Bank Stadium,EverBank Field,Arrowhead Stadium,MetLife Stadium,Lincoln Financial Field,Nissan Stadium,CenturyLink Field,Lucas Oil Stadium,FedExField,Levi's Stadium,New Era Field,Bank of America Stadium,FirstEnergy Stadium,Gillette Stadium,Heinz Field,Los Angeles Memorial Coliseum,Oakland-Alameda County Coliseum,Qualcomm Stadium,Soldier Field,Paul Brown Stadium,Lambeau Field,Hard Rock Stadium,Raymond James Stadium,Wembley Stadium,Twickenham Stadium,Azteca Stadium,NRG Stadium,StubHub Center,Mercedes-Benz Stadium,University of Phoenix Stadium,Tottenham Stadium,AT&T Stadium,Allianz Arena,Deutsche Bank Park,Arena Corinthians,Maracana Stadium,Estadio Banorte]
+2026-11-22 07:07:11,663 INFO PIT weather batches: skipped 28 gameless window(s) (2016-09-08→2026-11-21 span) — no Open-Meteo requests sent for them
+2026-11-22 07:07:11,873 INFO PIT weather top-up: 1 game(s) still missing after the first pass — refetching the gaps only
+2026-11-22 07:07:56,980 INFO PIT weather: 2081/2081 eligible games available from strict pre-kickoff hourly records
+2026-11-22 07:07:57,000 INFO PIT weather rows: 2081
+2026-11-22 07:07:57,001 INFO ingestion window 2016-01-01 .. 2026-11-22 in 67 x 60-day chunks (MLB parity)
+2026-11-22 07:07:57,002 INFO nflverse population: 108 season/source units {"ftn_charting": 5, "injuries": 11, "injuries_weekly": 11, "nextgen": 33, "pbp": 11, "player_stats": 12, "snap_counts": 14, "weekly_rosters": 11}
+2026-11-22 07:07:57,002 INFO loading pbp season 2016
+2026-11-22 07:07:58,173 INFO loading pbp season 2017
+2026-11-22 07:07:59,156 INFO loading pbp season 2018
+2026-11-22 07:08:00,062 INFO loading pbp season 2019
+2026-11-22 07:08:01,030 INFO loading pbp season 2020
+2026-11-22 07:08:01,962 INFO loading pbp season 2021
+2026-11-22 07:08:03,155 INFO loading pbp season 2022
+2026-11-22 07:08:04,296 INFO loading pbp season 2023
+2026-11-22 07:08:05,547 INFO loading pbp season 2024
+2026-11-22 07:08:06,687 INFO loading pbp season 2025
+2026-11-22 07:08:07,933 INFO loading pbp season 2026
+2026-11-22 07:08:08,924 INFO pbp rows: 510648
+2026-11-22 07:08:08,925 INFO loading player stats season 2015
+2026-11-22 07:08:09,250 INFO loading player stats season 2016
+2026-11-22 07:08:09,549 INFO loading player stats season 2017
+2026-11-22 07:08:09,846 INFO loading player stats season 2018
+2026-11-22 07:08:10,118 INFO loading player stats season 2019
+2026-11-22 07:08:10,392 INFO loading player stats season 2020
+2026-11-22 07:08:10,697 INFO loading player stats season 2021
+2026-11-22 07:08:11,000 INFO loading player stats season 2022
+2026-11-22 07:08:11,292 INFO loading player stats season 2023
+2026-11-22 07:08:11,523 INFO loading player stats season 2024
+2026-11-22 07:08:11,784 INFO loading player stats season 2025
+2026-11-22 07:08:11,893 INFO loading player stats season 2026
+2026-11-22 07:08:11,979 INFO ngs published from 2016 — skipping [2015] (documented window)
+2026-11-22 07:08:11,980 INFO loading ngs passing season 2016
+2026-11-22 07:08:12,265 INFO loading ngs rushing season 2016
+2026-11-22 07:08:12,511 INFO loading ngs receiving season 2016
+2026-11-22 07:08:12,770 INFO loading ngs passing season 2017
+2026-11-22 07:08:12,842 INFO loading ngs rushing season 2017
+2026-11-22 07:08:12,888 INFO loading ngs receiving season 2017
+2026-11-22 07:08:12,961 INFO loading ngs passing season 2018
+2026-11-22 07:08:13,019 INFO loading ngs rushing season 2018
+2026-11-22 07:08:13,065 INFO loading ngs receiving season 2018
+2026-11-22 07:08:13,124 INFO loading ngs passing season 2019
+2026-11-22 07:08:13,177 INFO loading ngs rushing season 2019
+2026-11-22 07:08:13,228 INFO loading ngs receiving season 2019
+2026-11-22 07:08:13,288 INFO loading ngs passing season 2020
+2026-11-22 07:08:13,339 INFO loading ngs rushing season 2020
+2026-11-22 07:08:13,389 INFO loading ngs receiving season 2020
+2026-11-22 07:08:13,451 INFO loading ngs passing season 2021
+2026-11-22 07:08:13,498 INFO loading ngs rushing season 2021
+2026-11-22 07:08:13,538 INFO loading ngs receiving season 2021
+2026-11-22 07:08:13,594 INFO loading ngs passing season 2022
+2026-11-22 07:08:13,640 INFO loading ngs rushing season 2022
+2026-11-22 07:08:13,680 INFO loading ngs receiving season 2022
+2026-11-22 07:08:13,738 INFO loading ngs passing season 2023
+2026-11-22 07:08:13,784 INFO loading ngs rushing season 2023
+2026-11-22 07:08:13,823 INFO loading ngs receiving season 2023
+2026-11-22 07:08:13,881 INFO loading ngs passing season 2024
+2026-11-22 07:08:13,926 INFO loading ngs rushing season 2024
+2026-11-22 07:08:13,966 INFO loading ngs receiving season 2024
+2026-11-22 07:08:14,021 INFO loading ngs passing season 2025
+2026-11-22 07:08:14,067 INFO loading ngs rushing season 2025
+2026-11-22 07:08:14,106 INFO loading ngs receiving season 2025
+2026-11-22 07:08:14,164 INFO loading ngs passing season 2026
+2026-11-22 07:08:14,211 INFO loading ngs rushing season 2026
+2026-11-22 07:08:14,250 INFO loading ngs receiving season 2026
+2026-11-22 07:08:14,322 INFO loading snap counts season 2013
+2026-11-22 07:08:14,615 INFO loading snap counts season 2014
+2026-11-22 07:08:14,890 INFO loading snap counts season 2015
+2026-11-22 07:08:15,269 INFO loading snap counts season 2016
+2026-11-22 07:08:15,562 INFO loading snap counts season 2017
+2026-11-22 07:08:15,814 INFO loading snap counts season 2018
+2026-11-22 07:08:16,081 INFO loading snap counts season 2019
+2026-11-22 07:08:16,349 INFO loading snap counts season 2020
+2026-11-22 07:08:16,557 INFO loading snap counts season 2021
+2026-11-22 07:08:16,863 INFO loading snap counts season 2022
+2026-11-22 07:08:17,152 INFO loading snap counts season 2023
+2026-11-22 07:08:17,363 INFO loading snap counts season 2024
+2026-11-22 07:08:17,571 INFO loading snap counts season 2025
+2026-11-22 07:08:17,782 INFO loading snap counts season 2026
+2026-11-22 07:08:17,976 INFO ftn charting published from 2022 — skipping [2016, 2017, 2018, 2019, 2020, 2021] (documented window)
+2026-11-22 07:08:17,977 INFO loading ftn charting season 2022
+2026-11-22 07:08:18,262 INFO loading ftn charting season 2023
+2026-11-22 07:08:18,535 INFO loading ftn charting season 2024
+2026-11-22 07:08:18,816 INFO loading ftn charting season 2025
+2026-11-22 07:08:19,092 INFO loading ftn charting season 2026
+2026-11-22 07:08:24,512 INFO loading weekly injury report season 2016
+2026-11-22 07:08:24,560 INFO loading weekly injury report season 2017
+2026-11-22 07:08:24,608 INFO loading weekly injury report season 2018
+2026-11-22 07:08:24,709 INFO loading weekly injury report season 2019
+2026-11-22 07:08:24,758 INFO loading weekly injury report season 2020
+2026-11-22 07:08:24,808 INFO loading weekly injury report season 2021
+2026-11-22 07:08:24,859 INFO loading weekly injury report season 2022
+2026-11-22 07:08:24,910 INFO loading weekly injury report season 2023
+2026-11-22 07:08:24,956 INFO loading weekly injury report season 2024
+2026-11-22 07:08:25,005 INFO loading weekly injury report season 2025
+2026-11-22 07:08:25,055 INFO loading weekly injury report season 2026
+2026-11-22 07:08:25,430 INFO loading weekly roster snapshot season 2016
+2026-11-22 07:08:25,779 INFO loading weekly roster snapshot season 2017
+2026-11-22 07:08:26,341 INFO loading weekly roster snapshot season 2018
+2026-11-22 07:08:26,701 INFO loading weekly roster snapshot season 2019
+2026-11-22 07:08:27,052 INFO loading weekly roster snapshot season 2020
+2026-11-22 07:08:27,407 INFO loading weekly roster snapshot season 2021
+2026-11-22 07:08:27,761 INFO loading weekly roster snapshot season 2022
+2026-11-22 07:08:28,094 INFO loading weekly roster snapshot season 2023
+2026-11-22 07:08:28,390 INFO loading weekly roster snapshot season 2024
+2026-11-22 07:08:28,676 INFO loading weekly roster snapshot season 2025
+2026-11-22 07:08:28,964 INFO loading weekly roster snapshot season 2026
 nflverse population (season/source units): 100%|##########| 108/108 [00:33<00:00,  3.22it/s]
-2026-11-21 15:42:11,107 INFO PIT injury designation rows: 49445
-2026-11-21 15:42:11,107 INFO weekly injury report rows: 59034 | player crosswalk rows: 22706
-2026-11-21 15:42:11,108 INFO weekly roster rows: 492959 | roster-unavailable rows: 134067
-2026-11-21 15:42:11,108 INFO player stats rows: 210381 | ngs rows: 25853
-2026-11-21 15:42:11,108 INFO snap count rows: 338709 | ftn charting rows: 210838
-2026-11-21 15:42:11,108 INFO full-repull replication receipt: schedule=2923 pbp=510648 player_stats=210381 ngs=25853 snaps=338709 ftn=210838 injuries=49445 weekly_injuries=59034 rosters=492959 crosswalk=22706 weather=2081 | cache file(s) removed=0, frames served from disk=0
-2026-11-21 15:42:11,112 INFO decided games: warmup 267, core (OOF population) 2645
+2026-11-22 07:08:30,572 INFO PIT injury designation rows: 49445
+2026-11-22 07:08:30,572 INFO weekly injury report rows: 59037 | player crosswalk rows: 22706
+2026-11-22 07:08:30,573 INFO weekly roster rows: 492959 | roster-unavailable rows: 134067
+2026-11-22 07:08:30,573 INFO player stats rows: 210381 | ngs rows: 25853
+2026-11-22 07:08:30,573 INFO snap count rows: 338709 | ftn charting rows: 210838
+2026-11-22 07:08:30,573 INFO full-repull replication receipt: schedule=2923 pbp=510648 player_stats=210381 ngs=25853 snaps=338709 ftn=210838 injuries=49445 weekly_injuries=59037 rosters=492959 crosswalk=22706 weather=2081 | cache file(s) removed=0, frames served from disk=0
+2026-11-22 07:08:30,577 INFO decided games: warmup 267, core (OOF population) 2645
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-  PHASE 3 — point-in-time feature engine  (286s)
+  PHASE 3 — point-in-time feature engine  (570s)
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-2026-11-21 15:42:21,034 INFO NGS Super Bowl week reconciled: 20 row(s) moved to the schedule's week number
-2026-11-21 15:42:21,298 INFO ftn attribution: 210838 of 210838 charted play(s) bound to possession identity (0 without a PBP key in this window)
-2026-11-21 15:48:09,680 INFO feature frame: 2912 decided games, 309 columns
-2026-11-21 15:48:09,736 INFO feature coverage:
+2026-11-22 07:08:40,804 INFO NGS Super Bowl week reconciled: 20 row(s) moved to the schedule's week number
+2026-11-22 07:08:41,061 INFO ftn attribution: 210838 of 210838 charted play(s) bound to possession identity (0 without a PBP key in this window)
+2026-11-22 07:14:24,166 INFO feature frame: 2912 decided games, 309 columns
+2026-11-22 07:14:24,216 INFO feature coverage:
                    feature  n_games  coverage_pct        mean        std
                   elo_diff     2912        100.00    0.324701 121.811522
               win_pct_diff     2912         99.45   -0.000167   0.283718
@@ -217,14 +221,14 @@ pbp_air_yards_att_ewm_away     2912         99.45    7.972233   1.113732
     pbp_pbwr_edge_ewm_home     2912         98.90    0.658979   0.040676
     pbp_pbwr_edge_ewm_away     2912         98.90    0.658694   0.040870
                    is_home     2912        100.00    1.000000   0.000000
-2026-11-21 15:48:09,747 INFO feature subset: 79 served column(s) from config (record-only RFE; a stored state file is never applied)
+2026-11-22 07:14:24,227 INFO feature subset: 79 served column(s) from config (record-only RFE; a stored state file is never applied)
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-  PHASE 4 — walk-forward fold generation  (359s)
+  PHASE 4 — walk-forward fold generation  (354s)
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-2026-11-21 15:48:10,066 WARNING OOF validation population is thin on 97 of 206 window(s) (< MIN_VAL_FOLD_GAMES=15 games): [2017-10-05..2017-10-11 n=14 regular], [2017-10-12..2017-10-18 n=14 regular], [2017-10-26..2017-11-01 n=13 regular], [2017-11-02..2017-11-08 n=13 regular], [2017-11-09..2017-11-15 n=14 regular], +92 more (per-window detail: nfl_fold_table.csv) - retained and scored, but PROVISIONAL: excluded from pooled metrics, blend weights and calibration (playoff weeks, bye weeks and week-straddling blocks are the usual cause)
-2026-11-21 15:48:10,075 INFO OOF season-type split: 36 window(s) carry postseason games (111 rows); their playoff rows are reported as oof_postseason and never grade the blend
+2026-11-22 07:14:24,543 WARNING OOF validation population is thin on 97 of 206 window(s) (< MIN_VAL_FOLD_GAMES=15 games): [2017-10-05..2017-10-11 n=14 regular], [2017-10-12..2017-10-18 n=14 regular], [2017-10-26..2017-11-01 n=13 regular], [2017-11-02..2017-11-08 n=13 regular], [2017-11-09..2017-11-15 n=14 regular], +92 more (per-window detail: nfl_fold_table.csv) - retained and scored, but PROVISIONAL: excluded from pooled metrics, blend weights and calibration (playoff weeks, bye weeks and week-straddling blocks are the usual cause)
+2026-11-22 07:14:24,551 INFO OOF season-type split: 36 window(s) carry postseason games (111 rows); their playoff rows are reported as oof_postseason and never grade the blend
   eligible settled games : 2912
   game date range        : 2016-09-08 .. 2026-11-19
   warmup seasons         : [2016] (training-only)
@@ -251,102 +255,102 @@ pbp_air_yards_att_ewm_away     2912         99.45    7.972233   1.113732
     fold 203  train_end=2026-11-02  val=[2026-11-05 .. 2026-11-11]  n_train= 2882  n_val=15
     fold 204  train_end=2026-11-09  val=[2026-11-12 .. 2026-11-18]  n_train= 2897  n_val=14
     fold 205  train_end=2026-11-16  val=[2026-11-19 .. 2026-11-25]  n_train= 2911  n_val=1
-2026-11-21 15:48:10,183 INFO folds: {"n_folds": 206, "first_val_start": "2017-09-07", "last_val_end": "2026-11-25", "min_train": 267, "max_train": 2911, "total_val_games": 2645, "n_candidates": 206, "dropped_windows": 0, "dropped_games": 0, "provisional_windows": 97, "provisional_games": 926, "postseason_windows": 36, "min_val_fold_games": 15}
+2026-11-22 07:14:24,659 INFO folds: {"n_folds": 206, "first_val_start": "2017-09-07", "last_val_end": "2026-11-25", "min_train": 267, "max_train": 2911, "total_val_games": 2645, "n_candidates": 206, "dropped_windows": 0, "dropped_games": 0, "provisional_windows": 97, "provisional_games": 926, "postseason_windows": 36, "min_val_fold_games": 15}
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
   PHASE 5 — moneyline walk-forward OOF  (0s)
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-2026-11-21 15:48:46,449 INFO moneyline OOF fold 25/206
-2026-11-21 15:49:27,546 INFO moneyline OOF fold 50/206
-2026-11-21 15:50:14,402 INFO moneyline OOF fold 75/206
-2026-11-21 15:51:05,382 INFO moneyline OOF fold 100/206
-2026-11-21 15:51:59,526 INFO moneyline OOF fold 125/206
-2026-11-21 15:52:56,156 INFO moneyline OOF fold 150/206
-2026-11-21 15:53:56,267 INFO moneyline OOF fold 175/206
-2026-11-21 15:55:00,988 INFO moneyline OOF fold 200/206
-2026-11-21 15:55:15,753 INFO Published blend: 2645 OOF rows retain strictly-prior fold weights — headline metrics grade the causal rolling blend; final serving weights {'elasticnet': '36.7%', 'lightgbm': '0.0%', 'xgboost': '63.3%'} replay only in p_ensemble_retrospective (not OOF)
-2026-11-21 15:55:15,754 INFO moneyline OOF: 2645 scored row(s), 1719 grading / 111 postseason / 926 provisional
-moneyline OOF folds: 100%|##########| 206/206 [07:05<00:00,  2.07s/it]
-2026-11-21 15:55:15,763 INFO moneyline OOF rows: 2645; adaptive weights: {"elasticnet": 0.367, "lightgbm": 0.0, "xgboost": 0.633}
+2026-11-22 07:14:56,445 INFO moneyline OOF fold 25/206
+2026-11-22 07:15:31,927 INFO moneyline OOF fold 50/206
+2026-11-22 07:16:12,232 INFO moneyline OOF fold 75/206
+2026-11-22 07:16:56,386 INFO moneyline OOF fold 100/206
+2026-11-22 07:17:43,512 INFO moneyline OOF fold 125/206
+2026-11-22 07:18:37,523 INFO moneyline OOF fold 150/206
+2026-11-22 07:19:35,419 INFO moneyline OOF fold 175/206
+2026-11-22 07:20:30,478 INFO moneyline OOF fold 200/206
+2026-11-22 07:20:42,907 INFO Published blend: 2645 OOF rows retain strictly-prior fold weights — headline metrics grade the causal rolling blend; final serving weights {'elasticnet': '36.7%', 'lightgbm': '0.0%', 'xgboost': '63.3%'} replay only in p_ensemble_retrospective (not OOF)
+2026-11-22 07:20:42,908 INFO moneyline OOF: 2645 scored row(s), 1719 grading / 111 postseason / 926 provisional
+moneyline OOF folds: 100%|##########| 206/206 [06:18<00:00,  1.84s/it]
+2026-11-22 07:20:42,918 INFO moneyline OOF rows: 2645; adaptive weights: {"elasticnet": 0.367, "lightgbm": 0.0, "xgboost": 0.633}
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-  PHASE 6-7 — margin/total distribution OOF  (426s)
+  PHASE 6-7 — margin/total distribution OOF  (378s)
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-2026-11-21 15:55:49,702 INFO score-ensemble OOF fold 25/206
-2026-11-21 15:56:27,002 INFO score-ensemble OOF fold 50/206
-2026-11-21 15:57:08,116 INFO score-ensemble OOF fold 75/206
-2026-11-21 15:57:51,695 INFO score-ensemble OOF fold 100/206
-2026-11-21 15:58:38,914 INFO score-ensemble OOF fold 125/206
-2026-11-21 15:59:29,469 INFO score-ensemble OOF fold 150/206
-2026-11-21 16:00:23,926 INFO score-ensemble OOF fold 175/206
-2026-11-21 16:01:20,353 INFO score-ensemble OOF fold 200/206
-distribution OOF folds: 100%|##########| 206/206 [06:18<00:00,  1.84s/it]
-2026-11-21 16:01:34,574 INFO score-ensemble serving weights (OOF-earned): {'elasticnet': 0.3258, 'lightgbm': 0.466, 'xgboost': 0.2082}
+2026-11-22 07:21:11,929 INFO score-ensemble OOF fold 25/206
+2026-11-22 07:21:45,075 INFO score-ensemble OOF fold 50/206
+2026-11-22 07:22:21,084 INFO score-ensemble OOF fold 75/206
+2026-11-22 07:23:00,117 INFO score-ensemble OOF fold 100/206
+2026-11-22 07:23:42,075 INFO score-ensemble OOF fold 125/206
+2026-11-22 07:24:26,322 INFO score-ensemble OOF fold 150/206
+2026-11-22 07:25:14,855 INFO score-ensemble OOF fold 175/206
+2026-11-22 07:26:06,256 INFO score-ensemble OOF fold 200/206
+distribution OOF folds: 100%|##########| 206/206 [05:35<00:00,  1.63s/it]
+2026-11-22 07:26:18,506 INFO score-ensemble serving weights (OOF-earned): {'elasticnet': 0.3258, 'lightgbm': 0.466, 'xgboost': 0.2082}
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-  PHASE 8 — calibration  (379s)
+  PHASE 8 — calibration  (336s)
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-2026-11-21 16:01:35,216 INFO prequential per-fold calibration: 0 fitted, 206 identity
-2026-11-21 16:01:35,244 INFO oof blocks: {"oof_regular": {"n": 1719, "auc": 0.7052600574359982, "logloss": 0.6244798292583267, "brier": 0.21759323274382222, "ece": 0.03457132402692468, "sufficient": true}, "oof_postseason": {"n": 111, "auc": 0.6511387163561075, "logloss": 0.6288442843118779, "brier": 0.21912540060843894, "ece": 0.0845734842845873, "sufficient": true}, "oof_provisional": {"n": 926, "auc": 0.6910398603760838, "logloss": 0.6348213220967723, "brier": 0.22199210207811831, "ece": 0.027677976596611725, "sufficient": true}, "oof_all": {"n": 2645, "auc": 0.7005676840310516, "logloss": 0.6281003292085728, "brier": 0.21913325278297463, "ece": 0.029328132035916065, "sufficient": true}}
-2026-11-21 16:01:35,249 INFO final serving calibrator: identity (raw blend is served); nested gate: gated_no_gain
+2026-11-22 07:26:19,054 INFO prequential per-fold calibration: 0 fitted, 206 identity
+2026-11-22 07:26:19,081 INFO oof blocks: {"oof_regular": {"n": 1719, "auc": 0.7052600574359982, "logloss": 0.6244798292583267, "brier": 0.21759323274382222, "ece": 0.03457132402692468, "sufficient": true}, "oof_postseason": {"n": 111, "auc": 0.6511387163561075, "logloss": 0.6288442843118779, "brier": 0.21912540060843894, "ece": 0.0845734842845873, "sufficient": true}, "oof_provisional": {"n": 926, "auc": 0.6910398603760838, "logloss": 0.6348213220967723, "brier": 0.22199210207811831, "ece": 0.027677976596611725, "sufficient": true}, "oof_all": {"n": 2645, "auc": 0.7005676840310516, "logloss": 0.6281003292085728, "brier": 0.21913325278297463, "ece": 0.029328132035916065, "sufficient": true}}
+2026-11-22 07:26:19,086 INFO final serving calibrator: identity (raw blend is served); nested gate: gated_no_gain
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
   PHASE 9 — evaluation / diagnostics  (1s)
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-2026-11-21 16:01:35,261 INFO moneyline OOF raw:    {"n": 1719, "auc": 0.7052600574359982, "logloss": 0.6244798292583267, "brier": 0.21759323274382222, "ece": 0.03457132402692468} (causal rolling blend)
-2026-11-21 16:01:35,268 INFO moneyline retrospective final-weight replay (NOT OOF / not selection evidence): {"n": 1719, "auc": 0.7070982275567337, "logloss": 0.6233064527365578, "brier": 0.21694852108671195, "ece": 0.04139258062225892}
-2026-11-21 16:01:35,268 INFO moneyline OOF calib:  {"n": 1719, "auc": 0.7052600574359982, "logloss": 0.6244798292583267, "brier": 0.21759323274382222, "ece": 0.03457132402692468}   [PREQUENTIAL per-fold maps, pooled: pooled auc is NOT comparable to raw]
-2026-11-21 16:01:35,269 INFO serving calibrator: identity (raw blend)
-2026-11-21 16:01:35,288 INFO   member xgboost       w=0.633 auc=0.7051 logloss=0.6246 brier=0.2174
-2026-11-21 16:01:35,288 INFO   member lightgbm      w=0.000 auc=0.6976 logloss=0.6300 brier=0.2199
-2026-11-21 16:01:35,288 INFO   member elasticnet    w=0.367 auc=0.7030 logloss=0.6272 brier=0.2188
+2026-11-22 07:26:19,099 INFO moneyline OOF raw:    {"n": 1719, "auc": 0.7052600574359982, "logloss": 0.6244798292583267, "brier": 0.21759323274382222, "ece": 0.03457132402692468} (causal rolling blend)
+2026-11-22 07:26:19,105 INFO moneyline retrospective final-weight replay (NOT OOF / not selection evidence): {"n": 1719, "auc": 0.7070982275567337, "logloss": 0.6233064527365578, "brier": 0.21694852108671195, "ece": 0.04139258062225892}
+2026-11-22 07:26:19,105 INFO moneyline OOF calib:  {"n": 1719, "auc": 0.7052600574359982, "logloss": 0.6244798292583267, "brier": 0.21759323274382222, "ece": 0.03457132402692468}   [PREQUENTIAL per-fold maps, pooled: pooled auc is NOT comparable to raw]
+2026-11-22 07:26:19,105 INFO serving calibrator: identity (raw blend)
+2026-11-22 07:26:19,121 INFO   member xgboost       w=0.633 auc=0.7051 logloss=0.6246 brier=0.2174
+2026-11-22 07:26:19,122 INFO   member lightgbm      w=0.000 auc=0.6976 logloss=0.6300 brier=0.2199
+2026-11-22 07:26:19,122 INFO   member elasticnet    w=0.367 auc=0.7030 logloss=0.6272 brier=0.2188
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
   PHASE 10 — final full-history refit  (1s)
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-final full-history refit: 100%|##########| 2/2 [00:04<00:00,  2.23s/it]
-2026-11-21 16:01:41,101 INFO final refit: 3 members + score-ensemble regressors on 2912 games (weights {'elasticnet': 0.3258, 'lightgbm': 0.466, 'xgboost': 0.2082})
+final full-history refit: 100%|##########| 2/2 [00:03<00:00,  1.95s/it]
+2026-11-22 07:26:24,231 INFO final refit: 3 members + score-ensemble regressors on 2912 games (weights {'elasticnet': 0.3258, 'lightgbm': 0.466, 'xgboost': 0.2082})
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
   PHASE 11 — current-slate serving  (4s)
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-2026-11-21 16:01:51,378 INFO NGS Super Bowl week reconciled: 20 row(s) moved to the schedule's week number
-2026-11-21 16:01:51,638 INFO ftn attribution: 210838 of 210838 charted play(s) bound to possession identity (0 without a PBP key in this window)
-2026-11-21 16:07:42,590 INFO slate games: 11
-2026-11-21 16:07:42,590 INFO markets: Monte-Carlo distribution over 2645 OOF game(s), MC_DRAWS=50000
-2026-11-21 16:08:05,495 INFO markets: OOF market rows built in 22.9s
-2026-11-21 16:08:05,495 INFO markets: prior-fold market calibration start (2645 OOF row(s))
-2026-11-21 16:08:05,592 INFO causal_distribution_frame: 2645 rows over 206 origins (n_draws=50000)
-2026-11-21 16:08:05,741 INFO causal_distribution_frame: origin 0/206 (0.1s)
-2026-11-21 16:08:13,757 INFO causal_distribution_frame: origin 25/206 (8.2s)
-2026-11-21 16:08:32,868 INFO causal_distribution_frame: origin 50/206 (27.3s)
-2026-11-21 16:09:00,438 INFO causal_distribution_frame: origin 75/206 (54.8s)
-2026-11-21 16:09:32,572 INFO causal_distribution_frame: origin 100/206 (87.0s)
-2026-11-21 16:10:17,292 INFO causal_distribution_frame: origin 125/206 (131.7s)
-2026-11-21 16:11:15,321 INFO causal_distribution_frame: origin 150/206 (189.7s)
-2026-11-21 16:12:19,342 INFO causal_distribution_frame: origin 175/206 (253.8s)
-2026-11-21 16:13:31,362 INFO causal_distribution_frame: origin 200/206 (325.8s)
-2026-11-21 16:14:15,335 INFO split-skew distribution OOF: {"method": "causal_split_skew_crps_mc", "roi_verified": false, "totals": {"n": 2645, "n_pushes": 0, "crps": 7.619143286980115, "auc": 0.5073519807697595, "logloss": 0.6930934208866143, "logscore": 0.6930934208866143, "brier": 0.2499731193900945, "predicted_mean": 0.5001546994328923, "actual_win_rate": 0.477882797731569, "ece_cover": 0.022271901701323316, "reliability": [{"n": 1290, "predicted": 0.49288877519379853, "actual": 0.47054263565891474, "gap": 0.02234613953488379}, {"n": 1355, "predicted": 0.507072073800738, "actual": 0.48487084870848707, "gap": 0.022201225092250976}], "calibration_in_the_large": 0.02227190170132326, "threshold_policy": "closest_half_point_to_model_50_percent"}, "run_line": {"n": 2645, "n_pushes": 0, "crps": 7.3366272992477874, "auc": 0.5046385875593796, "logloss": 0.6930993952336234, "logscore": 0.6930993952336234, "brier": 0.24997624804809074, "predicted_mean": 0.5000935198487713, "actual_win_rate": 0.5035916824196597, "ece_cover": 0.013426026465028374, "reliability": [{"n": 1329, "predicted": 0.4903068171557562, "actual": 0.5071482317531979, "gap": -0.016841414597441706}, {"n": 1316, "predicted": 0.5099768996960486, "actual": 0.5, "gap": 0.009976899696048647}], "calibration_in_the_large": -0.003498162570888419, "threshold_policy": "closest_half_point_to_model_50_percent"}, "derived_moneyline": {"n": 2636, "n_ties": 9, "auc": 0.7000736507273735, "logloss": 0.6292506713460456, "brier": 0.21954347120826107, "settlement": "conditional_non_tie"}, "fixed_thresholds": {"total_38.0": {"n": 2645, "auc": 0.6110783784932752, "logloss": 0.6053295456658035, "brier": 0.20831712802767482, "reliability": [{"n": 26, "predicted": 0.47801692307692306, "actual": 0.46153846153846156}, {"n": 294, "predicted": 0.5674630612244898, "actual": 0.5816326530612245}, {"n": 1105, "predicted": 0.6550538099547512, "actual": 0.6452488687782806}, {"n": 1018, "predicted": 0.7454621611001965, "actual": 0.7288801571709234}, {"n": 201, "predicted": 0.8259446766169154, "actual": 0.8805970149253731}, {"n": 1, "predicted": 0.91222, "actual": 1.0}], "event": "strict_exceedance_including_push_as_nonwin"}, "total_44.0": {"n": 2645, "auc": 0.6157799246829674, "logloss": 0.6735013132736114, "brier": 0.2403556136205671, "reliability": [{"n": 10, "predicted": 0.281826, "actual": 0.2}, {"n": 189, "predicted": 0.3668865608465608, "actual": 0.37037037037037035}, {"n": 853, "predicted": 0.4574314654161782, "actual": 0.4196951934349355}, {"n": 1016, "predicted": 0.5469588976377953, "actual": 0.5226377952755905}, {"n": 505, "predicted": 0.6392015049504951, "actual": 0.6316831683168317}, {"n": 71, "predicted": 0.7284630985915493, "actual": 0.7464788732394366}, {"n": 1, "predicted": 0.83594, "actual": 1.0}], "event": "strict_exceedance_including_push_as_nonwin"}, "total_50.0": {"n": 2645, "auc": 0.6207068814787062, "logloss": 0.6264329481153814, "brier": 0.2179015621395841, "reliability": [{"n": 50, "predicted": 0.17717319999999998, "actual": 0.16}, {"n": 580, "predicted": 0.2629901379310345, "actual": 0.24310344827586206}, {"n": 1135, "predicted": 0.3483703436123348, "actual": 0.32158590308370044}, {"n": 699, "predicted": 0.4436369670958512, "actual": 0.43490701001430615}, {"n": 166, "predicted": 0.5359968674698795, "actual": 0.5602409638554217}, {"n": 14, "predicted": 0.6270300000000001, "actual": 0.42857142857142855}, {"n": 1, "predicted": 0.72586, "actual": 1.0}], "event": "strict_exceedance_including_push_as_nonwin"}, "margin_-5.5": {"n": 2645, "auc": 0.6800917748917749, "logloss": 0.5603738718228887, "brier": 0.18956779124809076, "reliability": [{"n": 1, "predicted": 0.2983, "actual": 0.0}, {"n": 41, "predicted": 0.3687746341463415, "actual": 0.43902439024390244}, {"n": 170, "predicted": 0.45939317647058825, "actual": 0.5058823529411764}, {"n": 426, "predicted": 0.5528415962441314, "actual": 0.5375586854460094}, {"n": 617, "predicted": 0.6536507293354944, "actual": 0.6774716369529984}, {"n": 776, "predicted": 0.7507758505154638, "actual": 0.7564432989690721}, {"n": 530, "predicted": 0.843894716981132, "actual": 0.8566037735849057}, {"n": 84, "predicted": 0.9169816666666667, "actual": 0.9880952380952381}], "event": "strict_exceedance_including_push_as_nonwin"}, "margin_0.5": {"n": 2645, "auc": 0.7005201947463612, "logloss": 0.6293919275092209, "brier": 0.2195878301861625, "reliability": [{"n": 5, "predicted": 0.18594800000000003, "actual": 0.0}, {"n": 113, "predicted": 0.25958513274336287, "actual": 0.3274336283185841}, {"n": 391, "predicted": 0.3568620971867008, "actual": 0.2813299232736573}, {"n": 517, "predicted": 0.45386034816247584, "actual": 0.4274661508704062}, {"n": 625, "predicted": 0.5509149760000001, "actual": 0.5568}, {"n": 604, "predicted": 0.6470245695364237, "actual": 0.6688741721854304}, {"n": 329, "predicted": 0.7451765349544073, "actual": 0.7750759878419453}, {"n": 61, "predicted": 0.8278124590163933, "actual": 0.9180327868852459}], "event": "strict_exceedance_including_push_as_nonwin"}, "margin_5.5": {"n": 2645, "auc": 0.694865945870757, "logloss": 0.6074111747743717, "brier": 0.20954905745285446, "reliability": [{"n": 10, "predicted": 0.091018, "actual": 0.0}, {"n": 259, "predicted": 0.16208725868725868, "actual": 0.16216216216216217}, {"n": 569, "predicted": 0.24914745166959582, "actual": 0.210896309314587}, {"n": 654, "predicted": 0.3508536085626911, "actual": 0.3302752293577982}, {"n": 620, "predicted": 0.4503364516129032, "actual": 0.4596774193548387}, {"n": 369, "predicted": 0.5457915447154471, "actual": 0.5826558265582655}, {"n": 151, "predicted": 0.6365923178807947, "actual": 0.6821192052980133}, {"n": 13, "predicted": 0.7402615384615386, "actual": 0.7692307692307693}], "event": "strict_exceedance_including_push_as_nonwin"}}, "conditional_crps": {"season_2017": {"n": 267, "total": 8.107209728665168, "margin": 7.796968085408242}, "season_2018": {"n": 267, "total": 7.971387620431463, "margin": 7.381553262046443}, "season_2019": {"n": 267, "total": 7.609692406106366, "margin": 7.557296638513858}, "season_2020": {"n": 269, "total": 7.723398701440892, "margin": 7.236836866434201}, "season_2021": {"n": 285, "total": 7.53799868800421, "margin": 7.9148868441403515}, "season_2022": {"n": 284, "total": 7.665740700356338, "margin": 6.564179135909858}, "season_2023": {"n": 285, "total": 7.371248127448423, "margin": 7.511431176030877}, "season_2024": {"n": 285, "total": 7.0683953635480705, "margin": 7.170974998037895}, "season_2025": {"n": 285, "total": 7.583074081329122, "margin": 7.122719267232282}, "season_2026": {"n": 151, "total": 7.605244275764238, "margin": 6.978651067793377}}, "tilt_watch": {"tilt": {"slope": 8.656, "intercept": 0.107, "sign_ok": true, "origin_slopes": [4.946, 6.389, 10.683, 9.228, 8.36, 5.744, 0.59, 2.345, 1.186, 0.307, -0.679, -0.423, -1.833, -2.449, -2.742, -2.394, -0.432, -0.177, -0.156, -0.643, -0.25, 0.441, -1.067, -1.757, -0.135, -0.281, 0.553, 0.042, 0.134, 0.271, 0.448, 0.699, 1.037, 1.044, 0.836, 1.519, 2.293, 2.361, 3.065, 3.361, 4.6, 4.272, 5.021, 4.982, 4.82, 5.156, 4.24, 4.619, 4.638, 4.395, 5.5, 4.702, 3.682, 3.84, 3.45, 3.554, 4.455, 4.971, 4.206, 4.394, 3.994, 3.272, 3.28, 3.575, 3.092, 3.293, 4.221, 4.317, 3.964, 3.625, 3.478, 3.7, 4.643, 4.241, 4.177, 4.074, 3.888, 3.062, 2.584, 2.063, 2.897, 3.102, 3.149, 3.782, 3.962, 3.111, 2.931, 3.297, 2.883, 3.155, 3.006, 3.264, 3.735, 4.091, 3.708, 4.032, 3.827, 3.72, 4.05, 4.122, 3.708, 4.024, 4.558, 4.41, 4.477, 4.346, 4.602, 5.02, 5.628, 5.751, 6.534, 7.27, 7.159, 7.136, 6.803, 6.388, 6.641, 7.152, 6.99, 6.877, 6.875, 7.065, 7.409, 7.091, 7.436, 7.178, 7.426, 7.434, 7.572, 7.731, 8.196, 8.002, 7.681, 6.876, 7.408, 7.458, 7.022, 7.485, 7.239, 6.735, 7.175, 7.349, 7.465, 7.661, 7.739, 7.839, 8.132, 7.865, 7.909, 7.47, 7.037, 6.675, 6.981, 7.016, 6.944, 6.931, 7.187, 7.428, 7.678, 7.74, 7.547, 7.561, 7.513, 7.634, 7.639, 7.674, 7.982, 8.074, 8.435, 8.412, 8.6, 8.678, 8.25, 8.25, 8.25, 8.25], "origin_sign_flips": 15}, "top_quintile_over_230": {"n": 529, "q80": 48.12, "predicted": 0.5748, "actual": 0.5614, "gap": -0.0134}}}
-2026-11-21 16:14:15,444 INFO markets: prior-fold market calibration applied in 369.9s (2645 OOF row(s))
-2026-11-21 16:14:15,452 INFO RFE: not run (NFL_RFE_FORCE not set)
+2026-11-22 07:26:34,453 INFO NGS Super Bowl week reconciled: 20 row(s) moved to the schedule's week number
+2026-11-22 07:26:34,737 INFO ftn attribution: 210838 of 210838 charted play(s) bound to possession identity (0 without a PBP key in this window)
+2026-11-22 07:32:20,707 INFO slate games: 11
+2026-11-22 07:32:20,708 INFO markets: Monte-Carlo distribution over 2645 OOF game(s), MC_DRAWS=50000
+2026-11-22 07:32:37,867 INFO markets: OOF market rows built in 17.2s
+2026-11-22 07:32:37,867 INFO markets: prior-fold market calibration start (2645 OOF row(s))
+2026-11-22 07:32:37,976 INFO causal_distribution_frame: 2645 rows over 206 origins (n_draws=50000)
+2026-11-22 07:32:38,094 INFO causal_distribution_frame: origin 0/206 (0.1s)
+2026-11-22 07:32:45,145 INFO causal_distribution_frame: origin 25/206 (7.2s)
+2026-11-22 07:33:03,080 INFO causal_distribution_frame: origin 50/206 (25.1s)
+2026-11-22 07:33:30,140 INFO causal_distribution_frame: origin 75/206 (52.2s)
+2026-11-22 07:34:00,407 INFO causal_distribution_frame: origin 100/206 (82.4s)
+2026-11-22 07:34:42,975 INFO causal_distribution_frame: origin 125/206 (125.0s)
+2026-11-22 07:35:39,813 INFO causal_distribution_frame: origin 150/206 (181.8s)
+2026-11-22 07:36:48,418 INFO causal_distribution_frame: origin 175/206 (250.4s)
+2026-11-22 07:38:08,401 INFO causal_distribution_frame: origin 200/206 (330.4s)
+2026-11-22 07:38:47,893 INFO split-skew distribution OOF: {"method": "causal_split_skew_crps_mc", "roi_verified": false, "totals": {"n": 2645, "n_pushes": 0, "crps": 7.619143965813081, "auc": 0.5073453927167069, "logloss": 0.6930934879610837, "logscore": 0.6930934879610837, "brier": 0.24997315287894142, "predicted_mean": 0.5001548279773157, "actual_win_rate": 0.477882797731569, "ece_cover": 0.022272030245746692, "reliability": [{"n": 1291, "predicted": 0.49289454686289697, "actual": 0.47095274980635166, "gap": 0.02194179705654531}, {"n": 1354, "predicted": 0.5070772968980798, "actual": 0.4844903988183161, "gap": 0.022586898079763662}], "calibration_in_the_large": 0.0222720302457467, "threshold_policy": "closest_half_point_to_model_50_percent"}, "run_line": {"n": 2645, "n_pushes": 0, "crps": 7.336626794847183, "auc": 0.5051214580917551, "logloss": 0.6930830915998548, "logscore": 0.6930830915998548, "brier": 0.2499680972679017, "predicted_mean": 0.500085202268431, "actual_win_rate": 0.5035916824196597, "ece_cover": 0.0130481512287334, "reliability": [{"n": 1330, "predicted": 0.49030563909774444, "actual": 0.5067669172932331, "gap": -0.01646127819548865}, {"n": 1315, "predicted": 0.5099763193916349, "actual": 0.5003802281368821, "gap": 0.009596091254752803}], "calibration_in_the_large": -0.0035064801512286747, "threshold_policy": "closest_half_point_to_model_50_percent"}, "derived_moneyline": {"n": 2636, "n_ties": 9, "auc": 0.7000742306543606, "logloss": 0.6292507269262198, "brier": 0.21954351124169993, "settlement": "conditional_non_tie"}, "fixed_thresholds": {"total_38.0": {"n": 2645, "auc": 0.6110767178756848, "logloss": 0.6053291364113426, "brier": 0.20831694544075616, "reliability": [{"n": 26, "predicted": 0.4780184615384615, "actual": 0.46153846153846156}, {"n": 294, "predicted": 0.5674634013605443, "actual": 0.5816326530612245}, {"n": 1105, "predicted": 0.6550539547511313, "actual": 0.6452488687782806}, {"n": 1018, "predicted": 0.7454619646365424, "actual": 0.7288801571709234}, {"n": 201, "predicted": 0.8259441791044776, "actual": 0.8805970149253731}, {"n": 1, "predicted": 0.91222, "actual": 1.0}], "event": "strict_exceedance_including_push_as_nonwin"}, "total_44.0": {"n": 2645, "auc": 0.615775922107596, "logloss": 0.6735017899905243, "brier": 0.24035583880695655, "reliability": [{"n": 10, "predicted": 0.28182799999999997, "actual": 0.2}, {"n": 189, "predicted": 0.3668880423280423, "actual": 0.37037037037037035}, {"n": 853, "predicted": 0.45743169988276666, "actual": 0.4196951934349355}, {"n": 1016, "predicted": 0.5469586614173229, "actual": 0.5226377952755905}, {"n": 505, "predicted": 0.6392002772277228, "actual": 0.6316831683168317}, {"n": 71, "predicted": 0.72846, "actual": 0.7464788732394366}, {"n": 1, "predicted": 0.83594, "actual": 1.0}], "event": "strict_exceedance_including_push_as_nonwin"}, "total_50.0": {"n": 2645, "auc": 0.6207062507174909, "logloss": 0.6264327692664152, "brier": 0.2179014942682798, "reliability": [{"n": 50, "predicted": 0.1771736, "actual": 0.16}, {"n": 580, "predicted": 0.2629906896551724, "actual": 0.24310344827586206}, {"n": 1135, "predicted": 0.34837059030837003, "actual": 0.32158590308370044}, {"n": 699, "predicted": 0.4436370815450643, "actual": 0.43490701001430615}, {"n": 166, "predicted": 0.5359960240963856, "actual": 0.5602409638554217}, {"n": 14, "predicted": 0.6270257142857142, "actual": 0.42857142857142855}, {"n": 1, "predicted": 0.72586, "actual": 1.0}], "event": "strict_exceedance_including_push_as_nonwin"}, "margin_-5.5": {"n": 2645, "auc": 0.6800914285714286, "logloss": 0.5603742862417178, "brier": 0.18956795993300565, "reliability": [{"n": 1, "predicted": 0.2983, "actual": 0.0}, {"n": 41, "predicted": 0.36877512195121953, "actual": 0.43902439024390244}, {"n": 170, "predicted": 0.4593925882352941, "actual": 0.5058823529411764}, {"n": 426, "predicted": 0.5528407042253521, "actual": 0.5375586854460094}, {"n": 617, "predicted": 0.6536505024311183, "actual": 0.6774716369529984}, {"n": 776, "predicted": 0.7507763144329896, "actual": 0.7564432989690721}, {"n": 530, "predicted": 0.843895283018868, "actual": 0.8566037735849057}, {"n": 84, "predicted": 0.9169821428571429, "actual": 0.9880952380952381}], "event": "strict_exceedance_including_push_as_nonwin"}, "margin_0.5": {"n": 2645, "auc": 0.7005213460017476, "logloss": 0.6293917165218468, "brier": 0.21958776828189036, "reliability": [{"n": 5, "predicted": 0.18594800000000003, "actual": 0.0}, {"n": 113, "predicted": 0.2595863716814159, "actual": 0.3274336283185841}, {"n": 391, "predicted": 0.3568621483375959, "actual": 0.2813299232736573}, {"n": 517, "predicted": 0.45386050290135393, "actual": 0.4274661508704062}, {"n": 625, "predicted": 0.550914848, "actual": 0.5568}, {"n": 604, "predicted": 0.6470246688741722, "actual": 0.6688741721854304}, {"n": 329, "predicted": 0.7451768389057751, "actual": 0.7750759878419453}, {"n": 61, "predicted": 0.8278131147540982, "actual": 0.9180327868852459}], "event": "strict_exceedance_including_push_as_nonwin"}, "margin_5.5": {"n": 2645, "auc": 0.694866860999296, "logloss": 0.6074111481901314, "brier": 0.2095490897961437, "reliability": [{"n": 10, "predicted": 0.091018, "actual": 0.0}, {"n": 259, "predicted": 0.16208880308880308, "actual": 0.16216216216216217}, {"n": 569, "predicted": 0.24914833040421794, "actual": 0.210896309314587}, {"n": 654, "predicted": 0.3508538837920489, "actual": 0.3302752293577982}, {"n": 620, "predicted": 0.45033683870967745, "actual": 0.4596774193548387}, {"n": 369, "predicted": 0.5457912195121951, "actual": 0.5826558265582655}, {"n": 151, "predicted": 0.6365919205298014, "actual": 0.6821192052980133}, {"n": 13, "predicted": 0.740263076923077, "actual": 0.7692307692307693}], "event": "strict_exceedance_including_push_as_nonwin"}}, "conditional_crps": {"season_2017": {"n": 267, "total": 8.107224937541574, "margin": 7.79698120636105}, "season_2018": {"n": 267, "total": 7.97137976896779, "margin": 7.381543416876403}, "season_2019": {"n": 267, "total": 7.609692582331086, "margin": 7.557296463468165}, "season_2020": {"n": 269, "total": 7.7233918383360605, "margin": 7.236832434739033}, "season_2021": {"n": 285, "total": 7.537996602785965, "margin": 7.9148887809712285}, "season_2022": {"n": 284, "total": 7.665747587657746, "margin": 6.56418115791831}, "season_2023": {"n": 285, "total": 7.371247919978946, "margin": 7.511431111981755}, "season_2024": {"n": 285, "total": 7.068392059580351, "margin": 7.17097619885193}, "season_2025": {"n": 285, "total": 7.5830744003831585, "margin": 7.122716062098245}, "season_2026": {"n": 151, "total": 7.605252079274171, "margin": 6.978641089830462}}, "tilt_watch": {"tilt": {"slope": 8.656, "intercept": 0.107, "sign_ok": true, "origin_slopes": [4.945, 6.388, 10.681, 9.226, 8.359, 5.742, 0.589, 2.344, 1.185, 0.306, -0.68, -0.423, -1.834, -2.45, -2.743, -2.395, -0.433, -0.178, -0.157, -0.643, -0.251, 0.44, -1.068, -1.758, -0.136, -0.281, 0.552, 0.042, 0.133, 0.27, 0.448, 0.698, 1.036, 1.043, 0.836, 1.519, 2.292, 2.36, 3.064, 3.36, 4.6, 4.271, 5.02, 4.981, 4.82, 5.156, 4.24, 4.619, 4.638, 4.395, 5.5, 4.702, 3.682, 3.84, 3.45, 3.554, 4.455, 4.971, 4.206, 4.394, 3.994, 3.272, 3.28, 3.575, 3.092, 3.293, 4.221, 4.317, 3.964, 3.625, 3.478, 3.7, 4.643, 4.241, 4.177, 4.074, 3.888, 3.062, 2.584, 2.063, 2.897, 3.102, 3.149, 3.782, 3.962, 3.11, 2.931, 3.297, 2.883, 3.155, 3.006, 3.264, 3.734, 4.091, 3.708, 4.032, 3.827, 3.719, 4.05, 4.122, 3.708, 4.024, 4.558, 4.41, 4.477, 4.346, 4.602, 5.019, 5.628, 5.751, 6.534, 7.27, 7.159, 7.136, 6.803, 6.388, 6.641, 7.152, 6.99, 6.877, 6.875, 7.065, 7.409, 7.091, 7.436, 7.178, 7.426, 7.434, 7.572, 7.731, 8.196, 8.002, 7.681, 6.876, 7.408, 7.458, 7.022, 7.485, 7.239, 6.735, 7.175, 7.349, 7.465, 7.661, 7.739, 7.839, 8.132, 7.865, 7.909, 7.47, 7.037, 6.675, 6.981, 7.016, 6.944, 6.931, 7.187, 7.428, 7.678, 7.74, 7.547, 7.561, 7.513, 7.634, 7.639, 7.674, 7.982, 8.074, 8.436, 8.413, 8.6, 8.678, 8.25, 8.25, 8.25, 8.25], "origin_sign_flips": 15}, "top_quintile_over_230": {"n": 529, "q80": 48.12, "predicted": 0.5748, "actual": 0.5614, "gap": -0.0134}}}
+2026-11-22 07:38:47,975 INFO markets: prior-fold market calibration applied in 370.1s (2645 OOF row(s))
+2026-11-22 07:38:47,983 INFO RFE: not run (NFL_RFE_FORCE not set)
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-  PHASE 12 — artifact persistence  (754s)
+  PHASE 12 — artifact persistence  (744s)
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-2026-11-21 16:14:16,979 INFO cards history store: 2645 rows rebuilt from this run's OOF under NFL_FULL_REPULL=1 (no prior ledger read) -> nfl_production_cards_history.csv
-2026-11-21 16:14:17,014 INFO dated board snapshots: 1 date(s) -> nfl_board_20261122.csv
-2026-11-21 16:14:31,860 INFO NFL SHAP attributions written for 11 games
-2026-11-21 16:14:31,864 INFO SHAP attribution cards: 11 written this run (137 on disk, all retained)
+2026-11-22 07:38:49,244 INFO cards history store: 2645 rows rebuilt from this run's OOF under NFL_FULL_REPULL=1 (no prior ledger read) -> nfl_production_cards_history.csv
+2026-11-22 07:38:49,291 INFO dated board snapshots: 1 date(s) -> nfl_board_20261122.csv
+2026-11-22 07:39:03,448 INFO NFL SHAP attributions written for 11 games
+2026-11-22 07:39:03,450 INFO SHAP attribution cards: 11 written this run (136 on disk, all retained)
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-  PHASE 13 — monitoring  (16s)
+  PHASE 13 — monitoring  (15s)
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 /kaggle/working/sports_prediction_model/nfl-backend/backend/monitoring.py:580: RuntimeWarning: Degrees of freedom <= 0 for slice
@@ -355,90 +359,71 @@ final full-history refit: 100%|##########| 2/2 [00:04<00:00,  2.23s/it]
   arrmean = um.true_divide(arrmean, div, out=arrmean,
 /usr/local/lib/python3.12/dist-packages/numpy/_core/_methods.py:210: RuntimeWarning: invalid value encountered in scalar divide
   ret = ret.dtype.type(ret / rcount)
-2026-11-21 16:14:32,756 INFO Feature drift [moneyline]: 79 features, 75 evaluated, 2 STRUCTURAL, 2 INSUFFICIENT, 0 warnings, 3 alerts, 0 seasonal (statuses on noise-adjusted PSI; mean noise floor 0.144)
+2026-11-22 07:39:04,278 INFO Feature drift [moneyline]: 79 features, 75 evaluated, 2 STRUCTURAL, 2 INSUFFICIENT, 0 warnings, 3 alerts, 0 seasonal (statuses on noise-adjusted PSI; mean noise floor 0.144)
 /kaggle/working/sports_prediction_model/nfl-backend/backend/monitoring.py:580: RuntimeWarning: Degrees of freedom <= 0 for slice
   + (n_cur_n - 1) * _cur_vals.var(ddof=1))
 /usr/local/lib/python3.12/dist-packages/numpy/_core/_methods.py:175: RuntimeWarning: invalid value encountered in divide
   arrmean = um.true_divide(arrmean, div, out=arrmean,
 /usr/local/lib/python3.12/dist-packages/numpy/_core/_methods.py:210: RuntimeWarning: invalid value encountered in scalar divide
   ret = ret.dtype.type(ret / rcount)
-2026-11-21 16:14:33,698 INFO Feature drift [run-engine]: 79 features, 75 evaluated, 2 STRUCTURAL, 2 INSUFFICIENT, 0 warnings, 3 alerts, 0 seasonal (statuses on noise-adjusted PSI; mean noise floor 0.144)
-2026-11-21 16:14:34,186 INFO Rolling Brier: 572 points (2017-09-07 -> 2026-11-19), 2645 games, 0 sparse days excluded (<1 games/day), mean 0.2191
-2026-11-21 16:14:34,230 INFO monitoring: 79 features scored, 3 drift (ALERT/WARN), 2 insufficient-window, 2 drift structural, 1 coverage (STARVED/LOW), 8 coverage structural (documented policy)
-2026-11-21 16:14:34,230 WARNING   drift   inj_ol_out_home                    ALERT        psi_adj=0.274 (raw 0.358, null 0.085 med 0.060)
-2026-11-21 16:14:34,231 WARNING   drift   inj_ol_out_away                    ALERT        psi_adj=0.334 (raw 0.419, null 0.084 med 0.057)
-2026-11-21 16:14:34,231 WARNING   drift   ol_snaps_lost_share_away           ALERT        psi_adj=0.390 (raw 0.574, null 0.183 med 0.157)
-2026-11-21 16:14:34,231 WARNING   drift   is_turf_home                       INSUFFICIENT psi_adj=nan (raw nan, null 0.000 med nan)
-2026-11-21 16:14:34,231 WARNING   drift   is_precip                          INSUFFICIENT psi_adj=nan (raw nan, null 0.137 med nan)
-2026-11-21 16:14:34,231 INFO   drift   is_snow                            STRUCTURAL   constant 0 in both windows (cannot drift)
-2026-11-21 16:14:34,231 INFO   drift   is_home                            STRUCTURAL   constant 1 in both windows (cannot drift)
-2026-11-21 16:14:34,231 WARNING   coverage is_turf_home                     STARVED       0.0%
-2026-11-21 16:14:34,231 WARNING   full tables: run_engine_feature_drift_20261121.csv, run_engine_feature_coverage_20261121.csv
+2026-11-22 07:39:05,084 INFO Feature drift [run-engine]: 79 features, 75 evaluated, 2 STRUCTURAL, 2 INSUFFICIENT, 0 warnings, 3 alerts, 0 seasonal (statuses on noise-adjusted PSI; mean noise floor 0.144)
+2026-11-22 07:39:05,611 INFO Rolling Brier: 572 points (2017-09-07 -> 2026-11-19), 2645 games, 0 sparse days excluded (<1 games/day), mean 0.2191
+2026-11-22 07:39:05,650 INFO monitoring: 79 features scored, 3 drift (ALERT/WARN), 2 insufficient-window, 2 drift structural, 1 coverage (STARVED/LOW), 8 coverage structural (documented policy)
+2026-11-22 07:39:05,650 WARNING   drift   inj_ol_out_home                    ALERT        psi_adj=0.274 (raw 0.358, null 0.085 med 0.060)
+2026-11-22 07:39:05,650 WARNING   drift   inj_ol_out_away                    ALERT        psi_adj=0.334 (raw 0.419, null 0.084 med 0.057)
+2026-11-22 07:39:05,650 WARNING   drift   ol_snaps_lost_share_away           ALERT        psi_adj=0.390 (raw 0.574, null 0.183 med 0.157)
+2026-11-22 07:39:05,650 WARNING   drift   is_turf_home                       INSUFFICIENT psi_adj=nan (raw nan, null 0.000 med nan)
+2026-11-22 07:39:05,651 WARNING   drift   is_precip                          INSUFFICIENT psi_adj=nan (raw nan, null 0.137 med nan)
+2026-11-22 07:39:05,651 INFO   drift   is_snow                            STRUCTURAL   constant 0 in both windows (cannot drift)
+2026-11-22 07:39:05,651 INFO   drift   is_home                            STRUCTURAL   constant 1 in both windows (cannot drift)
+2026-11-22 07:39:05,651 WARNING   coverage is_turf_home                     STARVED       0.0%
+2026-11-22 07:39:05,651 WARNING   full tables: run_engine_feature_drift_20261122.csv, run_engine_feature_coverage_20261122.csv
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
   PHASE 14 — schema validation  (2s)
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-2026-11-21 16:14:34,568 INFO gate ml_probability_bounds        PASS
-2026-11-21 16:14:34,568 INFO gate oof_population               PASS
-2026-11-21 16:14:34,568 INFO gate spread_grid_coherent         PASS
-2026-11-21 16:14:34,568 INFO gate totals_grid_coherent         PASS
-2026-11-21 16:14:34,569 INFO gate markets_has_slate            PASS
-2026-11-21 16:14:34,569 INFO gate slate_contract_fields        PASS
-2026-11-21 16:14:34,569 INFO gate fold_geometry                PASS
-2026-11-21 16:14:34,569 INFO gate season_openers_ingested      PASS
-2026-11-21 16:14:34,569 INFO artifacts written: 151
-2026-11-21 16:14:34,569 INFO   -> nfl_moneyline_v1_20261121.json
-2026-11-21 16:14:34,569 INFO   -> nfl_qb_matchup_20261121.json
-2026-11-21 16:14:34,569 INFO   -> nfl_calibration_20261121.json
-2026-11-21 16:14:34,569 INFO   -> nfl_predictions_history_20261121.csv
-2026-11-21 16:14:34,570 INFO   -> nfl_production_cards_history.csv
-2026-11-21 16:14:34,570 INFO   -> nfl_board_20261122.csv
-2026-11-21 16:14:34,570 INFO   -> nfl_power_rankings_20261121.csv
-2026-11-21 16:14:34,570 INFO   -> nfl_run_engine_markets_20261121.csv
-2026-11-21 16:14:34,570 INFO   -> nfl_run_engine_monitor_20261121.json
-2026-11-21 16:14:34,570 INFO   -> nfl_feature_v1_20261121.json
-2026-11-21 16:14:34,570 INFO   -> nfl_ensemble_latest.joblib
-2026-11-21 16:14:34,570 INFO   -> run_engine_feature_drift_20261121.csv
-2026-11-21 16:14:34,570 INFO   -> run_engine_feature_coverage_20261121.csv
-2026-11-21 16:14:34,570 INFO   -> nfl_model_monitor_20261121.json
-2026-11-21 16:14:34,570 INFO   -> nfl_shap_game_*.csv (137 per-game cards, e.g. nfl_shap_game_2026_09_BUF_MIN.csv .. nfl_shap_game_2026_18_TEN_HOU.csv)
-2026-11-21 16:14:34,618 INFO retention: kept 166 protected file(s)
-2026-11-21 16:14:34,618 INFO retention: kept 109 artifact(s) within the window (anchor 20261121 -10d)
-2026-11-21 16:14:34,618 INFO retention: pruned stale artifact nfl_board_20261109.csv
-2026-11-21 16:14:34,619 INFO retention: pruned stale artifact nfl_calibration_20261109.json
-2026-11-21 16:14:34,619 INFO retention: pruned stale artifact nfl_calibration_20261110.json
-2026-11-21 16:14:34,620 INFO retention: pruned stale artifact nfl_feature_v1_20261109.json
-2026-11-21 16:14:34,620 INFO retention: pruned stale artifact nfl_feature_v1_20261110.json
-2026-11-21 16:14:34,620 INFO retention: pruned stale artifact nfl_model_monitor_20261109.json
-2026-11-21 16:14:34,620 INFO retention: pruned stale artifact nfl_model_monitor_20261110.json
-2026-11-21 16:14:34,620 INFO retention: pruned stale artifact nfl_moneyline_v1_20261109.json
-2026-11-21 16:14:34,620 INFO retention: pruned stale artifact nfl_power_rankings_20261109.csv
-2026-11-21 16:14:34,620 INFO retention: pruned stale artifact nfl_power_rankings_20261110.csv
-2026-11-21 16:14:34,621 INFO retention: pruned stale artifact nfl_predictions_history_20261110.csv
-2026-11-21 16:14:34,621 INFO retention: pruned stale artifact nfl_qb_matchup_20261109.json
-2026-11-21 16:14:34,623 INFO retention: pruned stale artifact nfl_run_engine_markets_20261109.csv
-2026-11-21 16:14:34,623 INFO retention: pruned stale artifact nfl_run_engine_markets_20261109.meta.json
-2026-11-21 16:14:34,624 INFO retention: pruned stale artifact nfl_run_engine_markets_20261110.csv
-2026-11-21 16:14:34,625 INFO retention: pruned stale artifact nfl_run_engine_markets_20261110.meta.json
-2026-11-21 16:14:34,625 INFO retention: pruned stale artifact nfl_shap_game_2026_09_BUF_MIN.csv
-2026-11-21 16:14:34,625 INFO retention: pruned stale artifact run_engine_feature_coverage_20261109.csv
-2026-11-21 16:14:34,625 INFO retention: pruned stale artifact run_engine_feature_coverage_20261110.csv
-2026-11-21 16:14:34,626 INFO retention: pruned stale artifact run_engine_feature_drift_20261109.csv
-2026-11-21 16:14:34,626 INFO retention: pruned stale artifact run_engine_feature_drift_20261110.csv
-2026-11-21 16:14:34,626 INFO retention: removed 21 stale file(s)
+2026-11-22 07:39:06,097 INFO gate ml_probability_bounds        PASS
+2026-11-22 07:39:06,097 INFO gate oof_population               PASS
+2026-11-22 07:39:06,097 INFO gate spread_grid_coherent         PASS
+2026-11-22 07:39:06,097 INFO gate totals_grid_coherent         PASS
+2026-11-22 07:39:06,098 INFO gate markets_has_slate            PASS
+2026-11-22 07:39:06,098 INFO gate slate_contract_fields        PASS
+2026-11-22 07:39:06,098 INFO gate fold_geometry                PASS
+2026-11-22 07:39:06,098 INFO gate season_openers_ingested      PASS
+2026-11-22 07:39:06,098 INFO artifacts written: 150
+2026-11-22 07:39:06,098 INFO   -> nfl_moneyline_v1_20261122.json
+2026-11-22 07:39:06,099 INFO   -> nfl_qb_matchup_20261122.json
+2026-11-22 07:39:06,099 INFO   -> nfl_calibration_20261122.json
+2026-11-22 07:39:06,099 INFO   -> nfl_predictions_history_20261122.csv
+2026-11-22 07:39:06,099 INFO   -> nfl_production_cards_history.csv
+2026-11-22 07:39:06,099 INFO   -> nfl_board_20261122.csv
+2026-11-22 07:39:06,099 INFO   -> nfl_power_rankings_20261122.csv
+2026-11-22 07:39:06,099 INFO   -> nfl_run_engine_markets_20261122.csv
+2026-11-22 07:39:06,100 INFO   -> nfl_run_engine_monitor_20261122.json
+2026-11-22 07:39:06,100 INFO   -> nfl_feature_v1_20261122.json
+2026-11-22 07:39:06,100 INFO   -> nfl_ensemble_latest.joblib
+2026-11-22 07:39:06,100 INFO   -> run_engine_feature_drift_20261122.csv
+2026-11-22 07:39:06,100 INFO   -> run_engine_feature_coverage_20261122.csv
+2026-11-22 07:39:06,100 INFO   -> nfl_model_monitor_20261122.json
+2026-11-22 07:39:06,101 INFO   -> nfl_shap_game_*.csv (136 per-game cards, e.g. nfl_shap_game_2026_10_BUF_NYJ.csv .. nfl_shap_game_2026_18_TEN_HOU.csv)
+2026-11-22 07:39:06,143 INFO retention: kept 167 protected file(s)
+2026-11-22 07:39:06,143 INFO retention: kept 108 artifact(s) within the window (anchor 20261122 -10d)
+2026-11-22 07:39:06,144 INFO retention: pruned stale artifact nfl_calibration_20261111.json
+2026-11-22 07:39:06,144 INFO retention: pruned stale artifact nfl_feature_v1_20261111.json
+2026-11-22 07:39:06,145 INFO retention: pruned stale artifact nfl_model_monitor_20261111.json
+2026-11-22 07:39:06,145 INFO retention: pruned stale artifact nfl_moneyline_v1_20261111.json
+2026-11-22 07:39:06,145 INFO retention: pruned stale artifact nfl_power_rankings_20261111.csv
+2026-11-22 07:39:06,145 INFO retention: pruned stale artifact nfl_predictions_history_20261109.csv
+2026-11-22 07:39:06,146 INFO retention: pruned stale artifact nfl_predictions_history_20261111.csv
+2026-11-22 07:39:06,146 INFO retention: pruned stale artifact nfl_qb_matchup_20261111.json
+2026-11-22 07:39:06,148 INFO retention: pruned stale artifact nfl_run_engine_markets_20261111.csv
+2026-11-22 07:39:06,148 INFO retention: pruned stale artifact nfl_run_engine_markets_20261111.meta.json
+2026-11-22 07:39:06,148 INFO retention: pruned stale artifact run_engine_feature_coverage_20261111.csv
+2026-11-22 07:39:06,148 INFO retention: pruned stale artifact run_engine_feature_drift_20261111.csv
+2026-11-22 07:39:06,148 INFO retention: removed 12 stale file(s)
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-  DONE — 151 artifacts in 2231s
+  DONE — 150 artifacts in 2407s
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-NFL artifacts pushed and remotely verified: 41 files
-
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-  run delivery
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-
-  status ok, 2241s
-  artifacts — 41 file(s) committed to main at d7ef22558d, remotely verified
-  run log — this file, re-delivered after the sync so the run's final state ships with it
-  📝 Final run-log delivery — pushing the complete log (the sync staged a snapshot before sync finished)
