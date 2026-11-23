@@ -3454,7 +3454,7 @@ def test_coverage_season_openers_are_cold_for_the_goalie_family():
 
 
 def _pool_ratings(games: pd.DataFrame) -> pd.DataFrame:
-    """A rating for every (team, position, situation) within the pool's
+    """A combined-XPM rating for every (team, position) within the pool's
     45-day lookback of every gameday.
 
     The coverage fixtures run with no MoneyPuck history, so the pool has no
@@ -3462,18 +3462,21 @@ def _pool_ratings(games: pd.DataFrame) -> pd.DataFrame:
     position prior. That is a real production state — the 2026-10-09 run
     served priors on 24 of 5,714 sides — and it is REPORTED (see
     test_coverage_reports_the_position_prior_pool_fallback), so a fixture
-    standing in for a HEALTHY frame has to bring its own pool source.
+    standing in for a HEALTHY frame has to bring its own pool source. The
+    production contract is the combined, position-free XPM rollup.
     """
     from test_injury_stints import make_ratings
+
+    from player_ratings import SITUATION_COMBINED
+
     rows = []
     teams = sorted(set(games["home_team"]) | set(games["away_team"]))
     for day in sorted(set(pd.to_datetime(games["gameday"]))):
         src = (day - pd.Timedelta(days=1)).strftime("%Y-%m-%d")
         for team in teams:
-            for sit in ("5on5", "5on4"):
-                for pos in ("C", "L", "R", "D"):
-                    rows.append((f"mp-{team}-{pos}-{sit}", team, sit, pos,
-                                 0.5, 12000.0, src))
+            for pos in ("C", "L", "R", "D"):
+                rows.append((f"mp-{team}-{pos}", team, SITUATION_COMBINED,
+                             pos, 0.5, 12000.0, src))
     return make_ratings(rows)
 
 
@@ -3485,7 +3488,7 @@ def test_feature_coverage_measures_the_slate_the_pipeline_actually_ships():
     The frame is built WITH a resolved pool (_pool_ratings): coverage now
     excludes position-prior defaults from pct_measured (2026-10-06 audit §E),
     so a fixture that never resolves its pool would legitimately read 0%
-    measured on all 24 pl_* columns — that state is pinned by
+    measured on all 3 rolled pl_* columns — that state is pinned by
     test_coverage_reports_the_position_prior_pool_fallback instead.
     """
     games = _synth_games(n_days=20, games_per_day=2)
@@ -3526,9 +3529,9 @@ def test_coverage_reports_the_position_prior_pool_fallback():
     """2026-10-06 audit §E, still open on 2026-10-09: *non-null ``pl_*`` is
     NOT proof of measured coverage — defaults can yield 100% non-null output*.
 
-    A side with no pool row is served ``features._POSITION_PRIOR`` for every
-    position and situation, so all 24 pool columns are non-null on every game
-    however little evidence stands behind them. The shipped coverage CSV
+    A side with no pool row is served the measured position prior for every
+    position, so all 3 rolled pool columns are non-null on every game however
+    little evidence stands behind them. The shipped coverage CSV
     reported exactly that as 100.000% measured, with ``n_default_zero``
     hardcoded to 0: the six June-2026 Cup-Final games inside the baseline
     window (24 sides with no pool row in the 2026-10-09 run) read fully
@@ -3546,14 +3549,14 @@ def test_coverage_reports_the_position_prior_pool_fallback():
     blind = feat_mod.build_game_features(games, bs)
     by_f = _coverage_by_feature(mon.coverage(blind, current_df=blind),
                                 "baseline")
-    hit = by_f["pl_evo_c_home"]
+    hit = by_f["pl_xpm_home"]
     assert hit["n_default_zero"] == hit["n_games"], hit
     assert hit["pct_nonnull"] == 100.0, "the trap is that nothing is NULL"
     assert hit["pct_measured"] == 0.0 and hit["n_measured"] == 0, hit
     assert hit["status"] == "STARVED", hit
     assert hit["cause"] == "position_prior_default", hit
     # A diff is contaminated when EITHER side carried the prior.
-    diff = by_f["pl_evo_c_diff"]
+    diff = by_f["pl_xpm_diff"]
     assert diff["n_default_zero"] == diff["n_games"], diff
     # Pool-served columns only: an uninvolved feature is untouched.
     other = by_f["elo_home"]
@@ -3564,7 +3567,7 @@ def test_coverage_reports_the_position_prior_pool_fallback():
     seen = feat_mod.build_game_features(games, bs,
                                         player_ratings=_pool_ratings(games))
     ok = _coverage_by_feature(mon.coverage(seen, current_df=seen),
-                              "baseline")["pl_evo_c_home"]
+                              "baseline")["pl_xpm_home"]
     assert ok["n_default_zero"] == 0 and ok["pct_measured"] == 100.0, ok
     assert ok["status"] == "OK" and ok["cause"] == "complete", ok
 
@@ -3738,6 +3741,22 @@ def test_pool_default_mask_reads_prior_through_module_binding():
     # Unchanged contract: a non-pool feature is still unjudgeable -> None.
     assert mon._pool_default_mask(
         pd.DataFrame({"elo_diff": [0.1]}), "elo_diff") is None
+
+
+def test_pool_default_mask_reads_rolled_xpm_fallback_receipt():
+    """The 3-column XPM rollup cannot recover which position defaulted, so
+    the builder emits a companion fraction and the mask reads it. Without the
+    receipt the column stays unjudgeable rather than counting defaults as
+    measurements."""
+    df = pd.DataFrame({
+        "pl_xpm_home": [0.2, 0.3],
+        "pl_xpm_home_default": [0.75, 0.0],
+        "pl_xpm_diff": [0.1, 0.1],
+        "pl_xpm_diff_default": [0.5, 0.0],
+    })
+    assert mon._pool_default_mask(df, "pl_xpm_home").tolist() == [True, False]
+    assert mon._pool_default_mask(df, "pl_xpm_diff").tolist() == [True, False]
+    assert mon._pool_default_mask(df, "pl_xpm_away") is None
 
 
 def test_feature_coverage_artifacts_carry_both_windows():

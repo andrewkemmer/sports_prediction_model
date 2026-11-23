@@ -820,21 +820,20 @@ for _name, _entry in FEATURE_MANIFEST.items():
             "quality uses only earlier game dates")
 
 # ---------------------------------------------------------------------------
-# Player pool (12 combined XPM columns)
+# Player pool (3 rollup XPM columns)
 # ---------------------------------------------------------------------------
-# One entry per position x representation, generated from the same rules the
-# feature builder uses so the two cannot drift: the manifest is documentation
-# that is checked against config.MONEYLINE_FEATURE_COLS by manifest.validate(),
-# and a hand-written block of 12 near-identical entries is exactly where
-# documentation drifts from behaviour.
+# One entry per representation, generated from the same rules the feature
+# builder uses so the two cannot drift: the manifest is documentation that is
+# checked against config.MONEYLINE_FEATURE_COLS by manifest.validate(), and a
+# hand-written block of near-identical entries is exactly where documentation
+# drifts from behaviour.
 #
-# Scenario F (adopted 2026-11-23): the three MoneyPuck situations are summed
+# Scenario B (adopted 2026-11-23): the three MoneyPuck situations are summed
 # inside each player-game and rated once as XPM; the pool mean is the RAW
-# trailing-30 rate (no shrinkage).
+# trailing-30 rate (no shrinkage). The four position pools (C/L/R/D) are
+# collapsed to their unweighted mean, so the served feature is position-free.
 _POOL_SITUATION_NAME = {
     "5on5+5on4+4on5": "combined even-strength + power-play + penalty-kill"}
-_POOL_POSITION_NAME = {"C": "centres", "L": "left wings", "R": "right wings",
-                       "D": "defencemen"}
 _POOL_REPRESENTATION = {
     "away": "raw away level (tree members)",
     "home": "raw home level (tree members)",
@@ -842,15 +841,16 @@ _POOL_REPRESENTATION = {
 }
 
 for _sit, _metric in (("5on5+5on4+4on5", "XPM"),):
-    for _pos in ("C", "L", "R", "D"):
-        for _rep in ("away", "home", "diff"):
-            FEATURE_MANIFEST[f"pl_{_metric.lower()}_{_pos.lower()}_{_rep}"] = {
+    for _rep in ("away", "home", "diff"):
+        FEATURE_MANIFEST[f"pl_{_metric.lower()}_{_rep}"] = {
                 "description":
-                    f"{_POOL_SITUATION_NAME[_sit]} {_POOL_POSITION_NAME[_pos]} "
-                    f"healthy-pool mean raw expected plus-minus per 60, {_rep}",
+                    f"{_POOL_SITUATION_NAME[_sit]} all-skater "
+                    f"healthy-pool mean raw expected plus-minus per 60, {_rep} "
+                    f"(C/L/R/D positions rolled up)",
                 "definition":
-                    f"mean raw_rate_per60 over the player's rating for "
-                    f"{_sit}/{_pos}, aggregated over the healthy pool -- the "
+                    f"unweighted mean of the four position-level pool means "
+                    f"(C, L, R, D) of raw_rate_per60 for {_sit}, aggregated "
+                    f"over the healthy pool -- the "
                     f"most recent trailing-30-game rating per player whose "
                     f"source game date is strictly earlier than the target "
                     f"date, gated at >=900s prior ice time, with any player on "
@@ -893,13 +893,14 @@ for _sit, _metric in (("5on5+5on4+4on5", "XPM"),):
                     "provider filing or projected return date), and the "
                     "exclusion is evaluated at the game date, per game.",
                 "missing_value_policy":
-                    "position prior (this run's measured all-teams mean) when "
-                    "a side has no pool row; never NaN, never 0 -- 0 would "
+                    "mean of the four position priors (this run's measured "
+                    "all-teams position means) when a side has no pool row; "
+                    "never NaN, never 0 -- 0 would "
                     "read as deliberately inert",
                 "representation": _POOL_REPRESENTATION[_rep],
                 "model_family_availability": (
                     ["linear", "tree"] if _rep == "diff" else ["tree"]),
-                "feature_version": 3,
+                "feature_version": 4,
             }
 
 

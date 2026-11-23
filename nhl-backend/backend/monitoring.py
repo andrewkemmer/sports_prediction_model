@@ -757,15 +757,27 @@ def _pool_default_mask(df: pd.DataFrame, feature: str) -> pd.Series | None:
     The prior is written verbatim, so a value that still reads it carries no
     pool observation: home/away default on exact prior equality, and a diff
     defaults when EITHER side used the prior for that metric/position group
-    (the subtraction is contaminated either way). Returns None for anything
-    this cannot judge — a non-pool feature, an unknown metric/position, or a
-    frame without the side columns — so callers keep the null-only arithmetic
-    rather than guessing.
+    (the subtraction is contaminated either way). The rolled production XPM
+    columns carry a ``*_default`` fallback fraction instead, because the
+    three-column contract cannot recover which position defaulted. Returns
+    None for anything this cannot judge — a non-pool feature, an unknown
+    metric/position, a rolled column without its receipt, or a frame without
+    the side columns — so callers keep the null-only arithmetic rather than
+    guessing.
     """
     name = str(feature)
     if not name.startswith("pl_"):
         return None
     parts = name.split("_")
+    if len(parts) == 3 and parts[1] == "xpm":
+        # Rolled position-free column: the feature builder emits a companion
+        # fallback fraction (0 = fully measured, >0 = at least one position
+        # prior). Read it rather than guessing from the aggregate value.
+        companion = f"{name}_default"
+        if companion not in df.columns:
+            return None
+        frac = pd.to_numeric(df[companion], errors="coerce")
+        return frac.fillna(1.0) > 0
     if len(parts) != 4:
         return None
     _, metric, pos, rep = parts

@@ -1816,8 +1816,49 @@ class TestSnapshotNsFastPath:
             snapshot_ns=ist.snapshot_ns_array([pd.NaT])) is False
 
 
-def test_combined_ratings_emit_the_xpm_pool_contract(monkeypatch):
-    """Production ratings carry ONE combined situation and emit pl_xpm_*."""
+def test_combined_ratings_roll_up_to_the_xpm_pool_contract(monkeypatch):
+    """Production ratings carry ONE combined situation and emit 3 rolled
+    position-free pl_xpm_* columns."""
+    combined = "5on5+5on4+4on5"
+    ratings = make_ratings([
+        ("mp-1", "BOS", combined, "C", 0.50, 9000.0, "2026-04-15"),
+        ("mp-2", "BOS", combined, "L", 0.70, 9000.0, "2026-04-15"),
+        ("mp-3", "BOS", combined, "R", 0.60, 9000.0, "2026-04-15"),
+        ("mp-4", "BOS", combined, "D", 0.20, 9000.0, "2026-04-15"),
+        ("mp-5", "TOR", combined, "C", 0.40, 9000.0, "2026-04-15"),
+        ("mp-6", "TOR", combined, "L", 0.50, 9000.0, "2026-04-15"),
+        ("mp-7", "TOR", combined, "R", 0.30, 9000.0, "2026-04-15"),
+        ("mp-8", "TOR", combined, "D", 0.10, 9000.0, "2026-04-15"),
+    ])
+    ratings["final_rate_per60"] = ratings["shrunk_rate_per60"]
+    monkeypatch.setattr(feat.ingestion, "load_espn_injuries",
+                        lambda *a, **k: pd.DataFrame())
+    games = pd.DataFrame([{
+        "game_id": "G1", "season": 2026, "game_date": "2026-10-15",
+        "start_time_utc": "2026-10-15T19:00:00Z",
+        "home_team": "BOS", "away_team": "TOR",
+    }])
+    out = feat.add_player_pool_features(games, player_ratings=ratings)
+    assert feat.PLAYER_POOL_COLS == [
+        "pl_xpm_away", "pl_xpm_home", "pl_xpm_diff"]
+    assert set(feat.PLAYER_POOL_COLS) <= set(out.columns)
+    assert "pl_xpm_c_home" not in out.columns
+    assert "pl_evo_c_home" not in out.columns
+    assert out.loc[0, "pl_xpm_home"] == pytest.approx(
+        (0.50 + 0.70 + 0.60 + 0.20) / 4)
+    assert out.loc[0, "pl_xpm_away"] == pytest.approx(
+        (0.40 + 0.50 + 0.30 + 0.10) / 4)
+    assert out.loc[0, "pl_xpm_diff"] == pytest.approx(
+        (0.50 + 0.70 + 0.60 + 0.20) / 4
+        - (0.40 + 0.50 + 0.30 + 0.10) / 4)
+    assert out.loc[0, "pl_xpm_home_default"] == pytest.approx(0.0)
+    assert out.loc[0, "pl_xpm_away_default"] == pytest.approx(0.0)
+    assert out.loc[0, "pl_xpm_diff_default"] == pytest.approx(0.0)
+
+
+def test_xpm_rollup_reports_prior_fallback_fraction(monkeypatch):
+    """A rolled column keeps an honest measured/default receipt when a
+    position falls back to the measured prior."""
     combined = "5on5+5on4+4on5"
     ratings = make_ratings([
         ("mp-1", "BOS", combined, "C", 0.50, 9000.0, "2026-04-15"),
@@ -1833,9 +1874,7 @@ def test_combined_ratings_emit_the_xpm_pool_contract(monkeypatch):
         "home_team": "BOS", "away_team": "TOR",
     }])
     out = feat.add_player_pool_features(games, player_ratings=ratings)
-    assert "pl_xpm_c_home" in out.columns
-    assert "pl_xpm_c_away" in out.columns
-    assert "pl_evo_c_home" not in out.columns
-    assert out.loc[0, "pl_xpm_c_home"] == pytest.approx((0.50 + 0.25) / 2)
-    assert out.loc[0, "pl_xpm_c_away"] == pytest.approx(0.40)
-    assert out.loc[0, "pl_xpm_c_diff"] == pytest.approx((0.50 + 0.25) / 2 - 0.40)
+    # Only C has a pool row on each side; L/R/D use the measured prior.
+    assert out.loc[0, "pl_xpm_home_default"] == pytest.approx(0.75)
+    assert out.loc[0, "pl_xpm_away_default"] == pytest.approx(0.75)
+    assert out.loc[0, "pl_xpm_diff_default"] == pytest.approx(0.75)

@@ -285,10 +285,10 @@ NHL_API_SOURCES = [
      "PRODUCTION for the pl_* family: load_moneypuck_player_games caches the "
      "season archives; trailing 30-game combined EVO+PPO+PK XPM ratings -> team pool "
      "means with binary injury exclusion (source date strictly before target "
-     "date). Unavailable archives degrade the 12 pl_xpm_* columns to position "
+     "date). Unavailable archives degrade the 3 pl_xpm_* columns to position "
      "priors — never fabricated.",
      "Individual xG rates are the served pool features; the RFE trial space "
-     "carries all 12 pl_xpm_* names."),
+     "carries all 3 pl_xpm_* names."),
 ]
 
 NHL_LOW_VALUE_FIELDS = [

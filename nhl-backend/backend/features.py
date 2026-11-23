@@ -1233,7 +1233,7 @@ def _attach_records(df: pd.DataFrame, events: pd.DataFrame) -> pd.DataFrame:
 # ---------------------------------------------------------------------------
 
 # ---------------------------------------------------------------------------
-# Player pool: the 12 shipped combined XPM columns
+# Player pool: the 3 shipped rollup XPM columns
 # ---------------------------------------------------------------------------
 #: Situation code -> metric label. The pool aggregates on the raw situation
 #: code; the feature name uses the metric, matching the rating table's labels.
@@ -1245,6 +1245,12 @@ def _attach_records(df: pd.DataFrame, events: pd.DataFrame) -> pd.DataFrame:
 #: the historical arm frames) still produces its own columns.
 _SITUATION_METRIC = {"5on5": "EVO", "5on4": "PPO", "4on5": "PK",
                      _pr.SITUATION_COMBINED: "XPM"}
+
+#: Metrics whose position pools are collapsed to one column per
+#: representation. Production's combined XPM pool is position-free (scenario
+#: B, adopted 2026-11-23); split labels keep their position columns for the
+#: unit fixtures and historical arm frames.
+_POSITION_ROLLUP = {"XPM"}
 
 PLAYER_POOL_POSITIONS = ("C", "L", "R", "D")
 
@@ -1261,19 +1267,25 @@ _POSITION_PRIOR = {
 # the feature, the prior only seeds the season-opener fallback slate.
 
 #: The SHIPPED produced set, in canonical order. A pool built from split
-#: ratings emits that table's labels instead (EVO/PPO/PK); production's
-#: combined ratings table emits exactly these 12 XPM columns.
+#: ratings emits that table's position columns instead (EVO/PPO/PK);
+#: production's combined ratings table emits exactly these 3 rolled XPM
+#: columns (the unweighted C/L/R/D mean).
 PLAYER_POOL_COLS = [
-    f"pl_{metric.lower()}_{pos.lower()}_{rep}"
+    f"pl_{metric.lower()}_{rep}"
     for metric in ("XPM",)
-    for pos in PLAYER_POOL_POSITIONS
     for rep in ("away", "home", "diff")
 ]
 
 #: Receipt for the injury flag. NOT a model input. Zero means a covered,
 #: timestamped report window with no removals; NaN means report coverage or an
 #: exact pregame decision timestamp is unavailable.
-PLAYER_POOL_DIAGNOSTIC_COLS = ["pl_il_out_fraction"]
+PLAYER_POOL_DIAGNOSTIC_COLS = [
+    "pl_il_out_fraction",
+    # Rolled pool receipts: fraction of the four position pools that fell back
+    # to the measured prior. NOT model inputs; monitoring uses them so a
+    # position-free column can still report measured coverage honestly.
+    *[f"pl_xpm_{rep}_default" for rep in ("away", "home", "diff")],
+]
 
 
 def add_player_pool_features(
@@ -1285,11 +1297,12 @@ def add_player_pool_features(
 ) -> pd.DataFrame:
     """Attach the MLB-structural player-pool columns.
 
-    Four positions x three representations for every situation label the
-    ratings table carries. Production ratings are the combined EVO+PPO+PK
-    bucket (12 ``pl_xpm_*`` columns); a split ratings table still emits its
-    EVO/PPO/PK labels, which is how the unit fixtures and historical arm
-    frames are exercised. Structurally this
+    Four position pools x three representations for every split situation
+    label the ratings table carries. Production ratings are the combined
+    EVO+PPO+PK bucket, rolled up to three position-free ``pl_xpm_*`` columns
+    (the unweighted C/L/R/D mean); a split ratings table still emits its
+    EVO/PPO/PK position columns, which is how the unit fixtures and
+    historical arm frames are exercised. Structurally this
     mirrors MLB's ``batter_shifted`` -> ``batter_rolling`` -> ``batter_ratings``
     -> ``lineup_pool`` -> ``lineup_agg`` sequence: game-grain player stats,
     trailing 30 played games, one most-recent pregame rate per player, exact
@@ -1486,10 +1499,17 @@ def add_player_pool_features(
                if sit in present]
     if not metrics:
         # No pool rows at all: still emit the shipped contract seeded from the
-        # prior rather than silently dropping 12 served columns.
+        # prior rather than silently dropping 3 served columns.
         metrics = [_pr.SITUATION_LABELS[_pr.SITUATION_COMBINED]]
     for metric in metrics:
         tag = metric.lower()
+        rolled = metric in _POSITION_ROLLUP
+        agg_home = np.zeros(len(df), dtype=float)
+        agg_away = np.zeros(len(df), dtype=float)
+        agg_diff = np.zeros(len(df), dtype=float)
+        default_home = np.zeros(len(df), dtype=float)
+        default_away = np.zeros(len(df), dtype=float)
+        n_positions = 0
         for pos in PLAYER_POOL_POSITIONS:
             # An unknown side gets the position prior, never NaN and never 0.
             # NaN would read as "no data about this side" to a coverage audit
@@ -1518,9 +1538,31 @@ def add_player_pool_features(
                 miss_a = np.ones(len(df), dtype=bool)
             fb_home |= miss_h
             fb_away |= miss_a
-            df[f"pl_{tag}_{pos.lower()}_away"] = a
-            df[f"pl_{tag}_{pos.lower()}_home"] = h
-            df[f"pl_{tag}_{pos.lower()}_diff"] = h - a
+            if rolled:
+                agg_home += h
+                agg_away += a
+                agg_diff += h - a
+                default_home += miss_h
+                default_away += miss_a
+                n_positions += 1
+            else:
+                df[f"pl_{tag}_{pos.lower()}_away"] = a
+                df[f"pl_{tag}_{pos.lower()}_home"] = h
+                df[f"pl_{tag}_{pos.lower()}_diff"] = h - a
+        if rolled:
+            # Position-free rollup: the unweighted mean of the four
+            # position-level pool values, kept in per-60 units. Same rule as
+            # the adopted B experiment, so diff = mean(home - away) exactly.
+            denom = float(n_positions) if n_positions else 1.0
+            df[f"pl_{tag}_away"] = agg_away / denom
+            df[f"pl_{tag}_home"] = agg_home / denom
+            df[f"pl_{tag}_diff"] = agg_diff / denom
+            # Coverage receipt, not a feature: 0.0 means every position was
+            # measured, 1.0 means every position fell back to its prior.
+            df[f"pl_{tag}_away_default"] = default_away / denom
+            df[f"pl_{tag}_home_default"] = default_home / denom
+            df[f"pl_{tag}_diff_default"] = (
+                (default_home + default_away) / (2.0 * denom))
 
     # Visible receipt for the flag, NOT a model input (MLB applies a flag and
     # emits no injury column). Unknown report periods remain NaN rather than

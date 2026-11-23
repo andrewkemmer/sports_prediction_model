@@ -174,7 +174,7 @@ class TestLiveSeasonCache:
 
     def test_unpublished_current_season_degrades_instead_of_dying(
             self, cache_dir, monkeypatch):
-        """A season with no archive yet must not take all 24 pl_* columns down.
+        """A season with no archive yet must not take every pool column down.
 
         Before opening night MoneyPuck simply has no rows for the new season.
         The old code treated that as a hole in history and returned None,

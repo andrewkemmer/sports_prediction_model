@@ -164,7 +164,7 @@ MIN_VAL_FOLD_GAMES = 40
 # ---------------------------------------------------------------------------
 # Corrected hockey inputs + true XGB categories and shared fit/refit policy.
 # Existing v1.1/v1.2 bundles require a full feature rebuild/OOF/refit, not reuse.
-FEATURE_SET_VERSION = "nhl-prod-v1.4-combined-xpm-raw"
+FEATURE_SET_VERSION = "nhl-prod-v1.5-xpm-rollup"
 
 # ---------------------------------------------------------------------------
 # Moneyline calibration (MLB structural parity; favored-team space ONLY)
@@ -237,19 +237,17 @@ MONEYLINE_FEATURE_COLS = [
     # constant home anchor last, so the linear member's positional contract
     # is unchanged by the raw-side block above (MLB parity)
     "is_home",
-    # Player pool (MLB's _LINEUP_AGG_ROSTER shape): healthy-pool mean XPM per
-    # 60 for each position, served home / away / diff. One combined pool:
-    # EVO+PPO+PK are summed inside each player-game before the trailing-30
-    # window, and the served rate is the raw window rate (no shrinkage).
-    # Scenario F, adopted 2026-11-23: pooled logloss 0.6683 vs 0.6685 for the
-    # split shrunk incumbent, 45-55% band 0.6907 vs 0.6916, 12 columns instead
-    # of 24 (paired CIs span zero; owner-directed adoption). The injury flag
-    # REMOVES players from the pool before this mean; it is never a column of
-    # its own, because MLB applies a flag and emits none.
-    "pl_xpm_c_away", "pl_xpm_c_home", "pl_xpm_c_diff",
-    "pl_xpm_l_away", "pl_xpm_l_home", "pl_xpm_l_diff",
-    "pl_xpm_r_away", "pl_xpm_r_home", "pl_xpm_r_diff",
-    "pl_xpm_d_away", "pl_xpm_d_home", "pl_xpm_d_diff",
+    # Player pool (MLB's _LINEUP_AGG_ROSTER shape): the healthy-pool mean XPM
+    # per 60, averaged across C/L/R/D and served home / away / diff. One
+    # combined pool: EVO+PPO+PK are summed inside each player-game before the
+    # trailing-30 window, and the served rate is the raw window rate (no
+    # shrinkage). Scenario B, adopted 2026-11-23: the position-free rollup
+    # improves 45-55% band logloss 0.6932 -> 0.6918 (94% of paired draws) and
+    # pooled 0.6683 -> 0.6677 (84% of draws), with 3 columns instead of 12;
+    # the paired 95% intervals still span zero (owner-directed adoption). The
+    # injury flag REMOVES players from the pool before this mean; it is never
+    # a column of its own, because MLB applies a flag and emits none.
+    "pl_xpm_away", "pl_xpm_home", "pl_xpm_diff",
 ]
 
 # ---------------------------------------------------------------------------
@@ -279,7 +277,7 @@ UNK_TEAM_ID = 99
 #:
 #: Without it the join in ``injury_stints._expand_to_games`` simply does not
 #: match, and the failure is invisible: that club gets NO player pool at all
-#: for the affected seasons, so the 24 ``pl_*`` columns fall back to the
+#: for the affected seasons, so the ``pl_*`` columns fall back to the
 #: position prior and the injury flag has no roster to exclude anyone from.
 #: Measured: 31 rated skaters and ~82 team-sides of the 2024-25 OOF window
 #: were reading the prior instead of a rate.
@@ -697,7 +695,7 @@ COIN_FLIP_THRESHOLD = 0.02
 # Player-level ratings (combined EVO+PPO+PK XPM) — the NHL analogue of wOBA
 # ---------------------------------------------------------------------------
 # Built by backend/player_ratings.py from MoneyPuck's regular-season skater
-# game logs. These per-game rolling ratings feed the 12 pl_xpm_* production
+# game logs. These per-game rolling ratings feed the 3 pl_xpm_* production
 # features and therefore require a fresh OOF validation/model refit under the
 # feature version above before new bundles can safely serve them.
 #
