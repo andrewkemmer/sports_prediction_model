@@ -1819,7 +1819,7 @@ class TestSnapshotNsFastPath:
 def test_combined_ratings_roll_up_to_the_xpm_pool_contract(monkeypatch):
     """Production ratings carry ONE combined situation and emit 3 rolled
     position-free pl_xpm_* columns."""
-    combined = "5on5+5on4+4on5"
+    combined = "5on5+5on4+4on5+other"
     ratings = make_ratings([
         ("mp-1", "BOS", combined, "C", 0.50, 9000.0, "2026-04-15"),
         ("mp-2", "BOS", combined, "L", 0.70, 9000.0, "2026-04-15"),
@@ -1859,7 +1859,7 @@ def test_combined_ratings_roll_up_to_the_xpm_pool_contract(monkeypatch):
 def test_xpm_rollup_reports_prior_fallback_fraction(monkeypatch):
     """A rolled column keeps an honest measured/default receipt when a
     position falls back to the measured prior."""
-    combined = "5on5+5on4+4on5"
+    combined = "5on5+5on4+4on5+other"
     ratings = make_ratings([
         ("mp-1", "BOS", combined, "C", 0.50, 9000.0, "2026-04-15"),
         ("mp-2", "BOS", combined, "C", 0.25, 9000.0, "2026-04-15"),
@@ -1878,3 +1878,57 @@ def test_xpm_rollup_reports_prior_fallback_fraction(monkeypatch):
     assert out.loc[0, "pl_xpm_home_default"] == pytest.approx(0.75)
     assert out.loc[0, "pl_xpm_away_default"] == pytest.approx(0.75)
     assert out.loc[0, "pl_xpm_diff_default"] == pytest.approx(0.75)
+
+
+def test_trial_xg_pool_adds_three_columns_without_touching_xpm(monkeypatch):
+    """The xG arm is additive: a combined xG ratings table emits only the
+    ``pl_xg_*`` triplet, leaving the adopted ``pl_xpm_*`` contract untouched."""
+    combined = "5on5+5on4+4on5+other"
+    ratings = make_ratings([
+        ("mp-1", "BOS", combined, "C", 0.50, 9000.0, "2026-04-15"),
+        ("mp-2", "BOS", combined, "L", 0.70, 9000.0, "2026-04-15"),
+        ("mp-3", "BOS", combined, "R", 0.60, 9000.0, "2026-04-15"),
+        ("mp-4", "BOS", combined, "D", 0.20, 9000.0, "2026-04-15"),
+        ("mp-5", "TOR", combined, "C", 0.40, 9000.0, "2026-04-15"),
+        ("mp-6", "TOR", combined, "L", 0.50, 9000.0, "2026-04-15"),
+        ("mp-7", "TOR", combined, "R", 0.30, 9000.0, "2026-04-15"),
+        ("mp-8", "TOR", combined, "D", 0.10, 9000.0, "2026-04-15"),
+    ])
+    ratings["final_rate_per60"] = ratings["shrunk_rate_per60"]
+    monkeypatch.setattr(feat.ingestion, "load_espn_injuries",
+                        lambda *a, **k: pd.DataFrame())
+    games = pd.DataFrame([{
+        "game_id": "G1", "season": 2026, "game_date": "2026-10-15",
+        "start_time_utc": "2026-10-15T19:00:00Z",
+        "home_team": "BOS", "away_team": "TOR",
+        "pl_xpm_away": -0.10, "pl_xpm_home": 0.10,
+        "pl_xpm_diff": 0.20,
+    }])
+    out = feat.add_expected_goals_features(games, player_ratings=ratings)
+    assert feat.PLAYER_POOL_XG_COLS == [
+        "pl_xg_away", "pl_xg_home", "pl_xg_diff"]
+    assert set(feat.PLAYER_POOL_XG_COLS) <= set(out.columns)
+    assert out.loc[0, "pl_xpm_away"] == pytest.approx(-0.10)
+    assert out.loc[0, "pl_xpm_home"] == pytest.approx(0.10)
+    assert out.loc[0, "pl_xpm_diff"] == pytest.approx(0.20)
+    assert out.loc[0, "pl_xg_home"] == pytest.approx(0.50)
+    assert out.loc[0, "pl_xg_away"] == pytest.approx(0.325)
+    assert out.loc[0, "pl_xg_diff"] == pytest.approx(0.175)
+    assert out.loc[0, "pl_xg_home_default"] == pytest.approx(0.0)
+    assert out.loc[0, "pl_xg_away_default"] == pytest.approx(0.0)
+    assert out.loc[0, "pl_xg_diff_default"] == pytest.approx(0.0)
+    assert "pl_xg_home" in feat.config.KNOWN_FEATURE_COLS
+    assert "pl_xg_home" not in feat.config.MONEYLINE_FEATURE_COLS
+
+
+def test_xg_loader_requests_combined_individual_goals(monkeypatch):
+    seen = {}
+
+    def fake(metric=None, *, combine=None, require_onice=None):
+        seen.update(metric=metric, combine=combine,
+                    require_onice=require_onice)
+        return pd.DataFrame()
+
+    monkeypatch.setattr(feat, "_load_player_ratings", fake)
+    feat.load_xg_player_ratings()
+    assert seen == {"metric": "xg", "combine": True, "require_onice": True}

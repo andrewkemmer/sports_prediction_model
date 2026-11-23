@@ -150,11 +150,12 @@ SCORE_CACHE_VERSION = "v2"
 BOXSCORE_CACHE_VERSION = "v5"
 # Cache schema version for the player-game archive family (pl_* ratings).
 # v3 adds 4on5 (PK) rows to the shipped shape; v4 adds 4on5 (PK) rows to
-# the on-ice xpm shape (OnIce_F/A_xGoals). The bump is required: a v2/v3
-# cache was filtered to 5on5/5on4 at write time, so reusing it would
-# silently produce no PK rows.
+# the on-ice xpm shape (OnIce_F/A_xGoals); v5 adds `other` (4v4 / 3v3 /
+# extra attacker) to that shape for the adopted all-in bucket. The bump is
+# required: an older cache was filtered at write time, so reusing it would
+# silently omit the rows the current situation list asks for.
 MP_PLAYER_GAME_VERSION = "v3"
-MP_PLAYER_GAME_ONICE_VERSION = "v4"
+MP_PLAYER_GAME_ONICE_VERSION = "v5"
 #: Keep-list for the shipped player-game shape (individual xG + icetime).
 MP_PLAYER_GAME_BASE_COLUMNS = ["playerId", "name", "gameId", "season",
                                "playerTeam", "gameDate", "position",
@@ -168,9 +169,10 @@ INJURY_VERSION = "v2"
 INJURY_CACHE_TTL_HOURS = 6
 
 # MoneyPuck ``situation`` values. 5on5 = even strength, 5on4 = power play,
-# 4on5 = penalty kill. 4on5 feeds the trial PK player-pool arm and is still
-# filtered out downstream unless the rating situation list opts in.
-MONEYPUCK_SITUATIONS = ("5on5", "5on4", "4on5")
+# 4on5 = penalty kill, `other` = 4v4 / 3v3 / extra attacker (empty net). The
+# shipped combined XPM pool opts all four in; `all` is never kept because it
+# double counts the splits.
+MONEYPUCK_SITUATIONS = ("5on5", "5on4", "4on5", "other")
 
 # Structural mirror of MLB's ``_chunked_statcast``: the pull is grouped into
 # fixed calendar windows so a multi-thousand-game pull reports progress per
@@ -1467,7 +1469,8 @@ def load_moneypuck_player_games(
 
     The output has one row per player/game/situation with playerId, gameId,
     date, team, position, individual xGoals, and ice time. 5on5 (EVO), 5on4
-    (PPO) and 4on5 (PK) rows are retained. ZIPs are downloaded to a temporary file
+    (PPO), 4on5 (PK) and `other` (4v4 / 3v3 / extra attacker) rows are
+    retained; `all` is dropped. ZIPs are downloaded to a temporary file
     beside the parquet cache and parsed in bounded CSV chunks; the 2.6-GB
     historical CSV is never decompressed into one in-memory DataFrame. Only
     requested start-year seasons are retained and cached.

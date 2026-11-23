@@ -67,9 +67,11 @@ means can read below zero. Under ``metric='xg'`` (legacy, selectable via
 never negative. The rolling, shrinkage, and PIT machinery is metric-blind;
 only the value derivation and the prior's sign gate know the difference.
 
-SHIPPED CONTRACT (2026-11-23, scenario F). The three source situations are
-summed into one player-game bucket (``combine_situations``) and rated once as
-``SITUATION_COMBINED``; the pool then consumes the RAW trailing-30 rate
+SHIPPED CONTRACT (2026-11-23, scenario F; all-in bucket adopted the same
+day). The source situations -- 5on5, 5on4, 4on5 and `other` (4v4 / 3v3 /
+extra attacker) -- are summed into one player-game bucket
+(``combine_situations``) and rated once as ``SITUATION_COMBINED``; the pool
+then consumes the RAW trailing-30 rate
 (``NHL_RATE_ARM=raw``) rather than the shrink-to-position-prior value. The
 six-arm OOF test measured the combined raw pool at pooled logloss 0.6683 vs
 the split shrunk incumbent 0.6685 (45-55% band 0.6907 vs 0.6916) with 12
@@ -92,18 +94,23 @@ import pandas as pd
 # Situations
 # ---------------------------------------------------------------------------
 # MoneyPuck's long-format ``situation`` values. 5on5 is even strength; 5on4 is
-# the standard power play; 4on5 is the penalty kill. 'other'/'all' are excluded
-# by construction: 'all' double counts the situation splits, and 'other' mixes
-# states that do not share a prior. PK uses the same position/situation prior
-# and shrinkage machinery as EVO/PPO.
+# the standard power play; 4on5 is the penalty kill. These three form the SPLIT
+# tuple: the trial arms rate them separately with their own priors. 'all' is
+# excluded by construction because it double counts the splits. 'other'
+# (4v4 / 3v3 / extra attacker) is not a split: the shipped COMBINED bucket opts
+# it in through ``config.PLAYER_RATING_SITUATIONS``, so it is summed with the
+# three tracked states inside each player-game and never gets its own prior.
+# PK uses the same position/situation prior and shrinkage machinery as EVO/PPO.
 SITUATION_EVO = "5on5"
 SITUATION_PPO = "5on4"
 SITUATION_PK = "4on5"
 SITUATIONS: tuple[str, ...] = (SITUATION_EVO, SITUATION_PPO, SITUATION_PK)
-#: One synthetic bucket: EVO+PPO+PK summed inside each player-game before the
-#: rolling window. The label is what the shipped pool carries; it is not a
-#: MoneyPuck situation and never appears in the source archive.
-SITUATION_COMBINED = "5on5+5on4+4on5"
+#: One synthetic bucket: the selected situations summed inside each
+#: player-game before the rolling window. The label is what the shipped pool
+#: carries; it is not a MoneyPuck situation and never appears in the archive.
+#: On the shipped path `other` is included; a split trial that passes only
+#: ``SITUATIONS`` still uses this label for its own combined arm.
+SITUATION_COMBINED = "5on5+5on4+4on5+other"
 SITUATION_LABELS = {SITUATION_EVO: "EVO", SITUATION_PPO: "PPO",
                     SITUATION_PK: "PK", SITUATION_COMBINED: "XPM"}
 #: Situation labels the preparation gate accepts (sources + the combined one).

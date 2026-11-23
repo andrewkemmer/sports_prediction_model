@@ -828,19 +828,22 @@ for _name, _entry in FEATURE_MANIFEST.items():
 # hand-written block of near-identical entries is exactly where documentation
 # drifts from behaviour.
 #
-# Scenario B (adopted 2026-11-23): the three MoneyPuck situations are summed
-# inside each player-game and rated once as XPM; the pool mean is the RAW
-# trailing-30 rate (no shrinkage). The four position pools (C/L/R/D) are
+# Scenario B (adopted 2026-11-23) with the all-in bucket (also adopted
+# 2026-11-23): 5on5, 5on4, 4on5 and `other` (4v4 / 3v3 / extra attacker) are
+# summed inside each player-game and rated once as XPM; the pool mean is the
+# RAW trailing-30 rate (no shrinkage). The four position pools (C/L/R/D) are
 # collapsed to their unweighted mean, so the served feature is position-free.
 _POOL_SITUATION_NAME = {
-    "5on5+5on4+4on5": "combined even-strength + power-play + penalty-kill"}
+    "5on5+5on4+4on5+other":
+        "combined even-strength + power-play + penalty-kill + 4v4/3v3/extra "
+        "attacker"}
 _POOL_REPRESENTATION = {
     "away": "raw away level (tree members)",
     "home": "raw home level (tree members)",
     "diff": "difference (all model families)",
 }
 
-for _sit, _metric in (("5on5+5on4+4on5", "XPM"),):
+for _sit, _metric in (("5on5+5on4+4on5+other", "XPM"),):
     for _rep in ("away", "home", "diff"):
         FEATURE_MANIFEST[f"pl_{_metric.lower()}_{_rep}"] = {
                 "description":
@@ -856,7 +859,8 @@ for _sit, _metric in (("5on5+5on4+4on5", "XPM"),):
                     f"date, gated at >=900s prior ice time, with any player on "
                     f"an Out/Injured Reserve/IR/Doubtful interval captured "
                     f"before puck drop REMOVED from the pool before the mean. "
-                    f"EVO, PPO and PK on-ice xGF/xGA and icetime are summed "
+                    f"EVO, PPO, PK and other on-ice xGF/xGA and icetime are "
+                    f"summed "
                     f"inside each player-game before the rolling window, so "
                     f"this rate is the ice-weighted combined XPM; no "
                     f"shrinkage is applied. "

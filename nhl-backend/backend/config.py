@@ -250,6 +250,13 @@ MONEYLINE_FEATURE_COLS = [
     "pl_xpm_away", "pl_xpm_home", "pl_xpm_diff",
 ]
 
+# Trial / validation columns: individual expected goals (I_F_xGoals), built
+# exactly like the adopted XPM pool (combined EVO+PPO+PK inside each
+# player-game, raw trailing-30 rate, position-free rollup). Registered in the
+# known pool so an A/B arm can select them, but NEVER part of
+# MONEYLINE_FEATURE_COLS: production still serves only the XPM triplet.
+NHL_PLAYER_XG_TRIAL_COLS = ["pl_xg_away", "pl_xg_home", "pl_xg_diff"]
+
 # ---------------------------------------------------------------------------
 # NHL team IDs for the tree-member categorical context (NFL pattern: a stable
 # abbreviation -> integer ID map declared ONCE, never derived from data
@@ -359,9 +366,11 @@ RAW_PER_SIDE_COLS = frozenset({
 RFE_CANDIDATE_COLS: list[str] = list(dict.fromkeys(
     [c for c in NHL_CANDIDATE_COLS if c not in set(MONEYLINE_FEATURE_COLS)]))
 
-# Trial / validation pool: universe first (canonical), then candidates.
+# Trial / validation pool: universe first (canonical), then trial-only
+# columns, then candidates.
 KNOWN_FEATURE_COLS = list(dict.fromkeys(
-    list(MONEYLINE_FEATURE_COLS) + list(RFE_CANDIDATE_COLS)))
+    list(MONEYLINE_FEATURE_COLS) + list(NHL_PLAYER_XG_TRIAL_COLS)
+    + list(RFE_CANDIDATE_COLS)))
 
 # RFE governance: None during ordinary production runs.
 _FEATURE_SUBSET: list[str] | None = None
@@ -722,9 +731,11 @@ PLAYER_RATING_SHRINK_FRACTION = 0.20
 # three situations into one row per player-game before this window.
 PLAYER_RATING_PRIOR_ROWS = 30
 # MoneyPuck situations: 5on5 is even strength (EVO), 5on4 is the power play
-# (PPO), 4on5 is the penalty kill (PK). All three enter the SHIPPED combined
-# pool, summed inside each player-game before the rolling window.
-PLAYER_RATING_SITUATIONS = ("5on5", "5on4", "4on5")
+# (PPO), 4on5 is the penalty kill (PK), and `other` is 4v4 / 3v3 / extra
+# attacker. All four enter the SHIPPED combined pool, summed inside each
+# player-game before the rolling window (all-in bucket, adopted 2026-11-23;
+# artifacts/nhl_goal/allin measured it a wash pooled with a mild 45-55% tilt).
+PLAYER_RATING_SITUATIONS = ("5on5", "5on4", "4on5", "other")
 PLAYER_RATING_POSITIONS = ("C", "L", "R", "D")
 # MoneyPuck publishes one player-game archive per season START-YEAR, and
 # PLAYER_RATING_FIRST_SEASON is the earliest one the pipeline has ever read.

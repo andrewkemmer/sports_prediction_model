@@ -1276,6 +1276,10 @@ PLAYER_POOL_COLS = [
     for rep in ("away", "home", "diff")
 ]
 
+#: Trial-only individual-xG triplet (same rollup, metric ``I_F_xGoals``).
+#: Not part of the shipped contract; arm B of the xG A/B selects these names.
+PLAYER_POOL_XG_COLS = list(config.NHL_PLAYER_XG_TRIAL_COLS)
+
 #: Receipt for the injury flag. NOT a model input. Zero means a covered,
 #: timestamped report window with no removals; NaN means report coverage or an
 #: exact pregame decision timestamp is unavailable.
@@ -1287,6 +1291,11 @@ PLAYER_POOL_DIAGNOSTIC_COLS = [
     *[f"pl_xpm_{rep}_default" for rep in ("away", "home", "diff")],
 ]
 
+#: Same receipts for the trial xG pool; monitoring-only, never model inputs.
+PLAYER_POOL_XG_DIAGNOSTIC_COLS = [
+    *[f"pl_xg_{rep}_default" for rep in ("away", "home", "diff")],
+]
+
 
 def add_player_pool_features(
     games: pd.DataFrame,
@@ -1294,6 +1303,7 @@ def add_player_pool_features(
     player_ratings: pd.DataFrame | None = None,
     stints: pd.DataFrame | None = None,
     stints_sources: dict | None = None,
+    pool_metric: str | None = None,
 ) -> pd.DataFrame:
     """Attach the MLB-structural player-pool columns.
 
@@ -1317,7 +1327,17 @@ def add_player_pool_features(
     must be strictly earlier than the exact puck-drop timestamp; unknown
     history is never inferred as healthy, and postgame snapshots cannot alter
     the game's pool. Boxscore appearance/nonappearance is not injury evidence.
+
+    ``pool_metric`` is an experiment-only override. The shipped call leaves it
+    ``None`` (the situation->metric map above); ``add_expected_goals_features``
+    passes ``"XG"`` to build the individual-xG triplet from a combined xG
+    ratings table without touching the adopted XPM columns.
     """
+    situation_metric = (_SITUATION_METRIC if pool_metric is None
+                        else {_pr.SITUATION_COMBINED: pool_metric})
+    position_rollup = (_POSITION_ROLLUP if pool_metric is None
+                       else {pool_metric})
+    position_prior = _POSITION_PRIOR if pool_metric is None else {}
     date_col = "gameday" if "gameday" in games.columns else "game_date"
     df = games.copy().reset_index(drop=True)
     # Normalise ONCE and use the converted series everywhere. Reaching for
@@ -1468,12 +1488,12 @@ def add_player_pool_features(
     pool = pool.rename(columns={"game_date": "_pd"}) \
         if "game_date" in pool.columns else pool
     if len(pool):
-        pool["metric"] = pool["situation"].map(_SITUATION_METRIC)
+        pool["metric"] = pool["situation"].map(situation_metric)
 
     hk = pd.MultiIndex.from_arrays([df["_d"], df["home_team"]])
     ak = pd.MultiIndex.from_arrays([df["_d"], df["away_team"]])
 
-    # _SITUATION_METRIC is keyed situation -> metric, so the loop variables
+    # The active situation map is keyed situation -> metric, so the loop variables
     # are (situation, metric) in that order. Getting this backwards silently
     # matched NOTHING: every group lookup came back empty, the pool columns
     # were never created, and the feature contract reported them as
@@ -1495,15 +1515,16 @@ def add_player_pool_features(
         if len(pool) else {}
     )
     present = set(pool["situation"].dropna()) if len(pool) else set()
-    metrics = [metric for sit, metric in _SITUATION_METRIC.items()
+    metrics = [metric for sit, metric in situation_metric.items()
                if sit in present]
     if not metrics:
         # No pool rows at all: still emit the shipped contract seeded from the
-        # prior rather than silently dropping 3 served columns.
-        metrics = [_pr.SITUATION_LABELS[_pr.SITUATION_COMBINED]]
+        # prior rather than silently dropping the three columns.
+        metrics = [pool_metric
+                   or _pr.SITUATION_LABELS[_pr.SITUATION_COMBINED]]
     for metric in metrics:
         tag = metric.lower()
-        rolled = metric in _POSITION_ROLLUP
+        rolled = metric in position_rollup
         agg_home = np.zeros(len(df), dtype=float)
         agg_away = np.zeros(len(df), dtype=float)
         agg_diff = np.zeros(len(df), dtype=float)
@@ -1515,8 +1536,8 @@ def add_player_pool_features(
             # NaN would read as "no data about this side" to a coverage audit
             # and as "uninformative" to a tree; 0 would read as "deliberately
             # inert". The prior is the measured default and says neither.
-            if metric in _POSITION_PRIOR:
-                prior = _POSITION_PRIOR[metric][pos]
+            if metric in position_prior:
+                prior = position_prior[metric][pos]
             else:
                 prior = measured_prior.get((metric, pos))
                 if prior is None or not np.isfinite(prior):
@@ -1627,6 +1648,29 @@ def add_player_pool_features(
     return df.drop(columns=["_d", "_season"])
 
 
+def add_expected_goals_features(
+    games: pd.DataFrame,
+    *,
+    player_ratings: pd.DataFrame | None = None,
+    stints: pd.DataFrame | None = None,
+    stints_sources: dict | None = None,
+) -> pd.DataFrame:
+    """Attach the trial-only individual-xG pool triplet.
+
+    ``player_ratings`` must come from :func:`load_xg_player_ratings` (one
+    combined EVO+PPO+PK situation, metric ``xg``). The resulting
+    ``pl_xg_{away,home,diff}`` columns are additive to the shipped XPM triplet;
+    this function never writes or drops ``pl_xpm_*``. Like the adopted pool,
+    each representation is the unweighted mean of the four position rates and
+    ``diff`` is exactly ``home - away``.
+    """
+    if player_ratings is None:
+        player_ratings = load_xg_player_ratings()
+    return add_player_pool_features(
+        games, player_ratings=player_ratings, stints=stints,
+        stints_sources=stints_sources, pool_metric="XG")
+
+
 def _load_team_rosters(grid: pd.DataFrame | None) -> pd.DataFrame | None:
     """Captured roster membership (player → team) for pool gating.
 
@@ -1655,25 +1699,34 @@ def _load_team_rosters(grid: pd.DataFrame | None) -> pd.DataFrame | None:
     return rosters
 
 
-def _load_player_ratings() -> pd.DataFrame:
-    """MoneyPuck skater game logs -> the combined trailing XPM rating.
+def _load_player_ratings(
+    metric: str | None = None,
+    *,
+    combine: bool | None = None,
+    require_onice: bool | None = None,
+) -> pd.DataFrame:
+    """MoneyPuck skater game logs -> a trailing player rating.
 
-    The three source situations are summed inside each player-game and rated
-    once (scenario F, adopted 2026-11-23), and the pool consumes the raw
-    trailing-30 rate selected by ``player_ratings.NHL_RATE_ARM``. The rated
-    value follows ``player_ratings.NHL_PLAYER_METRIC`` (``'xpm'`` shipped
-    default, ``'xg'`` legacy): the on-ice expected-goals pair is fetched only
-    for xpm (v4 cache filenames), so the legacy xg path keeps its lighter v3
-    cache.
+    The shipped call (no arguments) builds the combined trailing XPM rating:
+    the four source situations (5on5, 5on4, 4on5 and `other` -- the all-in
+    bucket adopted 2026-11-23) are summed inside each player-game and rated
+    once (scenario F), raw trailing-30 rate. The rated
+    value follows ``player_ratings.NHL_PLAYER_METRIC`` (``'xpm'`` default,
+    ``'xg'`` legacy). ``combine`` and ``require_onice`` are explicit so the
+    trial xG pool can use the same combined construction while keeping the
+    shipped path's defaults unchanged.
     """
+    metric = _pr.NHL_PLAYER_METRIC if metric is None else metric
+    if combine is None:
+        combine = metric == _pr.METRIC_XPM
+    if require_onice is None:
+        # xpm always needs the pair; a combined xG build reuses the same v4
+        # cache so a warm host does not trigger the legacy v3 download.
+        require_onice = (metric == _pr.METRIC_XPM) or combine
     try:
-        # The on-ice pair (and its v4 cache filenames) is fetched only for
-        # the xpm metric. The legacy xg path keeps the v3 cache and never
-        # forces the multi-GB historical re-download — the silent window
-        # that reads as a hang on the injury step of a cold run.
         games = ingestion.load_moneypuck_player_games(
             seasons=list(config.player_rating_seasons()), use_cache=True,
-            require_onice=(_pr.NHL_PLAYER_METRIC == _pr.METRIC_XPM))
+            require_onice=require_onice)
     except Exception as exc:  # noqa: BLE001
         logger.warning("player ratings unavailable (%s); pool columns use "
                        "position priors", exc)
@@ -1683,7 +1736,12 @@ def _load_player_ratings() -> pd.DataFrame:
                        "columns use position priors")
         return pd.DataFrame()
 
-    games = games[games.situation.isin(config.PLAYER_RATING_SITUATIONS)].copy()
+    # The combined SHIPPED XPM bucket opts `other` in (all-in). A split build,
+    # and the trial combined-xG arm, keep the three tracked states so their
+    # historical results stay comparable and every label maps to a metric.
+    situations = (tuple(config.PLAYER_RATING_SITUATIONS)
+                  if combine and metric == _pr.METRIC_XPM else _pr.SITUATIONS)
+    games = games[games.situation.isin(situations)].copy()
     source_rows = len(games)
     frame = pd.DataFrame({
         "player_id": games.playerId.astype(str), "player_name": games.name,
@@ -1704,20 +1762,18 @@ def _load_player_ratings() -> pd.DataFrame:
         "onice_against": pd.to_numeric(games["OnIce_A_xGoals"], errors="coerce")
         if "OnIce_A_xGoals" in games.columns else np.nan,
     })
-    # One rating per player-game: EVO+PPO+PK summed before the rolling window
-    # (the six-arm arm-F construction). The source situation rows are still
-    # filtered by config.PLAYER_RATING_SITUATIONS above, so `other`/`all` can
-    # never enter the sum.
-    if _pr.NHL_PLAYER_METRIC == _pr.METRIC_XPM:
-        frame = _pr.combine_situations(
-            frame, situations=tuple(config.PLAYER_RATING_SITUATIONS))
+    # One rating per player-game: the selected situations are summed before
+    # the rolling window (the six-arm arm-F construction, extended with
+    # `other`). `all` is never in the source filter, so it cannot double count.
+    if combine:
+        frame = _pr.combine_situations(frame, situations=situations)
         _log_once(logging.INFO,
                   "player ratings: combined %s inside each player-game "
                   "(%d source rows -> %d player-games)",
                   _pr.SITUATION_COMBINED, source_rows, len(frame))
     ratings, audit = _pr.build_player_ratings(
         frame, id_col="player_id", window=config.PLAYER_RATING_PRIOR_ROWS,
-        metric=_pr.NHL_PLAYER_METRIC, rate_arm=_pr.NHL_RATE_ARM)
+        metric=metric, rate_arm=_pr.NHL_RATE_ARM)
     _log_once(logging.INFO, "player ratings: %d raw game rows -> %d rolling rows across "
               "%d players (%d bad/dropped source rows)",
               len(frame), len(ratings), ratings["player_id"].nunique()
@@ -1733,10 +1789,21 @@ def _load_player_ratings() -> pd.DataFrame:
     _log_once(logging.INFO, "player rating metric: %s (xg = individual "
               "offense; xpm = on-ice expected differential, signed); "
               "pool structure: %s; served rate: %s",
-              audit.get("metric", _pr.NHL_PLAYER_METRIC),
-              "combined" if _pr.NHL_PLAYER_METRIC == _pr.METRIC_XPM
-              else "split", audit.get("rate_arm", _pr.NHL_RATE_ARM))
+              audit.get("metric", metric),
+              "combined" if combine else "split",
+              audit.get("rate_arm", _pr.NHL_RATE_ARM))
     return ratings
+
+
+def load_xg_player_ratings() -> pd.DataFrame:
+    """Trial-only individual-xG ratings, combined exactly like shipped XPM.
+
+    Uses ``I_F_xGoals`` per player-game over EVO+PPO+PK and the raw trailing-30
+    rate. This is the ratings table for :func:`add_expected_goals_features`;
+    it is never selected by the production feature contract.
+    """
+    return _load_player_ratings(
+        metric=_pr.METRIC_XG, combine=True, require_onice=True)
 
 
 def _load_injury_stints(ratings: pd.DataFrame | None = None,
