@@ -820,14 +820,19 @@ for _name, _entry in FEATURE_MANIFEST.items():
             "quality uses only earlier game dates")
 
 # ---------------------------------------------------------------------------
-# Player pool (24 columns)
+# Player pool (12 combined XPM columns)
 # ---------------------------------------------------------------------------
-# One entry per situation x position x representation, generated from the same
-# rules the feature builder uses so the two cannot drift: the manifest is
-# documentation that is checked against config.MONEYLINE_FEATURE_COLS by
-# manifest.validate(), and a hand-written block of 24 near-identical entries is
-# exactly where documentation drifts from behaviour.
-_POOL_SITUATION_NAME = {"5on5": "even-strength (EVO)", "5on4": "power-play (PPO)"}
+# One entry per position x representation, generated from the same rules the
+# feature builder uses so the two cannot drift: the manifest is documentation
+# that is checked against config.MONEYLINE_FEATURE_COLS by manifest.validate(),
+# and a hand-written block of 12 near-identical entries is exactly where
+# documentation drifts from behaviour.
+#
+# Scenario F (adopted 2026-11-23): the three MoneyPuck situations are summed
+# inside each player-game and rated once as XPM; the pool mean is the RAW
+# trailing-30 rate (no shrinkage).
+_POOL_SITUATION_NAME = {
+    "5on5+5on4+4on5": "combined even-strength + power-play + penalty-kill"}
 _POOL_POSITION_NAME = {"C": "centres", "L": "left wings", "R": "right wings",
                        "D": "defencemen"}
 _POOL_REPRESENTATION = {
@@ -836,29 +841,34 @@ _POOL_REPRESENTATION = {
     "diff": "difference (all model families)",
 }
 
-for _sit, _metric in (("5on5", "EVO"), ("5on4", "PPO")):
+for _sit, _metric in (("5on5+5on4+4on5", "XPM"),):
     for _pos in ("C", "L", "R", "D"):
         for _rep in ("away", "home", "diff"):
             FEATURE_MANIFEST[f"pl_{_metric.lower()}_{_pos.lower()}_{_rep}"] = {
                 "description":
                     f"{_POOL_SITUATION_NAME[_sit]} {_POOL_POSITION_NAME[_pos]} "
-                    f"healthy-pool mean shrunk rate, {_rep}",
+                    f"healthy-pool mean raw expected plus-minus per 60, {_rep}",
                 "definition":
-                    f"mean shrunk_rate_per60 over the player's rating for "
+                    f"mean raw_rate_per60 over the player's rating for "
                     f"{_sit}/{_pos}, aggregated over the healthy pool -- the "
                     f"most recent trailing-30-game rating per player whose "
                     f"source game date is strictly earlier than the target "
                     f"date, gated at >=900s prior ice time, with any player on "
                     f"an Out/Injured Reserve/IR/Doubtful interval captured "
                     f"before puck drop REMOVED from the pool before the mean. "
+                    f"EVO, PPO and PK on-ice xGF/xGA and icetime are summed "
+                    f"inside each player-game before the rolling window, so "
+                    f"this rate is the ice-weighted combined XPM; no "
+                    f"shrinkage is applied. "
                     f"MLB's _LINEUP_AGG_ROSTER shape. No top-N cut: all 18 "
                     f"dressed skaters contribute in hockey. The rating itself "
                     f"is never modified; the flag removes a row, it does not "
-                    f"discount a value. diff = home - away.",                 "source": "MoneyPuck regular-season skater game-by-game "
-                          "archives (xGoals, icetime; on-ice xGoals pair only "
-                          "under the gated xpm arm) + ESPN "
+                    f"discount a value. diff = home - away.",
+                "source": "MoneyPuck regular-season skater game-by-game "
+                          "archives (on-ice xGoals pair + icetime) + ESPN "
                           "timestamped injury status snapshots",
-                "lookback": "trailing 30 played games per player and situation "
+                "lookback": "trailing 30 played games per player (combined "
+                            "situations) "
                             "(game grain); source games within "
                             "injury_stints.POOL_LOOKBACK_DAYS = 45 of the "
                             "target date -- a slate whose team ratings all "
@@ -866,7 +876,7 @@ for _sit, _metric in (("5on5", "EVO"), ("5on4", "PPO")):
                             "offseason) serves the position prior, matching "
                             "MLB's LINEUP_POOL_LOOKBACK_DAYS = 10 geometry",
                 "aggregation": "opportunity-weighted mean of surviving "
-                          "player-level shrunk rates (NFL snap-share parity): "
+                          "player-level raw rates (NFL snap-share parity): "
                           "each candidate's weight is his own served prior "
                           "icetime, applied AFTER the injury exclusion so an "
                           "absent star's ice leaves the blend with him; sides "
@@ -883,13 +893,13 @@ for _sit, _metric in (("5on5", "EVO"), ("5on4", "PPO")):
                     "provider filing or projected return date), and the "
                     "exclusion is evaluated at the game date, per game.",
                 "missing_value_policy":
-                    "position prior (measured 2023-25 default) when a side has "
-                    "no pool row; never NaN, never 0 -- 0 would read as "
-                    "deliberately inert",
+                    "position prior (this run's measured all-teams mean) when "
+                    "a side has no pool row; never NaN, never 0 -- 0 would "
+                    "read as deliberately inert",
                 "representation": _POOL_REPRESENTATION[_rep],
                 "model_family_availability": (
                     ["linear", "tree"] if _rep == "diff" else ["tree"]),
-                "feature_version": 2,
+                "feature_version": 3,
             }
 
 

@@ -1,4 +1,4 @@
-"""Player-level NHL offense ratings — the EVO/PPO analogue of MLB's wOBA.
+"""Player-level NHL xPM ratings — the EVO/PPO/PK analogue of MLB's wOBA.
 
 MLB shrinks each batter's rolling wOBA toward a LEAGUE-WIDE mean with a flat
 120-PA prior (``mlb-backend/backend/features.py`` -> ``batter_ratings``)::
@@ -59,13 +59,23 @@ target game's pool when captured strictly before puck drop.
 METRIC. The engine rates one per-game event VALUE per player and situation,
 carried in the ``xg`` slot end to end (``prior_xg`` is a trailing sum of that
 value, the league prior is its position/situation mean rate). Under
-``metric='xg'`` (SHIPPED default) the value is individual xGoals — offense
-only, never negative. Under ``metric='xpm'`` (GATED — selectable via
-``NHL_PLAYER_METRIC=xpm``) the value is the on-ice expected differential
-``OnIce_F_xGoals - OnIce_A_xGoals`` — two-way impact that flips negative
-when a player's shifts are out-chanced, so a losing team's pool means can
-read below zero. The rolling, shrinkage, and PIT machinery is metric-blind;
+``metric='xpm'`` (SHIPPED default) the value is the on-ice expected
+differential ``OnIce_F_xGoals - OnIce_A_xGoals`` — two-way impact that flips
+negative when a player's shifts are out-chanced, so a losing team's pool
+means can read below zero. Under ``metric='xg'`` (legacy, selectable via
+``NHL_PLAYER_METRIC=xg``) the value is individual xGoals — offense only,
+never negative. The rolling, shrinkage, and PIT machinery is metric-blind;
 only the value derivation and the prior's sign gate know the difference.
+
+SHIPPED CONTRACT (2026-11-23, scenario F). The three source situations are
+summed into one player-game bucket (``combine_situations``) and rated once as
+``SITUATION_COMBINED``; the pool then consumes the RAW trailing-30 rate
+(``NHL_RATE_ARM=raw``) rather than the shrink-to-position-prior value. The
+six-arm OOF test measured the combined raw pool at pooled logloss 0.6683 vs
+the split shrunk incumbent 0.6685 (45-55% band 0.6907 vs 0.6916) with 12
+pool columns instead of 24; the owner adopted it on 2026-11-23. Shrinkage is
+still computed and stored beside the raw rate, so ``rate_arm='shrunk'``
+restores the prior engine output without a data rebuild.
 
 This module is PURE: it takes frames and returns frames, with no network or
 filesystem access. ``ingestion.py`` owns the pulls.
@@ -82,13 +92,22 @@ import pandas as pd
 # Situations
 # ---------------------------------------------------------------------------
 # MoneyPuck's long-format ``situation`` values. 5on5 is even strength; 5on4 is
-# the standard power play. 4on5 (short-handed) and 'other'/'all' are excluded by
-# construction: a short-handed rate would need its own prior, and 'all' double
-# counts the two splits.
+# the standard power play; 4on5 is the penalty kill. 'other'/'all' are excluded
+# by construction: 'all' double counts the situation splits, and 'other' mixes
+# states that do not share a prior. PK uses the same position/situation prior
+# and shrinkage machinery as EVO/PPO.
 SITUATION_EVO = "5on5"
 SITUATION_PPO = "5on4"
-SITUATIONS: tuple[str, ...] = (SITUATION_EVO, SITUATION_PPO)
-SITUATION_LABELS = {SITUATION_EVO: "EVO", SITUATION_PPO: "PPO"}
+SITUATION_PK = "4on5"
+SITUATIONS: tuple[str, ...] = (SITUATION_EVO, SITUATION_PPO, SITUATION_PK)
+#: One synthetic bucket: EVO+PPO+PK summed inside each player-game before the
+#: rolling window. The label is what the shipped pool carries; it is not a
+#: MoneyPuck situation and never appears in the source archive.
+SITUATION_COMBINED = "5on5+5on4+4on5"
+SITUATION_LABELS = {SITUATION_EVO: "EVO", SITUATION_PPO: "PPO",
+                    SITUATION_PK: "PK", SITUATION_COMBINED: "XPM"}
+#: Situation labels the preparation gate accepts (sources + the combined one).
+ALL_SITUATIONS: tuple[str, ...] = SITUATIONS + (SITUATION_COMBINED,)
 
 # ---------------------------------------------------------------------------
 # Positions
@@ -108,7 +127,7 @@ POSITIONS: tuple[str, ...] = ("C", "L", "R", "D")
 # per 60 — offense only.
 # expected plus-minus per 60 = (OnIce_F_xGoals - OnIce_A_xGoals) per 60 —
 # the two-way analogue that flips negative when a player is out-chanced on
-# his shifts. Same 24 pl_* columns, same pool machinery; the OOF/logloss
+# his shifts. The same pl_* pool machinery serves it; the OOF/logloss
 # gate that adopts it mirrors the 2026-10-02 shrink-arm gate. Unknown
 # metrics raise: a typo must never silently ship the wrong value.
 METRIC_XG = "xg"
@@ -180,6 +199,23 @@ SECONDS_PER_HOUR = 3_600.0      # MoneyPuck icetime is measured in seconds
 # default. Report: .adhoc/nhl_shrink_arm_ab_report_20261002.json.
 NHL_SHRINK_ARM = os.getenv("NHL_SHRINK_ARM", "bayesian").strip().lower() or "bayesian"
 SHRINK_ARMS: tuple[str, ...] = ("bayesian", "ramp")
+
+# -- Served rate arm (2026-11-23, scenario F) -------------------------------
+# The pool's shrink/raw choice is separate from the shrinkage FORM above:
+#
+#   raw (SHIPPED)  final_rate_per60 = the trailing-30-game rate itself
+#   shrunk         final_rate_per60 = shrink_rate(...) toward the
+#                  position/situation prior (the pre-F served value)
+#
+# Both columns are always computed; this knob only selects which one the pool
+# consumes. The six-arm OOF test found raw and shrunk indistinguishable in the
+# pooled population and raw directionally better in the 45-55% band, so the
+# owner adopted raw together with the combined pool on 2026-11-23. Unknown
+# arms raise: a typo must never silently ship the other value.
+RATE_ARM_RAW = "raw"
+RATE_ARM_SHRUNK = "shrunk"
+RATE_ARMS: tuple[str, ...] = (RATE_ARM_SHRUNK, RATE_ARM_RAW)
+NHL_RATE_ARM = os.getenv("NHL_RATE_ARM", RATE_ARM_RAW).strip().lower() or RATE_ARM_RAW
 
 # -- Prepared-input contract (what the engine consumes) ---------------------
 IN_PLAYER = "player_id"
@@ -341,7 +377,7 @@ def prepare_player_games(
     # move a game into the wrong prior-season k table.
     df[IN_SEASON] = _season_ids(df[IN_GAME_DATE])
 
-    bad_sit = ~df[IN_SITUATION].isin(SITUATIONS)
+    bad_sit = ~df[IN_SITUATION].isin(ALL_SITUATIONS)
     audit["dropped_bad_situation"] = int(bad_sit.sum())
     df = df[~bad_sit]
 
@@ -376,6 +412,66 @@ def prepare_player_games(
 
     audit["rows_out"] = int(len(df))
     return df, audit
+
+
+# ---------------------------------------------------------------------------
+# Combined-situation bucket (shipped pool, scenario F)
+# ---------------------------------------------------------------------------
+def combine_situations(
+    games: pd.DataFrame,
+    *,
+    situations: tuple[str, ...] = SITUATIONS,
+    label: str = SITUATION_COMBINED,
+    player_col: str = "player_id",
+    game_col: str = "game_id",
+    situation_col: str = "situation",
+    value_col: str = "xg",
+    ice_col: str = "ice_seconds",
+    onice_for_col: str = "onice_for",
+    onice_against_col: str = "onice_against",
+    passthrough: tuple[str, ...] = (
+        "player_name", "team", "position", "game_date", "season"),
+) -> pd.DataFrame:
+    """Sum the selected situations INSIDE each player-game.
+
+    The combined pool is built at the player-game grain, not by averaging
+    situation rates after the fact: on-ice xGF, on-ice xGA and icetime are
+    added across the selected situations in a game, then the stock rolling /
+    shrinkage engine runs on that one bucket. This makes a combined raw rate
+    exactly the ice-weighted blend of the split raw rates, and keeps the
+    trailing window measured in played GAMES (one row per player-game) rather
+    than in situation rows.
+
+    ``value_col`` is summed for completeness, but under ``metric='xpm'``
+    ``prepare_player_games`` re-derives the value from the summed on-ice pair,
+    so the authoritative combined quantity is ``onice_for - onice_against``.
+    Metadata columns take the last row in the player-game (a player has one
+    team/position/date per game).
+    """
+    if games is None or len(games) == 0:
+        return games.copy() if games is not None else pd.DataFrame()
+    missing = [c for c in (player_col, game_col, situation_col)
+               if c not in games.columns]
+    if missing:
+        raise ValueError(
+            f"combine_situations requires columns {missing} in the player frame")
+    part = games[games[situation_col].isin(tuple(situations))]
+    if len(part) == 0:
+        return part.assign(**{situation_col: label}).reset_index(drop=True)
+
+    agg: dict[str, str] = {}
+    for col in passthrough:
+        if col in part.columns and col not in (
+                player_col, game_col, situation_col):
+            agg[col] = "last"
+    for col in (value_col, ice_col, onice_for_col, onice_against_col):
+        if col in part.columns:
+            agg[col] = "sum"
+    out = (part.groupby([player_col, game_col], as_index=False, sort=False)
+               .agg(agg))
+    out[situation_col] = label
+    return (out.sort_values([player_col, game_col], kind="mergesort")
+               .reset_index(drop=True))
 
 
 # ---------------------------------------------------------------------------
@@ -434,7 +530,7 @@ def season_ice_time_table(
         pos = normalize_position(row[IN_POSITION])
         sit = row[IN_SITUATION]
         value = float(row[IN_ICE])
-        if pos is None or sit not in SITUATIONS:
+        if pos is None or sit not in ALL_SITUATIONS:
             continue
         if not np.isfinite(value) or value <= 0:
             continue
@@ -618,11 +714,12 @@ def build_player_ratings(
     window: int = ROLLING_ROWS,
     shrink_fraction: float = SHRINK_FRACTION_OF_SEASON,
     shrink_arm: str = NHL_SHRINK_ARM,
+    rate_arm: str = RATE_ARM_SHRUNK,
     id_col: Optional[str] = None,
     as_of: Optional[object] = None,
     metric: str = NHL_PLAYER_METRIC,
 ) -> tuple[pd.DataFrame, dict]:
-    """Build per-player EVO/PPO ratings.
+    """Build per-player ratings for one situation or the combined bucket.
 
     ``games`` is a player/game/situation frame (see
     ``prepare_player_games``). Each output row records a trailing rate ending
@@ -631,10 +728,20 @@ def build_player_ratings(
     compatibility but never alter a player's rating: availability removes the
     player from the target game's aggregation only.
 
-    ``metric`` selects the rated value (``'xg'`` shipped default, ``'xpm'``
-    gated): it flows into input preparation and into the prior's sign gate,
+    ``metric`` selects the rated value (``'xpm'`` shipped default, ``'xg'``
+    legacy): it flows into input preparation and into the prior's sign gate,
     and is recorded in the audit. Rolling, shrinkage, and PIT shape are
     identical under either metric.
+
+    ``rate_arm`` selects the served ``final_rate_per60``: ``'shrunk'`` (the
+    engine default here, and the pre-F served value) or ``'raw'`` (the
+    trailing rate itself, which the shipped feature path passes via
+    ``NHL_RATE_ARM=raw``). Both ``raw_rate_per60`` and ``shrunk_rate_per60``
+    are always computed; only the final selection changes.
+
+    A combined-situation frame is built by ``combine_situations`` before this
+    call; the engine itself is situation-blind and runs the stock window and
+    prior on whatever labels the frame carries.
 
     League rates are built from strictly earlier calendar dates and shrinkage
     strength uses completed seasons before the source game's season. ``as_of``
@@ -643,10 +750,14 @@ def build_player_ratings(
     if shrink_arm not in SHRINK_ARMS:
         raise ValueError(
             f"NHL_SHRINK_ARM must be 'bayesian' or 'ramp', got {shrink_arm!r}")
+    if rate_arm not in RATE_ARMS:
+        raise ValueError(
+            f"NHL_RATE_ARM must be 'raw' or 'shrunk', got {rate_arm!r}")
     prepared, audit = prepare_player_games(games, id_col=id_col, metric=metric)
     audit["window_rows"] = int(window)
     audit["shrink_fraction_of_season"] = float(shrink_fraction)
     audit["shrink_arm"] = str(shrink_arm)
+    audit["rate_arm"] = str(rate_arm)
 
     empty = pd.DataFrame(columns=OUTPUT_COLUMNS)
     if len(prepared) == 0:
@@ -702,7 +813,9 @@ def build_player_ratings(
     # game, in injury_stints.team_game_rates.
     merged[OUT_INJURY_MULTIPLIER] = 1.0
     merged[OUT_AVAILABILITY] = "healthy"
-    merged[OUT_FINAL_RATE] = merged[OUT_SHRUNK_RATE]
+    merged[OUT_FINAL_RATE] = (
+        merged[OUT_RAW_RATE] if rate_arm == RATE_ARM_RAW
+        else merged[OUT_SHRUNK_RATE])
 
     audit["injuries_rows"] = 0 if injuries is None else int(len(injuries))
     audit["injuries_applied"] = (
@@ -726,7 +839,7 @@ def latest_ratings(
 ) -> pd.DataFrame:
     """Most recent rating per (player, situation) strictly before a decision date.
 
-    The serving shape: one EVO and one PPO number per player, with the row that
+    The serving shape: one rating per player and situation, with the row that
     produced each named, so the age of the number is never ambiguous. A rating
     stamped on the decision date is excluded because date-grain data cannot
     prove that its events were available before puck drop.

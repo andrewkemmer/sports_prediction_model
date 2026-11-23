@@ -50,6 +50,11 @@ def make_games(rows):
             "game_date": pd.Timestamp(dt), "game_id": f"G{p}_{dt}_{s}",
             "position": pos, "situation": s, "season": pd.Timestamp(dt).year,
             "xg": float(xg), "ice_seconds": float(ice),
+            # The shipped metric is xpm, whose value is the on-ice
+            # differential. Giving the fixture a 0-against pair keeps every
+            # hand-computed xG number identical under either metric while
+            # letting the default path prepare the rows.
+            "onice_for": float(xg), "onice_against": 0.0,
         }
         for p, dt, s, pos, xg, ice in rows
     ])
@@ -652,18 +657,21 @@ class TestMetricArm:
         with pytest.raises(ValueError):
             pr.build_player_ratings(games, id_col="player_id", metric="bogus")
 
-    def test_default_metric_ignores_onice_columns(self):
-        """The shipped path is byte-identical with the pair present.
+    def test_default_metric_is_the_shipped_xpm_arm(self):
+        assert pr.NHL_PLAYER_METRIC == pr.METRIC_XPM
 
-        Garbage on-ice values must not move any number while metric='xg' is
-        the default — otherwise adding the ingestion columns would silently
-        re-rate production before the gate adopts xpm.
+    def test_legacy_xg_metric_ignores_onice_columns(self):
+        """The legacy arm stays byte-identical with the pair present.
+
+        Garbage on-ice values must not move any number under metric='xg'.
         """
         games = make_games([("1", "2024-04-20", EVO, "C", 10.0, 1000.0),
                             ("1", "2024-04-21", EVO, "C", 20.0, 1000.0)])
-        plain, _ = pr.build_player_ratings(games, id_col="player_id")
+        plain, _ = pr.build_player_ratings(
+            games, id_col="player_id", metric="xg")
         with_pair = games.assign(onice_for=999.0, onice_against=999.0)
-        gated, audit = pr.build_player_ratings(with_pair, id_col="player_id")
+        gated, audit = pr.build_player_ratings(
+            with_pair, id_col="player_id", metric="xg")
         assert audit["metric"] == "xg"
         assert gated["prior_xg"].tolist() == plain["prior_xg"].tolist()
         assert np.allclose(gated["final_rate_per60"].astype(float),
@@ -684,7 +692,9 @@ class TestMetricArm:
         broke even; an absent column is unknown and must empty the frame
         through the counted bad-values gate.
         """
-        games = make_games([("1", "2024-04-20", EVO, "C", 10.0, 1000.0)])
+        games = make_games(
+            [("1", "2024-04-20", EVO, "C", 10.0, 1000.0)]).drop(
+                columns=["onice_for", "onice_against"])
         prepared, audit = pr.prepare_player_games(
             games, id_col="player_id", metric="xpm")
         assert len(prepared) == 0
@@ -749,4 +759,85 @@ class TestMetricArm:
             games, id_col="player_id", metric="xpm")
         second = ratings[ratings["game_date"] == pd.Timestamp("2024-04-20")]
         assert second["final_rate_per60"].notna().all()
+
+
+# ---------------------------------------------------------------------------
+# Combined-situation arm (scenario F: one bucket, raw served rate)
+# ---------------------------------------------------------------------------
+class TestCombinedSituationArm:
+    def test_combine_situations_sums_inside_each_player_game(self):
+        games = pd.DataFrame([
+            {"player_id": "1", "player_name": "P1", "team": "T",
+             "game_id": "G1", "game_date": pd.Timestamp("2024-04-20"),
+             "season": 2023, "position": "C", "situation": sit,
+             "xg": 0.0, "ice_seconds": ice,
+             "onice_for": of, "onice_against": oa}
+            for sit, of, oa, ice in (
+                (EVO, 1.0, 3.0, 600.0), (PPO, 2.0, 0.0, 120.0),
+                (pr.SITUATION_PK, 0.0, 1.0, 90.0))
+        ])
+        combined = pr.combine_situations(games)
+        assert len(combined) == 1
+        row = combined.iloc[0]
+        assert row["situation"] == pr.SITUATION_COMBINED
+        assert row["onice_for"] == pytest.approx(3.0)
+        assert row["onice_against"] == pytest.approx(4.0)
+        assert row["ice_seconds"] == pytest.approx(810.0)
+
+    def test_combined_rating_runs_the_stock_window_on_the_bucket(self):
+        games = pd.DataFrame([
+            {"player_id": "1", "player_name": "P1", "team": "T",
+             "game_id": game, "game_date": pd.Timestamp(dt), "season": 2023,
+             "position": "C", "situation": sit, "xg": 0.0,
+             "ice_seconds": ice, "onice_for": of, "onice_against": oa}
+            for game, dt, sit, of, oa, ice in (
+                ("G1", "2023-04-20", EVO, 1.0, 1.0, 8000.0),
+                ("G1", "2023-04-20", PPO, 1.0, 1.0, 1000.0),
+                ("G1", "2023-04-20", pr.SITUATION_PK, 0.0, 2.0, 1000.0),
+                ("G2", "2024-04-20", EVO, 2.0, 0.0, 8000.0),
+            )
+        ])
+        combined = pr.combine_situations(games)
+        assert len(combined) == 2              # one row per player-game
+        ratings, audit = pr.build_player_ratings(
+            combined, id_col="player_id", metric="xpm", rate_arm="raw")
+        assert audit["rate_arm"] == "raw"
+        second = ratings[ratings["game_date"] == pd.Timestamp("2024-04-20")]
+        # 2023 bucket -2 xG on 10,000 s + 2024 bucket +2 on 8,000 s = 0.
+        assert second["raw_rate_per60"].iloc[0] == pytest.approx(0.0)
         assert second["final_rate_per60"].iloc[0] == pytest.approx(0.0)
+
+    def test_raw_rate_arm_serves_raw_and_keeps_shrunk_beside_it(self):
+        # A second skater in the prior season makes the league prior 0.0/60
+        # (the two differentials cancel), so shrinking player 1's -1.35 raw
+        # rate visibly moves it while the raw arm leaves it alone.
+        games = make_xpm_games([
+            ("1", "2023-04-20", EVO, "C", 1.0, 3.0, 8000.0),
+            ("2", "2023-04-20", EVO, "C", 4.0, 2.0, 8000.0),
+            ("1", "2024-04-20", EVO, "C", 2.0, 5.0, 8000.0),
+        ])
+        raw, audit = pr.build_player_ratings(
+            games, id_col="player_id", metric="xpm", rate_arm="raw")
+        shrunk, _ = pr.build_player_ratings(
+            games, id_col="player_id", metric="xpm", rate_arm="shrunk")
+        assert audit["rate_arm"] == "raw"
+        assert np.allclose(raw["final_rate_per60"].astype(float),
+                           raw["raw_rate_per60"].astype(float),
+                           equal_nan=True)
+        assert np.allclose(shrunk["final_rate_per60"].astype(float),
+                           shrunk["shrunk_rate_per60"].astype(float),
+                           equal_nan=True)
+        second = ((raw["player_id"] == "1")
+                  & (raw["game_date"] == pd.Timestamp("2024-04-20")))
+        assert raw.loc[second, "final_rate_per60"].iloc[0] == pytest.approx(-1.125)
+        assert not np.allclose(raw.loc[second, "final_rate_per60"].astype(float),
+                               raw.loc[second, "shrunk_rate_per60"].astype(float))
+
+    def test_shipped_rate_arm_is_raw(self):
+        assert pr.NHL_RATE_ARM == pr.RATE_ARM_RAW
+
+    def test_invalid_rate_arm_raises(self):
+        games = make_games([("1", "2024-04-20", EVO, "C", 10.0, 1000.0)])
+        with pytest.raises(ValueError):
+            pr.build_player_ratings(
+                games, id_col="player_id", rate_arm="bogus")

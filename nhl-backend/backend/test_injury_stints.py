@@ -1814,3 +1814,28 @@ class TestSnapshotNsFastPath:
         assert ist.is_unavailable(
             st, "p1", "2026-01-12 00:00", strict_start=True,
             snapshot_ns=ist.snapshot_ns_array([pd.NaT])) is False
+
+
+def test_combined_ratings_emit_the_xpm_pool_contract(monkeypatch):
+    """Production ratings carry ONE combined situation and emit pl_xpm_*."""
+    combined = "5on5+5on4+4on5"
+    ratings = make_ratings([
+        ("mp-1", "BOS", combined, "C", 0.50, 9000.0, "2026-04-15"),
+        ("mp-2", "BOS", combined, "C", 0.25, 9000.0, "2026-04-15"),
+        ("mp-3", "TOR", combined, "C", 0.40, 9000.0, "2026-04-15"),
+    ])
+    ratings["final_rate_per60"] = ratings["shrunk_rate_per60"]
+    monkeypatch.setattr(feat.ingestion, "load_espn_injuries",
+                        lambda *a, **k: pd.DataFrame())
+    games = pd.DataFrame([{
+        "game_id": "G1", "season": 2026, "game_date": "2026-10-15",
+        "start_time_utc": "2026-10-15T19:00:00Z",
+        "home_team": "BOS", "away_team": "TOR",
+    }])
+    out = feat.add_player_pool_features(games, player_ratings=ratings)
+    assert "pl_xpm_c_home" in out.columns
+    assert "pl_xpm_c_away" in out.columns
+    assert "pl_evo_c_home" not in out.columns
+    assert out.loc[0, "pl_xpm_c_home"] == pytest.approx((0.50 + 0.25) / 2)
+    assert out.loc[0, "pl_xpm_c_away"] == pytest.approx(0.40)
+    assert out.loc[0, "pl_xpm_c_diff"] == pytest.approx((0.50 + 0.25) / 2 - 0.40)

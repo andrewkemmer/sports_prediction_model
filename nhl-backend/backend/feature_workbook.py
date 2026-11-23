@@ -283,12 +283,12 @@ NHL_API_SOURCES = [
     ("MoneyPuck free skater game-by-game archives (non-commercial)",
      "Per PLAYER x GAME x SITUATION regular-season xG/icetime ZIPs (2008+).",
      "PRODUCTION for the pl_* family: load_moneypuck_player_games caches the "
-     "season archives; trailing 30-game shrunk EVO/PPO ratings -> team pool "
+     "season archives; trailing 30-game combined EVO+PPO+PK XPM ratings -> team pool "
      "means with binary injury exclusion (source date strictly before target "
-     "date). Unavailable archives degrade the 24 pl_* columns to position "
+     "date). Unavailable archives degrade the 12 pl_xpm_* columns to position "
      "priors — never fabricated.",
      "Individual xG rates are the served pool features; the RFE trial space "
-     "carries all 24 pl_* names."),
+     "carries all 12 pl_xpm_* names."),
 ]
 
 NHL_LOW_VALUE_FIELDS = [

@@ -164,7 +164,7 @@ MIN_VAL_FOLD_GAMES = 40
 # ---------------------------------------------------------------------------
 # Corrected hockey inputs + true XGB categories and shared fit/refit policy.
 # Existing v1.1/v1.2 bundles require a full feature rebuild/OOF/refit, not reuse.
-FEATURE_SET_VERSION = "nhl-prod-v1.3-causal-evaluation"
+FEATURE_SET_VERSION = "nhl-prod-v1.4-combined-xpm-raw"
 
 # ---------------------------------------------------------------------------
 # Moneyline calibration (MLB structural parity; favored-team space ONLY)
@@ -237,18 +237,19 @@ MONEYLINE_FEATURE_COLS = [
     # constant home anchor last, so the linear member's positional contract
     # is unchanged by the raw-side block above (MLB parity)
     "is_home",
-    # Player pool (MLB's _LINEUP_AGG_ROSTER shape): healthy-pool mean shrunk
-    # rate per 60 for each situation x position, served home / away / diff.
-    # The injury flag REMOVES players from the pool before this mean; it is
-    # never a column of its own, because MLB applies a flag and emits none.
-    "pl_evo_c_away", "pl_evo_c_home", "pl_evo_c_diff",
-    "pl_evo_l_away", "pl_evo_l_home", "pl_evo_l_diff",
-    "pl_evo_r_away", "pl_evo_r_home", "pl_evo_r_diff",
-    "pl_evo_d_away", "pl_evo_d_home", "pl_evo_d_diff",
-    "pl_ppo_c_away", "pl_ppo_c_home", "pl_ppo_c_diff",
-    "pl_ppo_l_away", "pl_ppo_l_home", "pl_ppo_l_diff",
-    "pl_ppo_r_away", "pl_ppo_r_home", "pl_ppo_r_diff",
-    "pl_ppo_d_away", "pl_ppo_d_home", "pl_ppo_d_diff",
+    # Player pool (MLB's _LINEUP_AGG_ROSTER shape): healthy-pool mean XPM per
+    # 60 for each position, served home / away / diff. One combined pool:
+    # EVO+PPO+PK are summed inside each player-game before the trailing-30
+    # window, and the served rate is the raw window rate (no shrinkage).
+    # Scenario F, adopted 2026-11-23: pooled logloss 0.6683 vs 0.6685 for the
+    # split shrunk incumbent, 45-55% band 0.6907 vs 0.6916, 12 columns instead
+    # of 24 (paired CIs span zero; owner-directed adoption). The injury flag
+    # REMOVES players from the pool before this mean; it is never a column of
+    # its own, because MLB applies a flag and emits none.
+    "pl_xpm_c_away", "pl_xpm_c_home", "pl_xpm_c_diff",
+    "pl_xpm_l_away", "pl_xpm_l_home", "pl_xpm_l_diff",
+    "pl_xpm_r_away", "pl_xpm_r_home", "pl_xpm_r_diff",
+    "pl_xpm_d_away", "pl_xpm_d_home", "pl_xpm_d_diff",
 ]
 
 # ---------------------------------------------------------------------------
@@ -693,17 +694,18 @@ GOALIE_FIELDS = [
 COIN_FLIP_THRESHOLD = 0.02
 
 # ---------------------------------------------------------------------------
-# Player-level ratings (EVO / PPO) — the NHL analogue of MLB's wOBA
+# Player-level ratings (combined EVO+PPO+PK XPM) — the NHL analogue of wOBA
 # ---------------------------------------------------------------------------
 # Built by backend/player_ratings.py from MoneyPuck's regular-season skater
-# game logs. These per-game rolling ratings feed the 24 pl_* production
+# game logs. These per-game rolling ratings feed the 12 pl_xpm_* production
 # features and therefore require a fresh OOF validation/model refit under the
 # feature version above before new bundles can safely serve them.
 #
-# Rated value follows player_ratings.NHL_PLAYER_METRIC: 'xg' (shipped
-# default, individual offense) or 'xpm' (gated two-way arm, on-ice expected
-# differential — signed, so losing-team pools can read negative). Either arm
-# ships the same 24 columns through the same pool machinery.
+# Rated value follows player_ratings.NHL_PLAYER_METRIC: 'xpm' (shipped
+# default, on-ice expected differential — signed, so losing-team pools can read
+# negative) or 'xg' (legacy, individual offense). The shipped pool combines
+# the three situations into one bucket and serves the raw trailing rate
+# (player_ratings.NHL_RATE_ARM); the shrinkage value is stored beside it.
 #
 # Shrinkage: each rating is pulled toward a POSITION-SEGMENTED league prior.
 # A single league mean is wrong for hockey because the situations do not share
@@ -718,10 +720,13 @@ COIN_FLIP_THRESHOLD = 0.02
 # was A/B-gated 2026-10-02 and returned a wash: NOT adopted for now,
 # selectable with NHL_SHRINK_ARM=ramp.
 PLAYER_RATING_SHRINK_FRACTION = 0.20
-# Trailing played-game rows summed independently per player and situation.
+# Trailing played-game rows summed per player; the shipped pool combines the
+# three situations into one row per player-game before this window.
 PLAYER_RATING_PRIOR_ROWS = 30
-# MoneyPuck situations: 5on5 is even strength (EVO), 5on4 is the power play (PPO).
-PLAYER_RATING_SITUATIONS = ("5on5", "5on4")
+# MoneyPuck situations: 5on5 is even strength (EVO), 5on4 is the power play
+# (PPO), 4on5 is the penalty kill (PK). All three enter the SHIPPED combined
+# pool, summed inside each player-game before the rolling window.
+PLAYER_RATING_SITUATIONS = ("5on5", "5on4", "4on5")
 PLAYER_RATING_POSITIONS = ("C", "L", "R", "D")
 # MoneyPuck publishes one player-game archive per season START-YEAR, and
 # PLAYER_RATING_FIRST_SEASON is the earliest one the pipeline has ever read.

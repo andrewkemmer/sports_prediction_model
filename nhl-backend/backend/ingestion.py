@@ -149,14 +149,12 @@ SCORE_CACHE_VERSION = "v2"
 # percentages. Never consume those cached proxies under the corrected schema.
 BOXSCORE_CACHE_VERSION = "v5"
 # Cache schema version for the player-game archive family (pl_* ratings).
-# v2 is the shipped shape (individual xG + icetime). The gated
-# NHL_PLAYER_METRIC=xpm arm additionally needs the on-ice expected-goals
-# pair (OnIce_F/A_xGoals), which lives under MP_PLAYER_GAME_ONICE_VERSION
-# filenames — so enabling the gate never invalidates the daily driver's
-# cache, and, symmetrically, the daily driver never forces the multi-GB
-# historical re-download the pair would otherwise require on a cold host.
-MP_PLAYER_GAME_VERSION = "v2"
-MP_PLAYER_GAME_ONICE_VERSION = "v3"
+# v3 adds 4on5 (PK) rows to the shipped shape; v4 adds 4on5 (PK) rows to
+# the on-ice xpm shape (OnIce_F/A_xGoals). The bump is required: a v2/v3
+# cache was filtered to 5on5/5on4 at write time, so reusing it would
+# silently produce no PK rows.
+MP_PLAYER_GAME_VERSION = "v3"
+MP_PLAYER_GAME_ONICE_VERSION = "v4"
 #: Keep-list for the shipped player-game shape (individual xG + icetime).
 MP_PLAYER_GAME_BASE_COLUMNS = ["playerId", "name", "gameId", "season",
                                "playerTeam", "gameDate", "position",
@@ -169,8 +167,10 @@ INJURY_VERSION = "v2"
 # this cadence rather than equating "same UTC date" with a current report.
 INJURY_CACHE_TTL_HOURS = 6
 
-# MoneyPuck ``situation`` values. 5on5 = even strength, 5on4 = power play.
-MONEYPUCK_SITUATIONS = ("5on5", "5on4")
+# MoneyPuck ``situation`` values. 5on5 = even strength, 5on4 = power play,
+# 4on5 = penalty kill. 4on5 feeds the trial PK player-pool arm and is still
+# filtered out downstream unless the rating situation list opts in.
+MONEYPUCK_SITUATIONS = ("5on5", "5on4", "4on5")
 
 # Structural mirror of MLB's ``_chunked_statcast``: the pull is grouped into
 # fixed calendar windows so a multi-thousand-game pull reports progress per
@@ -1358,7 +1358,7 @@ def load_boxscores(game_ids: list[str], use_cache: bool = True,
 
 # ---------------------------------------------------------------------------
 # MoneyPuck player-game archives: the production substrate for the player-pool
-# pl_* family (trailing 30-game shrunk EVO/PPO ratings -> team pool means).
+# pl_* family (trailing 30-game combined EVO+PPO+PK XPM ratings -> pool means).
 # Consumed by features._load_player_ratings; nothing else loads MoneyPuck.
 # ---------------------------------------------------------------------------
 
@@ -1466,8 +1466,8 @@ def load_moneypuck_player_games(
     """Load MoneyPuck's published regular-season player-game CSV archives.
 
     The output has one row per player/game/situation with playerId, gameId,
-    date, team, position, individual xGoals, and ice time. Only 5on5 (EVO)
-    and 5on4 (PPO) rows are retained. ZIPs are downloaded to a temporary file
+    date, team, position, individual xGoals, and ice time. 5on5 (EVO), 5on4
+    (PPO) and 4on5 (PK) rows are retained. ZIPs are downloaded to a temporary file
     beside the parquet cache and parsed in bounded CSV chunks; the 2.6-GB
     historical CSV is never decompressed into one in-memory DataFrame. Only
     requested start-year seasons are retained and cached.
@@ -1599,7 +1599,7 @@ def load_moneypuck_player_games(
         # Before opening night (or before MoneyPuck regenerates the live
         # archive) the current season legitimately has no rows. Falling through
         # to finished history is the correct reading; killing the family would
-        # drop all 24 pl_* columns to position priors every year for no reason.
+        # drop every pl_* column to position priors every year for no reason.
         logger.warning("MoneyPuck season(s) not available yet: %s; ratings run "
                        "through season %s", unpublished,
                        max((int(s) for s in requested

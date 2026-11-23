@@ -2,7 +2,7 @@
 
 The 2026-09-29 audit request in one repeatable tool: verify that the
 captured ESPN health archive is complete for every player who can actually
-enter a pl_evo/pl_ppo pool, that the exclusion binds point-in-time, and that
+enter a pl_xpm pool, that the exclusion binds point-in-time, and that
 it never reaches backward into pre-capture games.
 
 What it checks (and why the obvious metric is not the right one):
