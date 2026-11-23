@@ -248,14 +248,19 @@ MONEYLINE_FEATURE_COLS = [
     # injury flag REMOVES players from the pool before this mean; it is never
     # a column of its own, because MLB applies a flag and emits none.
     "pl_xpm_away", "pl_xpm_home", "pl_xpm_diff",
+    # Individual-xG pool, adopted 2026-11-23: the same four-situation
+    # (5on5+5on4+4on5+other), raw trailing-30, position-free construction as
+    # XPM, rated on individual I_F_xGoals instead of the on-ice differential.
+    # Adds player-level shooting to the on-ice two-way value. A/B on the
+    # 4,550-game frame: pooled AUC 0.6146 -> 0.6158 and logloss 0.6688 ->
+    # 0.6685; in the 45-55% band logloss 0.6935 -> 0.6922 and Brier 0.2502 ->
+    # 0.2495 (both proper scores exclude zero there, 98.6% of paired draws).
+    "pl_xg_away", "pl_xg_home", "pl_xg_diff",
 ]
 
-# Trial / validation columns: individual expected goals (I_F_xGoals), built
-# exactly like the adopted XPM pool (combined EVO+PPO+PK inside each
-# player-game, raw trailing-30 rate, position-free rollup). Registered in the
-# known pool so an A/B arm can select them, but NEVER part of
-# MONEYLINE_FEATURE_COLS: production still serves only the XPM triplet.
-NHL_PLAYER_XG_TRIAL_COLS = ["pl_xg_away", "pl_xg_home", "pl_xg_diff"]
+# The individual-xG pool triplet (served with XPM since 2026-11-23). Named
+# here because the feature builder attaches it through its own ratings table.
+NHL_PLAYER_XG_COLS = ["pl_xg_away", "pl_xg_home", "pl_xg_diff"]
 
 # ---------------------------------------------------------------------------
 # NHL team IDs for the tree-member categorical context (NFL pattern: a stable
@@ -369,8 +374,7 @@ RFE_CANDIDATE_COLS: list[str] = list(dict.fromkeys(
 # Trial / validation pool: universe first (canonical), then trial-only
 # columns, then candidates.
 KNOWN_FEATURE_COLS = list(dict.fromkeys(
-    list(MONEYLINE_FEATURE_COLS) + list(NHL_PLAYER_XG_TRIAL_COLS)
-    + list(RFE_CANDIDATE_COLS)))
+    list(MONEYLINE_FEATURE_COLS) + list(RFE_CANDIDATE_COLS)))
 
 # RFE governance: None during ordinary production runs.
 _FEATURE_SUBSET: list[str] | None = None

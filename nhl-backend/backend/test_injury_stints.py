@@ -1918,7 +1918,7 @@ def test_trial_xg_pool_adds_three_columns_without_touching_xpm(monkeypatch):
     assert out.loc[0, "pl_xg_away_default"] == pytest.approx(0.0)
     assert out.loc[0, "pl_xg_diff_default"] == pytest.approx(0.0)
     assert "pl_xg_home" in feat.config.KNOWN_FEATURE_COLS
-    assert "pl_xg_home" not in feat.config.MONEYLINE_FEATURE_COLS
+    assert "pl_xg_home" in feat.config.MONEYLINE_FEATURE_COLS
 
 
 def test_xg_loader_requests_combined_individual_goals(monkeypatch):

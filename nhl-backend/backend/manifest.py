@@ -908,6 +908,59 @@ for _sit, _metric in (("5on5+5on4+4on5+other", "XPM"),):
             }
 
 
+# Individual-xG pool (adopted 2026-11-23): identical construction to XPM --
+# same four situations, window, gates and position rollup -- rated on
+# individual I_F_xGoals instead of the on-ice expected differential.
+for _rep in ("away", "home", "diff"):
+    FEATURE_MANIFEST[f"pl_xg_{_rep}"] = {
+            "description":
+                f"{_POOL_SITUATION_NAME['5on5+5on4+4on5+other']} all-skater "
+                f"healthy-pool mean raw individual expected goals per 60, "
+                f"{_rep} (C/L/R/D positions rolled up)",
+            "definition":
+                f"unweighted mean of the four position-level pool means "
+                f"(C, L, R, D) of raw_rate_per60 for "
+                f"5on5+5on4+4on5+other, aggregated over the healthy pool -- "
+                f"the most recent trailing-30-game rating per player whose "
+                f"source game date is strictly earlier than the target "
+                f"date, gated at >=900s prior ice time, with any player on "
+                f"an Out/Injured Reserve/IR/Doubtful interval captured "
+                f"before puck drop REMOVED from the pool before the mean. "
+                f"The rated value is individual I_F_xGoals; EVO, PPO, PK and "
+                f"other icetime are summed inside each player-game before "
+                f"the rolling window, so the rate is the ice-weighted "
+                f"combined individual-xG rate; no shrinkage is applied. "
+                f"No top-N cut: all 18 dressed skaters contribute. "
+                f"diff = home - away.",
+            "source": "MoneyPuck regular-season skater game-by-game "
+                      "archives (individual xGoals + icetime) + ESPN "
+                      "timestamped injury status snapshots",
+            "lookback": "trailing 30 played games per player (combined "
+                        "situations) (game grain); source games within "
+                        "injury_stints.POOL_LOOKBACK_DAYS = 45 of the "
+                        "target date",
+            "aggregation": "opportunity-weighted mean of surviving "
+                      "player-level raw rates: each candidate's weight is "
+                      "his own served prior icetime, applied AFTER the "
+                      "injury exclusion; sides with zero served weight fall "
+                      "back to the plain mean",
+            "point_in_time_rule":
+                "a candidate rating enters a target game's pool only when "
+                "its source game date is STRICTLY earlier than the target "
+                "date, so a target game's own row can never enter its own "
+                "pool; the injury interval opens only on a captured snapshot "
+                "timestamp strictly before exact puck drop",
+            "missing_value_policy":
+                "mean of the four position priors (this run's measured "
+                "all-teams position means) when a side has no pool row; "
+                "never NaN, never 0",
+            "representation": _POOL_REPRESENTATION[_rep],
+            "model_family_availability": (
+                ["linear", "tree"] if _rep == "diff" else ["tree"]),
+            "feature_version": 4,
+        }
+
+
 # The shared monitor page builds its hover text as
 # ``<span title='{html.escape(tooltip, quote=False)}'>``. With quote=False the
 # escaper leaves quote characters alone, so a single apostrophe in the

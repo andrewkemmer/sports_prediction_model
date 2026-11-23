@@ -1276,9 +1276,9 @@ PLAYER_POOL_COLS = [
     for rep in ("away", "home", "diff")
 ]
 
-#: Trial-only individual-xG triplet (same rollup, metric ``I_F_xGoals``).
-#: Not part of the shipped contract; arm B of the xG A/B selects these names.
-PLAYER_POOL_XG_COLS = list(config.NHL_PLAYER_XG_TRIAL_COLS)
+#: Served individual-xG triplet: same four-situation bucket, window and
+#: position rollup as the adopted XPM pool, rated on ``I_F_xGoals``.
+PLAYER_POOL_XG_COLS = list(config.NHL_PLAYER_XG_COLS)
 
 #: Receipt for the injury flag. NOT a model input. Zero means a covered,
 #: timestamped report window with no removals; NaN means report coverage or an
@@ -1655,14 +1655,14 @@ def add_expected_goals_features(
     stints: pd.DataFrame | None = None,
     stints_sources: dict | None = None,
 ) -> pd.DataFrame:
-    """Attach the trial-only individual-xG pool triplet.
+    """Attach the served individual-xG pool triplet.
 
     ``player_ratings`` must come from :func:`load_xg_player_ratings` (one
-    combined EVO+PPO+PK situation, metric ``xg``). The resulting
-    ``pl_xg_{away,home,diff}`` columns are additive to the shipped XPM triplet;
-    this function never writes or drops ``pl_xpm_*``. Like the adopted pool,
-    each representation is the unweighted mean of the four position rates and
-    ``diff`` is exactly ``home - away``.
+    combined situation over the same four states as XPM, metric ``xg``). The
+    resulting ``pl_xg_{away,home,diff}`` columns are additive to the shipped
+    XPM triplet; this function never writes or drops ``pl_xpm_*``. Like the
+    adopted pool, each representation is the unweighted mean of the four
+    position rates and ``diff`` is exactly ``home - away``.
     """
     if player_ratings is None:
         player_ratings = load_xg_player_ratings()
@@ -1736,11 +1736,11 @@ def _load_player_ratings(
                        "columns use position priors")
         return pd.DataFrame()
 
-    # The combined SHIPPED XPM bucket opts `other` in (all-in). A split build,
-    # and the trial combined-xG arm, keep the three tracked states so their
-    # historical results stay comparable and every label maps to a metric.
-    situations = (tuple(config.PLAYER_RATING_SITUATIONS)
-                  if combine and metric == _pr.METRIC_XPM else _pr.SITUATIONS)
+    # Both combined served buckets (XPM and individual XG) opt `other` in
+    # (all-in). A split build keeps the three tracked states so every label
+    # maps to a metric and the split arms stay comparable.
+    situations = (tuple(config.PLAYER_RATING_SITUATIONS) if combine
+                  else _pr.SITUATIONS)
     games = games[games.situation.isin(situations)].copy()
     source_rows = len(games)
     frame = pd.DataFrame({
@@ -1796,11 +1796,12 @@ def _load_player_ratings(
 
 
 def load_xg_player_ratings() -> pd.DataFrame:
-    """Trial-only individual-xG ratings, combined exactly like shipped XPM.
+    """Served individual-xG ratings, combined exactly like shipped XPM.
 
-    Uses ``I_F_xGoals`` per player-game over EVO+PPO+PK and the raw trailing-30
-    rate. This is the ratings table for :func:`add_expected_goals_features`;
-    it is never selected by the production feature contract.
+    Uses ``I_F_xGoals`` per player-game over the same four situations
+    (5on5+5on4+4on5+other) and the raw trailing-30 rate. This is the ratings
+    table for :func:`add_expected_goals_features`, which the frame build
+    attaches beside the adopted XPM pool.
     """
     return _load_player_ratings(
         metric=_pr.METRIC_XG, combine=True, require_onice=True)
@@ -2010,6 +2011,11 @@ def build_game_features(games: pd.DataFrame,
     df = add_player_pool_features(df, player_ratings=player_ratings,
                                   stints=combined_excl,
                                   stints_sources=availability_sources)
+    # Individual-xG pool (served since 2026-11-23): the same four-situation
+    # construction, rated on I_F_xGoals and attached additively.
+    df = add_expected_goals_features(
+        df, player_ratings=load_xg_player_ratings(),
+        stints=combined_excl, stints_sources=availability_sources)
 
     # Targets (kept beside features for OOF assembly; never model inputs).
     df["margin"] = pd.to_numeric(df["home_score"], errors="coerce") \
@@ -2137,6 +2143,11 @@ def build_slate_features(schedule: pd.DataFrame,
     df = add_player_pool_features(df, player_ratings=player_ratings,
                                   stints=combined_excl,
                                   stints_sources=availability_sources)
+    # Individual-xG pool (served since 2026-11-23): the same four-situation
+    # construction, rated on I_F_xGoals and attached additively.
+    df = add_expected_goals_features(
+        df, player_ratings=load_xg_player_ratings(),
+        stints=combined_excl, stints_sources=availability_sources)
     return df
 
 
