@@ -8,13 +8,34 @@ except ImportError:
 
 CANDIDATE_MANIFEST: dict[str, dict] = {}
 
+_CANDIDATE_METRIC_LABELS = {
+    "points_for_pg": "points scored",
+    "points_against_pg": "points allowed",
+    "assists_per_game": "assists",
+    "rebounds_per_game": "rebounds",
+    "turnovers_per_game": "turnovers",
+    "three_point_pct": "3-point shooting",
+    "free_throw_pct": "free-throw shooting",
+}
+_CANDIDATE_WINDOW_LABELS = {"ewm": "recent", "roll": "last 5 games"}
+
+
+def _candidate_summary(metric: str, window: str, rep: str) -> str:
+    """Plain one-line dashboard label for a trailing candidate column."""
+    label = _CANDIDATE_METRIC_LABELS.get(metric, metric.replace("_", " "))
+    span = _CANDIDATE_WINDOW_LABELS.get(window, window)
+    if rep == "diff":
+        return f"Home vs away {span} {label}"
+    return f"{label[0].upper()}{label[1:]} ({span}) — {rep} team"
+
+
 def _candidate_manifest() -> None:
     for metric, windows in config.TEAM_CANDIDATE_TRAILING_SPECS.items():
         for window in windows:
             base = f"{metric}_{window}"
             for rep, representation in (("diff", "difference"), ("home", "raw home level"), ("away", "raw away level")):
                 CANDIDATE_MANIFEST[f"{base}_{rep}"] = {
-                    "description": f"Trailing {metric} ({window}) {rep}",
+                    "description": _candidate_summary(metric, window, rep),
                     "definition": f"Per-team {window} aggregate of {metric}, strictly prior to the target game.",
                     "source": "normalized game/team/player box-score facts",
                     "lookback": window,
@@ -126,8 +147,8 @@ _ALL_MEMBERS = ["xgboost", "lightgbm", "elasticnet"]
 # catalog so the two reports read alike.
 _FAMILY: dict[str, dict] = {
     "elo": {
-        "summary": "Home Elo − away Elo (pre-game rating gap)",
-        "summary_level": "Entering Elo rating",
+        "summary": "Home vs away Elo rating",
+        "summary_level": "Elo rating",
         "definition": (
             "Team Elo rating updated after every completed game, read "
             "BEFORE the target game so no target-game result can leak in."),
@@ -139,8 +160,8 @@ _FAMILY: dict[str, dict] = {
         "direction_level": "higher = stronger side",
     },
     "win_pct": {
-        "summary": "Home trailing win% − away trailing win%",
-        "summary_level": "Trailing win percentage",
+        "summary": "Home vs away win rate",
+        "summary_level": "Win rate",
         "definition": (
             "Win rate over each team's trailing games, strictly prior to "
             "the target game."),
@@ -152,7 +173,7 @@ _FAMILY: dict[str, dict] = {
         "direction_level": "higher = stronger side",
     },
     "rest_days": {
-        "summary": "Home rest days − away rest days",
+        "summary": "Home vs away rest days",
         "summary_level": "Rest days",
         "definition": "Days since each team's previous game.",
         "formula": "rest_days_home − rest_days_away",
@@ -163,8 +184,8 @@ _FAMILY: dict[str, dict] = {
         "direction_level": "higher = more rest",
     },
     "back_to_back": {
-        "summary": "Home back-to-back indicator − away indicator",
-        "summary_level": "Back-to-back indicator",
+        "summary": "Home vs away back-to-back",
+        "summary_level": "Back-to-back flag",
         "definition": "1 when the team plays on one or zero days of rest.",
         "formula": "back_to_back_home − back_to_back_away",
         "source": "Schedule: gap between consecutive game dates",
@@ -174,8 +195,8 @@ _FAMILY: dict[str, dict] = {
         "direction_level": "1 = on a back-to-back",
     },
     "ewm_net_points": {
-        "summary": "Home−away exponentially weighted point differential",
-        "summary_level": "EWM net points per game",
+        "summary": "Home vs away recent point margin",
+        "summary_level": "Recent point margin",
         "definition": (
             "Exponentially weighted points scored minus points allowed per "
             "game (recent form)."),
@@ -187,8 +208,8 @@ _FAMILY: dict[str, dict] = {
         "direction_level": "higher = better side form",
     },
     "ewm_off_rating": {
-        "summary": "Home−away exponentially weighted offensive rating",
-        "summary_level": "EWM offensive rating",
+        "summary": "Home vs away recent offense",
+        "summary_level": "Recent offense (pts/100)",
         "definition": (
             "Exponentially weighted points scored per 100 possessions "
             "(offensive efficiency)."),
@@ -200,8 +221,8 @@ _FAMILY: dict[str, dict] = {
         "direction_level": "higher = better side form",
     },
     "ewm_def_rating": {
-        "summary": "Home−away exponentially weighted defensive rating",
-        "summary_level": "EWM defensive rating",
+        "summary": "Home vs away recent defense",
+        "summary_level": "Recent defense (pts allowed/100)",
         "definition": (
             "Exponentially weighted points allowed per 100 possessions "
             "(defensive efficiency)."),
@@ -213,8 +234,8 @@ _FAMILY: dict[str, dict] = {
         "direction_level": "lower = better side form",
     },
     "ewm_pace": {
-        "summary": "Home−away exponentially weighted pace",
-        "summary_level": "EWM pace",
+        "summary": "Home vs away recent pace",
+        "summary_level": "Recent pace (poss/48)",
         "definition": (
             "Exponentially weighted paired box-score estimated possessions "
             "per 48 minutes. Each side estimates FGA + 0.44*FTA - OREB + TOV; "
@@ -228,8 +249,8 @@ _FAMILY: dict[str, dict] = {
         "direction_level": "higher = faster tempo",
     },
     "ewm_efg_pct": {
-        "summary": "Home−away exponentially weighted effective shooting",
-        "summary_level": "EWM effective field-goal percentage",
+        "summary": "Home vs away recent shooting",
+        "summary_level": "Recent shooting (eFG%)",
         "definition": (
             "Exponentially weighted effective field-goal percentage "
             "(shooting quality, threes weighted)."),
@@ -241,8 +262,8 @@ _FAMILY: dict[str, dict] = {
         "direction_level": "higher = better side form",
     },
     "ewm_turnover_margin": {
-        "summary": "Home−away turnover margin",
-        "summary_level": "EWM turnover margin",
+        "summary": "Home vs away turnover margin",
+        "summary_level": "Turnover margin",
         "definition": (
             "Exponentially weighted turnovers forced minus committed per "
             "game."),
@@ -254,8 +275,8 @@ _FAMILY: dict[str, dict] = {
         "direction_level": "higher = better side form",
     },
     "ewm_rebound_margin": {
-        "summary": "Home−away rebound margin",
-        "summary_level": "EWM rebound margin",
+        "summary": "Home vs away rebound margin",
+        "summary_level": "Rebound margin",
         "definition": (
             "Exponentially weighted rebounds won minus conceded per game."),
         "formula": "ewm_rebound_margin_home − ewm_rebound_margin_away",
@@ -266,8 +287,8 @@ _FAMILY: dict[str, dict] = {
         "direction_level": "higher = better side form",
     },
     "ewm_ast_per_game": {
-        "summary": "Home−away assists per game",
-        "summary_level": "EWM assists per game",
+        "summary": "Home vs away assists",
+        "summary_level": "Assists per game",
         "definition": "Exponentially weighted assists per game.",
         "formula": "ewm_ast_per_game_home − ewm_ast_per_game_away",
         "source": "Season log team box-score facts (AST)",
@@ -278,8 +299,8 @@ _FAMILY: dict[str, dict] = {
     },
     # ---- play-by-play contribution ------------------------------------
     "event_three_rate": {
-        "summary": "Home−away three-point attempt rate",
-        "summary_level": "Three-point attempt rate",
+        "summary": "Home vs away 3-point rate",
+        "summary_level": "3-point attempt rate",
         "definition": (
             "Share of field-goal attempts taken from three-point range, "
             "read from the play-by-play."),
@@ -291,7 +312,7 @@ _FAMILY: dict[str, dict] = {
         "direction_level": "higher = more three-point attempts",
     },
     "event_rim_rate": {
-        "summary": "Home−away rim-attack rate",
+        "summary": "Home vs away rim-attack rate",
         "summary_level": "Rim-attack rate",
         "definition": (
             "Share of field-goal attempts taken at the rim, read from the "
@@ -304,7 +325,7 @@ _FAMILY: dict[str, dict] = {
         "direction_level": "higher = more rim attempts",
     },
     "event_live_tov_rate": {
-        "summary": "Home−away live-ball turnover rate",
+        "summary": "Home vs away live-ball turnovers",
         "summary_level": "Live-ball turnover rate",
         "definition": (
             "Rate of live-ball turnovers, read from the play-by-play."),
@@ -316,7 +337,7 @@ _FAMILY: dict[str, dict] = {
         "direction_level": "lower = cleaner side play",
     },
     "event_and_in_rate": {
-        "summary": "Home−away and-one conversion rate",
+        "summary": "Home vs away and-one rate",
         "summary_level": "And-one rate",
         "definition": (
             "Rate of shooting fouls that turn into a made free throw plus "
@@ -329,8 +350,8 @@ _FAMILY: dict[str, dict] = {
         "direction_level": "higher = more and-ones",
     },
     "event_shot_distance": {
-        "summary": "Home−away average shot distance",
-        "summary_level": "Average shot distance",
+        "summary": "Home vs away shot distance",
+        "summary_level": "Average shot distance (ft)",
         "definition": (
             "Average distance of field-goal attempts, read from the "
             "play-by-play."),
@@ -342,7 +363,7 @@ _FAMILY: dict[str, dict] = {
         "direction_level": "higher = longer-range shot diet",
     },
     "event_possessions": {
-        "summary": "Home−away possessions per game",
+        "summary": "Home vs away possessions",
         "summary_level": "Possessions per game",
         "definition": (
             "Estimated possessions per game (FGA + 0.44×FTA − OREB + TOV), "
@@ -355,7 +376,7 @@ _FAMILY: dict[str, dict] = {
         "direction_level": "higher = faster tempo",
     },
     "event_shooting_fouls": {
-        "summary": "Home−away shooting fouls per game",
+        "summary": "Home vs away shooting fouls",
         "summary_level": "Shooting fouls per game",
         "definition": (
             "Shooting fouls involved in per game, read from the "
@@ -368,8 +389,8 @@ _FAMILY: dict[str, dict] = {
         "direction_level": "higher = more shooting fouls",
     },
     "event_q4_points": {
-        "summary": "Home−away fourth-quarter points per game",
-        "summary_level": "Fourth-quarter points per game",
+        "summary": "Home vs away fourth-quarter points",
+        "summary_level": "Fourth-quarter points",
         "definition": (
             "Points scored in the fourth quarter per game, read from the "
             "play-by-play (closing-time scoring)."),
@@ -386,8 +407,8 @@ _FAMILY: dict[str, dict] = {
     # shooting (pl_ts_*) through 2026-10-01 and EPM (pl_epm_*) on 2026-10-02
     # before the current RAPM (pl_dpm_*) family.
     "pl_ts_c": {
-        "summary": "Home−away projected-lineup center true shooting",
-        "summary_level": "Projected-lineup center true shooting",
+        "summary": "Home vs away center true shooting",
+        "summary_level": "Center true shooting",
         "definition": (
             "Minutes-weighted true-shooting percentage for the center pool "
             "of the projected lineup (retired 2026-10-02 family)."),
@@ -399,8 +420,8 @@ _FAMILY: dict[str, dict] = {
         "direction_level": "higher = stronger side pool",
     },
     "pl_ts_f": {
-        "summary": "Home−away projected-lineup forward true shooting",
-        "summary_level": "Projected-lineup forward true shooting",
+        "summary": "Home vs away forward true shooting",
+        "summary_level": "Forward true shooting",
         "definition": (
             "Minutes-weighted true-shooting percentage for the forward pool "
             "of the projected lineup (retired 2026-10-02 family)."),
@@ -412,8 +433,8 @@ _FAMILY: dict[str, dict] = {
         "direction_level": "higher = stronger side pool",
     },
     "pl_ts_g": {
-        "summary": "Home−away projected-lineup guard true shooting",
-        "summary_level": "Projected-lineup guard true shooting",
+        "summary": "Home vs away guard true shooting",
+        "summary_level": "Guard true shooting",
         "definition": (
             "Minutes-weighted true-shooting percentage for the guard pool "
             "of the projected lineup (retired 2026-10-02 family)."),
@@ -425,8 +446,8 @@ _FAMILY: dict[str, dict] = {
         "direction_level": "higher = stronger side pool",
     },
     "pl_epm_c": {
-        "summary": "Home−away projected-lineup center EPM",
-        "summary_level": "Projected-lineup center EPM",
+        "summary": "Home vs away center EPM",
+        "summary_level": "Center EPM",
         "definition": (
             "Minutes-weighted estimated plus-minus for the center pool of "
             "the projected lineup (retired 2026-10-03 family)."),
@@ -438,8 +459,8 @@ _FAMILY: dict[str, dict] = {
         "direction_level": "higher = stronger side pool",
     },
     "pl_epm_f": {
-        "summary": "Home−away projected-lineup forward EPM",
-        "summary_level": "Projected-lineup forward EPM",
+        "summary": "Home vs away forward EPM",
+        "summary_level": "Forward EPM",
         "definition": (
             "Minutes-weighted estimated plus-minus for the forward pool of "
             "the projected lineup (retired 2026-10-03 family)."),
@@ -451,8 +472,8 @@ _FAMILY: dict[str, dict] = {
         "direction_level": "higher = stronger side pool",
     },
     "pl_epm_g": {
-        "summary": "Home−away projected-lineup guard EPM",
-        "summary_level": "Projected-lineup guard EPM",
+        "summary": "Home vs away guard EPM",
+        "summary_level": "Guard EPM",
         "definition": (
             "Minutes-weighted estimated plus-minus for the guard pool of "
             "the projected lineup (retired 2026-10-03 family)."),
@@ -464,8 +485,8 @@ _FAMILY: dict[str, dict] = {
         "direction_level": "higher = stronger side pool",
     },
     "pl_dpm_c": {
-        "summary": "Home−away projected-lineup center DARKO DPM",
-        "summary_level": "Projected-lineup center DARKO DPM",
+        "summary": "Home vs away center DARKO impact",
+        "summary_level": "Center DARKO impact",
         "definition": (
             "Position-segmented DARKO daily plus-minus for the center pool of the "
             "projected lineup, minutes-weighted and injury-filtered "
@@ -481,8 +502,8 @@ _FAMILY: dict[str, dict] = {
         "direction_level": "higher = stronger side pool",
     },
     "pl_dpm_f": {
-        "summary": "Home−away projected-lineup forward DARKO DPM",
-        "summary_level": "Projected-lineup forward DARKO DPM",
+        "summary": "Home vs away forward DARKO impact",
+        "summary_level": "Forward DARKO impact",
         "definition": (
             "Position-segmented DARKO daily plus-minus for the forward pool of the "
             "projected lineup, minutes-weighted and injury-filtered. Rating source is "
@@ -497,8 +518,8 @@ _FAMILY: dict[str, dict] = {
         "direction_level": "higher = stronger side pool",
     },
     "pl_dpm_g": {
-        "summary": "Home−away projected-lineup guard DARKO DPM",
-        "summary_level": "Projected-lineup guard DARKO DPM",
+        "summary": "Home vs away guard DARKO impact",
+        "summary_level": "Guard DARKO impact",
         "definition": (
             "Position-segmented DARKO daily plus-minus for the guard pool of the "
             "projected lineup, minutes-weighted and injury-filtered. Rating source is "
@@ -513,8 +534,8 @@ _FAMILY: dict[str, dict] = {
         "direction_level": "higher = stronger side pool",
     },
     "pl_o_dpm": {
-        "summary": "Home−away cross-matched team offense (ADOPTED D arm 2026-10-31)",
-        "summary_level": "Cross-matched team offense",
+        "summary": "Home vs away team offense (DARKO)",
+        "summary_level": "Team offense (DARKO)",
         "definition": (
             "Team-level DARKO offensive DPM blend over the whole eligible healthy "
             "roster, priced by expected minutes where DARKO projects them, pace-"\
@@ -528,8 +549,8 @@ _FAMILY: dict[str, dict] = {
         "direction_level": "higher = stronger home offense",
     },
     "pl_d_dpm": {
-        "summary": "Home−away cross-matched team defense (ADOPTED D arm 2026-10-31)",
-        "summary_level": "Cross-matched team defense",
+        "summary": "Home vs away team defense (DARKO)",
+        "summary_level": "Team defense (DARKO)",
         "definition": (
             "Team-level DARKO defensive DPM blend, same weights and pace scale "
             "as pl_o_dpm."),
@@ -540,9 +561,74 @@ _FAMILY: dict[str, dict] = {
         "direction": "higher = home advantage",
         "direction_level": "higher = stronger home defense",
     },
+    "ewm_efg_against": {
+        "summary": "Home vs away allowed shooting (eFG%)",
+        "summary_level": "Allowed shooting (eFG%)",
+        "definition": (
+            "Exponentially weighted effective field-goal percentage each team "
+            "allows opponents, measured on the opponent's box score."),
+        "formula": "ewm_efg_against_home − ewm_efg_against_away",
+        "source": "Season log opponent team box-score facts (FGM/FGA/FG3M)",
+        "window": "EWM(3 games)",
+        "units": "rate (0–1)",
+        "direction": "higher = home defense allows better shooting",
+        "direction_level": "higher = that side allows better shooting",
+    },
+    "ewm_three_against": {
+        "summary": "Home vs away allowed 3-point shooting",
+        "summary_level": "Allowed 3-point shooting",
+        "definition": (
+            "Exponentially weighted three-point percentage each team allows "
+            "opponents, strictly prior to the target game."),
+        "formula": "ewm_three_against_home − ewm_three_against_away",
+        "source": "Season log opponent team box-score facts (3PM/3PA)",
+        "window": "EWM(3 games)",
+        "units": "rate (0–1)",
+        "direction": "higher = home defense allows better 3-point shooting",
+        "direction_level": "higher = that side allows better 3-point shooting",
+    },
+    "ewm_ft_against": {
+        "summary": "Home vs away allowed free-throw shooting",
+        "summary_level": "Allowed free-throw shooting",
+        "definition": (
+            "Exponentially weighted free-throw percentage each team allows "
+            "opponents, strictly prior to the target game."),
+        "formula": "ewm_ft_against_home − ewm_ft_against_away",
+        "source": "Season log opponent team box-score facts (FTM/FTA)",
+        "window": "EWM(3 games)",
+        "units": "rate (0–1)",
+        "direction": "higher = home defense allows better free-throw shooting",
+        "direction_level": "higher = that side allows better free-throw shooting",
+    },
+    "ewm_tov_forced": {
+        "summary": "Home vs away turnovers forced",
+        "summary_level": "Turnovers forced",
+        "definition": (
+            "Exponentially weighted turnovers each team forces, read from the "
+            "opponent's box score."),
+        "formula": "ewm_tov_forced_home − ewm_tov_forced_away",
+        "source": "Season log opponent team box-score facts (TOV)",
+        "window": "EWM(3 games)",
+        "units": "turnovers per game",
+        "direction": "higher = home team forces more turnovers",
+        "direction_level": "higher = that side forces more turnovers",
+    },
+    "ewm_reb_against": {
+        "summary": "Home vs away rebounds allowed",
+        "summary_level": "Rebounds allowed",
+        "definition": (
+            "Exponentially weighted rebounds each team allows opponents, read "
+            "from the opponent's box score."),
+        "formula": "ewm_reb_against_home − ewm_reb_against_away",
+        "source": "Season log opponent team box-score facts (REB)",
+        "window": "EWM(3 games)",
+        "units": "rebounds per game",
+        "direction": "higher = home team allows more rebounds",
+        "direction_level": "higher = that side allows more rebounds",
+    },
     "pl_net_o": {
-        "summary": "Cross-matched net offense (ADOPTED D arm 2026-10-31)",
-        "summary_level": "Cross-matched net offense",
+        "summary": "Home vs away matchup offense",
+        "summary_level": "Matchup offense",
         "definition": (
             "Matchup net: (home_OFF − away_DEF) × projected-game-pace scale "
             "and mirror. The matchup hypothesis for trees."),
@@ -554,8 +640,8 @@ _FAMILY: dict[str, dict] = {
         "direction_level": "higher = better home matchup",
     },
     "star_out_impact": {
-        "summary": "Home−away star-out DARKO DPM impact",
-        "summary_level": "Unavailable top-three DARKO DPM impact",
+        "summary": "Home vs away injured talent impact",
+        "summary_level": "Injured talent impact",
         "definition": (
             "Minutes-weighted DARKO DPM of the team's top-three prior-MPG players "
             "designated Out/Doubtful/Recovery before tipoff, over the top "
@@ -574,8 +660,8 @@ _FAMILY: dict[str, dict] = {
                             "that side"),
     },
     "star_out_weight_share": {
-        "summary": "Home−away unavailable top-three minutes share",
-        "summary_level": "Unavailable top-three minutes share",
+        "summary": "Home vs away injured minutes share",
+        "summary_level": "Injured minutes share",
         "definition": (
             "Share of the team's top-three prior-MPG minutes weight that is "
             "designated Out/Doubtful/Recovery before tipoff. Separates a "
@@ -591,8 +677,8 @@ _FAMILY: dict[str, dict] = {
                             "minutes unavailable"),
     },
     "pl_o_pts": {
-        "summary": "Home−away team expected points (ADOPTED B arm 2026-11-01)",
-        "summary_level": "Team expected points",
+        "summary": "Home vs away expected points",
+        "summary_level": "Expected points",
         "definition": (
             "Additive team expected points: DARKO x_pts_100 scaled by pace "
             "to a per-minute rate, summed over the healthy eligible roster "
@@ -606,8 +692,8 @@ _FAMILY: dict[str, dict] = {
         "direction_level": "higher = stronger home expected scoring",
     },
     "star_out_pts": {
-        "summary": "Home−away unavailable top-three expected points (ADOPTED B arm 2026-11-01)",
-        "summary_level": "Unavailable top-three expected points",
+        "summary": "Home vs away injured scoring",
+        "summary_level": "Injured scoring",
         "definition": (
             "Expected points of the OUT top-three reference members (the "
             "same pre-availability top-three the star_out_* legs read); "
@@ -620,7 +706,7 @@ _FAMILY: dict[str, dict] = {
         "direction_level": "higher = more expected scoring unavailable for that side",
     },
     "projected_game_pace": {
-        "summary": "Projected game pace: home x away over trailing league mean",
+        "summary": "Projected game pace",
         "summary_level": "Projected team pace",
         "definition": (
             "Each side trailing minutes-weighted DARKO x_pace blend "
@@ -651,7 +737,7 @@ _STANDALONE = {
         "direction": "n/a (constant)",
     },
     "is_playoffs": {
-        "summary": "1 for postseason games",
+        "summary": "Postseason game flag",
         "definition": "1 for postseason game type, 0 for regular season.",
         "formula": "1 if season_type == playoffs else 0",
         "source": "Schedule (season type)",
@@ -663,7 +749,7 @@ _STANDALONE = {
     # adoption, 2026-11-06; the raw sides stay trial-only, so only the diff
     # representation is documented here).
     "ewm_efg_against_diff": {
-        "summary": "Home−away EWM ALLOWED effective shooting",
+        "summary": "Home vs away allowed shooting (eFG%)",
         "definition": (
             "Exponentially weighted effective field-goal percentage each team "
             "CONCEDES, measured on the actual opponent box score of the same "
@@ -676,7 +762,7 @@ _STANDALONE = {
         "direction": "higher = home team's defense concedes better shooting",
     },
     "ewm_three_against_diff": {
-        "summary": "Home−away EWM allowed three-point percentage",
+        "summary": "Home vs away allowed 3-point shooting",
         "definition": (
             "Exponentially weighted three-point percentage each team concedes "
             "to opponents, strictly prior to the target game."),
@@ -687,7 +773,7 @@ _STANDALONE = {
         "direction": "higher = home defense concedes better 3P shooting",
     },
     "ewm_ft_against_diff": {
-        "summary": "Home−away EWM allowed free-throw percentage",
+        "summary": "Home vs away allowed free-throw shooting",
         "definition": (
             "Exponentially weighted free-throw percentage each team concedes "
             "to opponents, strictly prior to the target game."),
@@ -698,7 +784,7 @@ _STANDALONE = {
         "direction": "higher = home defense concedes better FT shooting",
     },
     "ewm_tov_forced_diff": {
-        "summary": "Home−away EWM turnovers forced",
+        "summary": "Home vs away turnovers forced",
         "definition": (
             "Exponentially weighted turnovers each team FORCES, read from the "
             "opponent's box score rather than its own. Decomposes "
@@ -710,7 +796,7 @@ _STANDALONE = {
         "direction": "higher = home team forces more turnovers",
     },
     "ewm_reb_against_diff": {
-        "summary": "Home−away EWM rebounds conceded",
+        "summary": "Home vs away rebounds allowed",
         "definition": (
             "Exponentially weighted rebounds each team ALLOWS to opponents, "
             "read from the opponent's box score. Decomposes "
@@ -722,7 +808,7 @@ _STANDALONE = {
         "direction": "higher = home team concedes more rebounds",
     },
     "projected_game_pace_total": {
-        "summary": "Projected game pace: home x away over trailing league mean",
+        "summary": "Projected game pace",
         "definition": (
             "Home team_pace x away team_pace over the trailing-30-day league "
             "mean, where each side pace is its trailing minutes-weighted "
@@ -805,9 +891,11 @@ def _entry_for(name: str) -> dict | None:
             rep = entry.get("representation", "")
             summary = str(entry.get("description") or name)
             if rep == "raw home level":
-                summary = f"{summary} — home team" if not summary.endswith("home") else summary
+                summary = (summary if summary.lower().rstrip().endswith(
+                    ("home", "home team")) else f"{summary} — home team")
             elif rep == "raw away level":
-                summary = f"{summary} — away team" if not summary.endswith("away") else summary
+                summary = (summary if summary.lower().rstrip().endswith(
+                    ("away", "away team")) else f"{summary} — away team")
             row = {
                 "name": name, "summary": summary,
                 "definition": entry.get("definition"),

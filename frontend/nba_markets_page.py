@@ -855,8 +855,19 @@ def run() -> None:
     with st.expander("Distributional Fit Diagnostics", expanded=False):
         _render_fit_panel(monitor.get("fit") or {})
 
+    # Same served-metadata source the Model Monitor labels from. Most of
+    # the run-engine view is the moneyline contract, so the run's embedded
+    # features_metadata keeps those rows on the backend-authored labels
+    # instead of the frontend fallback dictionary.
+    try:
+        _served_meta = (utils.load_model_monitor(date_str, sport="nba")
+                        .get("features_metadata") or {})
+    except Exception:
+        _served_meta = {}
     nd.render_run_engine_drift(
-        nd.load_run_engine_csv(date_str, "nba_run_engine_feature_drift"))
+        nd.load_run_engine_csv(date_str, "nba_run_engine_feature_drift"),
+        served_metadata=_served_meta or None,
+    )
     nd.render_run_engine_coverage(
         nd.load_run_engine_csv(date_str, "nba_run_engine_feature_coverage"))
     _render_model_card(monitor)

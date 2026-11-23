@@ -1919,7 +1919,7 @@ def render_run_engine_drift(frame: pd.DataFrame | None,
         n_base, n_cur = r.get("n_baseline"), r.get("n_current")
         samples = (f" ({n_base}/{n_cur})"
                    if n_base is not None and n_cur is not None else "")
-        label = utils.describe_feature(r.get("feature", ""),
+        label = utils.describe_feature(r.get("feature", ""), sport="nba",
                                        served_metadata=served_metadata) \
             or r.get("feature", "")
         # A STRUCTURAL row's reason is the finding (which constant, in

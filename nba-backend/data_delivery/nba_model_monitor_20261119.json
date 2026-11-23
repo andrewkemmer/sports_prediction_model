@@ -9524,7 +9524,7 @@
  "features_metadata": {
   "back_to_back_away": {
    "name": "back_to_back_away",
-   "summary": "Back-to-back indicator \u2014 away team",
+   "summary": "Back-to-back flag \u2014 away team",
    "definition": "1 when the team plays on one or zero days of rest.",
    "formula": "back_to_back_home \u2212 back_to_back_away",
    "source": "Schedule: gap between consecutive game dates",
@@ -9539,7 +9539,7 @@
   },
   "back_to_back_diff": {
    "name": "back_to_back_diff",
-   "summary": "Home back-to-back indicator \u2212 away indicator",
+   "summary": "Home vs away back-to-back",
    "definition": "1 when the team plays on one or zero days of rest.",
    "formula": "back_to_back_home \u2212 back_to_back_away",
    "source": "Schedule: gap between consecutive game dates",
@@ -9555,7 +9555,7 @@
   },
   "back_to_back_home": {
    "name": "back_to_back_home",
-   "summary": "Back-to-back indicator \u2014 home team",
+   "summary": "Back-to-back flag \u2014 home team",
    "definition": "1 when the team plays on one or zero days of rest.",
    "formula": "back_to_back_home \u2212 back_to_back_away",
    "source": "Schedule: gap between consecutive game dates",
@@ -9570,7 +9570,7 @@
   },
   "elo_away": {
    "name": "elo_away",
-   "summary": "Entering Elo rating \u2014 away team",
+   "summary": "Elo rating \u2014 away team",
    "definition": "Team Elo rating updated after every completed game, read BEFORE the target game so no target-game result can leak in.",
    "formula": "home_elo \u2212 away_elo",
    "source": "Schedule + official results (point-in-time Elo engine)",
@@ -9585,7 +9585,7 @@
   },
   "elo_diff": {
    "name": "elo_diff",
-   "summary": "Home Elo \u2212 away Elo (pre-game rating gap)",
+   "summary": "Home vs away Elo rating",
    "definition": "Team Elo rating updated after every completed game, read BEFORE the target game so no target-game result can leak in.",
    "formula": "home_elo \u2212 away_elo",
    "source": "Schedule + official results (point-in-time Elo engine)",
@@ -9601,7 +9601,7 @@
   },
   "elo_home": {
    "name": "elo_home",
-   "summary": "Entering Elo rating \u2014 home team",
+   "summary": "Elo rating \u2014 home team",
    "definition": "Team Elo rating updated after every completed game, read BEFORE the target game so no target-game result can leak in.",
    "formula": "home_elo \u2212 away_elo",
    "source": "Schedule + official results (point-in-time Elo engine)",
@@ -9631,7 +9631,7 @@
   },
   "event_and_in_rate_diff": {
    "name": "event_and_in_rate_diff",
-   "summary": "Home\u2212away and-one conversion rate",
+   "summary": "Home vs away and-one rate",
    "definition": "Rate of shooting fouls that turn into a made free throw plus the basket (and-one), read from the play-by-play.",
    "formula": "event_and_in_rate_home \u2212 event_and_in_rate_away",
    "source": "Play-by-play (playbyplayv3): Shooting foul \u2192 FT 1 of 1",
@@ -9677,7 +9677,7 @@
   },
   "event_live_tov_rate_diff": {
    "name": "event_live_tov_rate_diff",
-   "summary": "Home\u2212away live-ball turnover rate",
+   "summary": "Home vs away live-ball turnovers",
    "definition": "Rate of live-ball turnovers, read from the play-by-play.",
    "formula": "event_live_tov_rate_home \u2212 event_live_tov_rate_away",
    "source": "Play-by-play (playbyplayv3): Turnover (live subtypes)",
@@ -9723,7 +9723,7 @@
   },
   "event_possessions_diff": {
    "name": "event_possessions_diff",
-   "summary": "Home\u2212away possessions per game",
+   "summary": "Home vs away possessions",
    "definition": "Estimated possessions per game (FGA + 0.44\u00d7FTA \u2212 OREB + TOV), read from the play-by-play.",
    "formula": "event_possessions_home \u2212 event_possessions_away",
    "source": "Play-by-play (playbyplayv3): FGA + 0.44*FTA \u2212 OREB + TOV",
@@ -9754,7 +9754,7 @@
   },
   "event_q4_points_away": {
    "name": "event_q4_points_away",
-   "summary": "Fourth-quarter points per game \u2014 away team",
+   "summary": "Fourth-quarter points \u2014 away team",
    "definition": "Points scored in the fourth quarter per game, read from the play-by-play (closing-time scoring).",
    "formula": "event_q4_points_home \u2212 event_q4_points_away",
    "source": "Play-by-play (playbyplayv3): period=4 scoring",
@@ -9769,7 +9769,7 @@
   },
   "event_q4_points_diff": {
    "name": "event_q4_points_diff",
-   "summary": "Home\u2212away fourth-quarter points per game",
+   "summary": "Home vs away fourth-quarter points",
    "definition": "Points scored in the fourth quarter per game, read from the play-by-play (closing-time scoring).",
    "formula": "event_q4_points_home \u2212 event_q4_points_away",
    "source": "Play-by-play (playbyplayv3): period=4 scoring",
@@ -9785,7 +9785,7 @@
   },
   "event_q4_points_home": {
    "name": "event_q4_points_home",
-   "summary": "Fourth-quarter points per game \u2014 home team",
+   "summary": "Fourth-quarter points \u2014 home team",
    "definition": "Points scored in the fourth quarter per game, read from the play-by-play (closing-time scoring).",
    "formula": "event_q4_points_home \u2212 event_q4_points_away",
    "source": "Play-by-play (playbyplayv3): period=4 scoring",
@@ -9815,7 +9815,7 @@
   },
   "event_rim_rate_diff": {
    "name": "event_rim_rate_diff",
-   "summary": "Home\u2212away rim-attack rate",
+   "summary": "Home vs away rim-attack rate",
    "definition": "Share of field-goal attempts taken at the rim, read from the play-by-play.",
    "formula": "event_rim_rate_home \u2212 event_rim_rate_away",
    "source": "Play-by-play (playbyplayv3): shotDistance \u2264 4ft",
@@ -9861,7 +9861,7 @@
   },
   "event_shooting_fouls_diff": {
    "name": "event_shooting_fouls_diff",
-   "summary": "Home\u2212away shooting fouls per game",
+   "summary": "Home vs away shooting fouls",
    "definition": "Shooting fouls involved in per game, read from the play-by-play.",
    "formula": "event_shooting_fouls_home \u2212 event_shooting_fouls_away",
    "source": "Play-by-play (playbyplayv3): Foul (Shooting)",
@@ -9892,7 +9892,7 @@
   },
   "event_shot_distance_away": {
    "name": "event_shot_distance_away",
-   "summary": "Average shot distance \u2014 away team",
+   "summary": "Average shot distance (ft) \u2014 away team",
    "definition": "Average distance of field-goal attempts, read from the play-by-play.",
    "formula": "event_shot_distance_home \u2212 event_shot_distance_away",
    "source": "Play-by-play (playbyplayv3): shotDistance",
@@ -9907,7 +9907,7 @@
   },
   "event_shot_distance_diff": {
    "name": "event_shot_distance_diff",
-   "summary": "Home\u2212away average shot distance",
+   "summary": "Home vs away shot distance",
    "definition": "Average distance of field-goal attempts, read from the play-by-play.",
    "formula": "event_shot_distance_home \u2212 event_shot_distance_away",
    "source": "Play-by-play (playbyplayv3): shotDistance",
@@ -9923,7 +9923,7 @@
   },
   "event_shot_distance_home": {
    "name": "event_shot_distance_home",
-   "summary": "Average shot distance \u2014 home team",
+   "summary": "Average shot distance (ft) \u2014 home team",
    "definition": "Average distance of field-goal attempts, read from the play-by-play.",
    "formula": "event_shot_distance_home \u2212 event_shot_distance_away",
    "source": "Play-by-play (playbyplayv3): shotDistance",
@@ -9938,7 +9938,7 @@
   },
   "event_three_rate_away": {
    "name": "event_three_rate_away",
-   "summary": "Three-point attempt rate \u2014 away team",
+   "summary": "3-point attempt rate \u2014 away team",
    "definition": "Share of field-goal attempts taken from three-point range, read from the play-by-play.",
    "formula": "event_three_rate_home \u2212 event_three_rate_away",
    "source": "Play-by-play (playbyplayv3): shotValue=3, Made/Missed Shot",
@@ -9953,7 +9953,7 @@
   },
   "event_three_rate_diff": {
    "name": "event_three_rate_diff",
-   "summary": "Home\u2212away three-point attempt rate",
+   "summary": "Home vs away 3-point rate",
    "definition": "Share of field-goal attempts taken from three-point range, read from the play-by-play.",
    "formula": "event_three_rate_home \u2212 event_three_rate_away",
    "source": "Play-by-play (playbyplayv3): shotValue=3, Made/Missed Shot",
@@ -9969,7 +9969,7 @@
   },
   "event_three_rate_home": {
    "name": "event_three_rate_home",
-   "summary": "Three-point attempt rate \u2014 home team",
+   "summary": "3-point attempt rate \u2014 home team",
    "definition": "Share of field-goal attempts taken from three-point range, read from the play-by-play.",
    "formula": "event_three_rate_home \u2212 event_three_rate_away",
    "source": "Play-by-play (playbyplayv3): shotValue=3, Made/Missed Shot",
@@ -9984,7 +9984,7 @@
   },
   "ewm_ast_per_game_away": {
    "name": "ewm_ast_per_game_away",
-   "summary": "EWM assists per game \u2014 away team",
+   "summary": "Assists per game \u2014 away team",
    "definition": "Exponentially weighted assists per game.",
    "formula": "ewm_ast_per_game_home \u2212 ewm_ast_per_game_away",
    "source": "Season log team box-score facts (AST)",
@@ -9999,7 +9999,7 @@
   },
   "ewm_ast_per_game_diff": {
    "name": "ewm_ast_per_game_diff",
-   "summary": "Home\u2212away assists per game",
+   "summary": "Home vs away assists",
    "definition": "Exponentially weighted assists per game.",
    "formula": "ewm_ast_per_game_home \u2212 ewm_ast_per_game_away",
    "source": "Season log team box-score facts (AST)",
@@ -10015,7 +10015,7 @@
   },
   "ewm_ast_per_game_home": {
    "name": "ewm_ast_per_game_home",
-   "summary": "EWM assists per game \u2014 home team",
+   "summary": "Assists per game \u2014 home team",
    "definition": "Exponentially weighted assists per game.",
    "formula": "ewm_ast_per_game_home \u2212 ewm_ast_per_game_away",
    "source": "Season log team box-score facts (AST)",
@@ -10030,7 +10030,7 @@
   },
   "ewm_def_rating_away": {
    "name": "ewm_def_rating_away",
-   "summary": "EWM defensive rating \u2014 away team",
+   "summary": "Recent defense (pts allowed/100) \u2014 away team",
    "definition": "Exponentially weighted points allowed per 100 possessions (defensive efficiency).",
    "formula": "ewm_def_rating_home \u2212 ewm_def_rating_away",
    "source": "Season log team box-score facts",
@@ -10045,7 +10045,7 @@
   },
   "ewm_def_rating_diff": {
    "name": "ewm_def_rating_diff",
-   "summary": "Home\u2212away exponentially weighted defensive rating",
+   "summary": "Home vs away recent defense",
    "definition": "Exponentially weighted points allowed per 100 possessions (defensive efficiency).",
    "formula": "ewm_def_rating_home \u2212 ewm_def_rating_away",
    "source": "Season log team box-score facts",
@@ -10061,7 +10061,7 @@
   },
   "ewm_def_rating_home": {
    "name": "ewm_def_rating_home",
-   "summary": "EWM defensive rating \u2014 home team",
+   "summary": "Recent defense (pts allowed/100) \u2014 home team",
    "definition": "Exponentially weighted points allowed per 100 possessions (defensive efficiency).",
    "formula": "ewm_def_rating_home \u2212 ewm_def_rating_away",
    "source": "Season log team box-score facts",
@@ -10076,7 +10076,7 @@
   },
   "ewm_efg_against_diff": {
    "name": "ewm_efg_against_diff",
-   "summary": "Home\u2212away EWM ALLOWED effective shooting",
+   "summary": "Home vs away allowed shooting (eFG%)",
    "definition": "Exponentially weighted effective field-goal percentage each team CONCEDES, measured on the actual opponent box score of the same prior games. Pairs with ewm_efg_pct_diff (own shooting), so the model sees both halves of a shooting matchup.",
    "formula": "ewm_efg_against_home \u2212 ewm_efg_against_away",
    "source": "Season log opponent team box-score facts (FGM/FGA/FG3M)",
@@ -10092,7 +10092,7 @@
   },
   "ewm_efg_pct_away": {
    "name": "ewm_efg_pct_away",
-   "summary": "EWM effective field-goal percentage \u2014 away team",
+   "summary": "Recent shooting (eFG%) \u2014 away team",
    "definition": "Exponentially weighted effective field-goal percentage (shooting quality, threes weighted).",
    "formula": "ewm_efg_pct_home \u2212 ewm_efg_pct_away",
    "source": "Season log team box-score facts (FGM/FGA/FG3M)",
@@ -10107,7 +10107,7 @@
   },
   "ewm_efg_pct_diff": {
    "name": "ewm_efg_pct_diff",
-   "summary": "Home\u2212away exponentially weighted effective shooting",
+   "summary": "Home vs away recent shooting",
    "definition": "Exponentially weighted effective field-goal percentage (shooting quality, threes weighted).",
    "formula": "ewm_efg_pct_home \u2212 ewm_efg_pct_away",
    "source": "Season log team box-score facts (FGM/FGA/FG3M)",
@@ -10123,7 +10123,7 @@
   },
   "ewm_efg_pct_home": {
    "name": "ewm_efg_pct_home",
-   "summary": "EWM effective field-goal percentage \u2014 home team",
+   "summary": "Recent shooting (eFG%) \u2014 home team",
    "definition": "Exponentially weighted effective field-goal percentage (shooting quality, threes weighted).",
    "formula": "ewm_efg_pct_home \u2212 ewm_efg_pct_away",
    "source": "Season log team box-score facts (FGM/FGA/FG3M)",
@@ -10138,7 +10138,7 @@
   },
   "ewm_ft_against_diff": {
    "name": "ewm_ft_against_diff",
-   "summary": "Home\u2212away EWM allowed free-throw percentage",
+   "summary": "Home vs away allowed free-throw shooting",
    "definition": "Exponentially weighted free-throw percentage each team concedes to opponents, strictly prior to the target game.",
    "formula": "ewm_ft_against_home \u2212 ewm_ft_against_away",
    "source": "Season log opponent team box-score facts (FTM/FTA)",
@@ -10154,7 +10154,7 @@
   },
   "ewm_net_points_away": {
    "name": "ewm_net_points_away",
-   "summary": "EWM net points per game \u2014 away team",
+   "summary": "Recent point margin \u2014 away team",
    "definition": "Exponentially weighted points scored minus points allowed per game (recent form).",
    "formula": "ewm_net_points_home \u2212 ewm_net_points_away",
    "source": "Season log team box-score facts",
@@ -10169,7 +10169,7 @@
   },
   "ewm_net_points_diff": {
    "name": "ewm_net_points_diff",
-   "summary": "Home\u2212away exponentially weighted point differential",
+   "summary": "Home vs away recent point margin",
    "definition": "Exponentially weighted points scored minus points allowed per game (recent form).",
    "formula": "ewm_net_points_home \u2212 ewm_net_points_away",
    "source": "Season log team box-score facts",
@@ -10185,7 +10185,7 @@
   },
   "ewm_net_points_home": {
    "name": "ewm_net_points_home",
-   "summary": "EWM net points per game \u2014 home team",
+   "summary": "Recent point margin \u2014 home team",
    "definition": "Exponentially weighted points scored minus points allowed per game (recent form).",
    "formula": "ewm_net_points_home \u2212 ewm_net_points_away",
    "source": "Season log team box-score facts",
@@ -10200,7 +10200,7 @@
   },
   "ewm_off_rating_away": {
    "name": "ewm_off_rating_away",
-   "summary": "EWM offensive rating \u2014 away team",
+   "summary": "Recent offense (pts/100) \u2014 away team",
    "definition": "Exponentially weighted points scored per 100 possessions (offensive efficiency).",
    "formula": "ewm_off_rating_home \u2212 ewm_off_rating_away",
    "source": "Season log team box-score facts",
@@ -10215,7 +10215,7 @@
   },
   "ewm_off_rating_diff": {
    "name": "ewm_off_rating_diff",
-   "summary": "Home\u2212away exponentially weighted offensive rating",
+   "summary": "Home vs away recent offense",
    "definition": "Exponentially weighted points scored per 100 possessions (offensive efficiency).",
    "formula": "ewm_off_rating_home \u2212 ewm_off_rating_away",
    "source": "Season log team box-score facts",
@@ -10231,7 +10231,7 @@
   },
   "ewm_off_rating_home": {
    "name": "ewm_off_rating_home",
-   "summary": "EWM offensive rating \u2014 home team",
+   "summary": "Recent offense (pts/100) \u2014 home team",
    "definition": "Exponentially weighted points scored per 100 possessions (offensive efficiency).",
    "formula": "ewm_off_rating_home \u2212 ewm_off_rating_away",
    "source": "Season log team box-score facts",
@@ -10246,7 +10246,7 @@
   },
   "ewm_pace_away": {
    "name": "ewm_pace_away",
-   "summary": "EWM pace \u2014 away team",
+   "summary": "Recent pace (poss/48) \u2014 away team",
    "definition": "Exponentially weighted paired box-score estimated possessions per 48 minutes. Each side estimates FGA + 0.44*FTA - OREB + TOV; the two estimates are averaged. Duration is team player minutes / 5, including overtime; missing counts remain unknown.",
    "formula": "ewm_pace_home \u2212 ewm_pace_away",
    "source": "Season log team box-score facts",
@@ -10261,7 +10261,7 @@
   },
   "ewm_pace_diff": {
    "name": "ewm_pace_diff",
-   "summary": "Home\u2212away exponentially weighted pace",
+   "summary": "Home vs away recent pace",
    "definition": "Exponentially weighted paired box-score estimated possessions per 48 minutes. Each side estimates FGA + 0.44*FTA - OREB + TOV; the two estimates are averaged. Duration is team player minutes / 5, including overtime; missing counts remain unknown.",
    "formula": "ewm_pace_home \u2212 ewm_pace_away",
    "source": "Season log team box-score facts",
@@ -10277,7 +10277,7 @@
   },
   "ewm_pace_home": {
    "name": "ewm_pace_home",
-   "summary": "EWM pace \u2014 home team",
+   "summary": "Recent pace (poss/48) \u2014 home team",
    "definition": "Exponentially weighted paired box-score estimated possessions per 48 minutes. Each side estimates FGA + 0.44*FTA - OREB + TOV; the two estimates are averaged. Duration is team player minutes / 5, including overtime; missing counts remain unknown.",
    "formula": "ewm_pace_home \u2212 ewm_pace_away",
    "source": "Season log team box-score facts",
@@ -10292,7 +10292,7 @@
   },
   "ewm_reb_against_diff": {
    "name": "ewm_reb_against_diff",
-   "summary": "Home\u2212away EWM rebounds conceded",
+   "summary": "Home vs away rebounds allowed",
    "definition": "Exponentially weighted rebounds each team ALLOWS to opponents, read from the opponent's box score. Decomposes ewm_rebound_margin_diff into the conceded half.",
    "formula": "ewm_reb_against_home \u2212 ewm_reb_against_away",
    "source": "Season log opponent team box-score facts (REB)",
@@ -10308,7 +10308,7 @@
   },
   "ewm_rebound_margin_away": {
    "name": "ewm_rebound_margin_away",
-   "summary": "EWM rebound margin \u2014 away team",
+   "summary": "Rebound margin \u2014 away team",
    "definition": "Exponentially weighted rebounds won minus conceded per game.",
    "formula": "ewm_rebound_margin_home \u2212 ewm_rebound_margin_away",
    "source": "Season log team box-score facts (REB)",
@@ -10323,7 +10323,7 @@
   },
   "ewm_rebound_margin_diff": {
    "name": "ewm_rebound_margin_diff",
-   "summary": "Home\u2212away rebound margin",
+   "summary": "Home vs away rebound margin",
    "definition": "Exponentially weighted rebounds won minus conceded per game.",
    "formula": "ewm_rebound_margin_home \u2212 ewm_rebound_margin_away",
    "source": "Season log team box-score facts (REB)",
@@ -10339,7 +10339,7 @@
   },
   "ewm_rebound_margin_home": {
    "name": "ewm_rebound_margin_home",
-   "summary": "EWM rebound margin \u2014 home team",
+   "summary": "Rebound margin \u2014 home team",
    "definition": "Exponentially weighted rebounds won minus conceded per game.",
    "formula": "ewm_rebound_margin_home \u2212 ewm_rebound_margin_away",
    "source": "Season log team box-score facts (REB)",
@@ -10354,7 +10354,7 @@
   },
   "ewm_three_against_diff": {
    "name": "ewm_three_against_diff",
-   "summary": "Home\u2212away EWM allowed three-point percentage",
+   "summary": "Home vs away allowed 3-point shooting",
    "definition": "Exponentially weighted three-point percentage each team concedes to opponents, strictly prior to the target game.",
    "formula": "ewm_three_against_home \u2212 ewm_three_against_away",
    "source": "Season log opponent team box-score facts (3PM/3PA)",
@@ -10370,7 +10370,7 @@
   },
   "ewm_tov_forced_diff": {
    "name": "ewm_tov_forced_diff",
-   "summary": "Home\u2212away EWM turnovers forced",
+   "summary": "Home vs away turnovers forced",
    "definition": "Exponentially weighted turnovers each team FORCES, read from the opponent's box score rather than its own. Decomposes ewm_turnover_margin_diff into the forced half.",
    "formula": "ewm_tov_forced_home \u2212 ewm_tov_forced_away",
    "source": "Season log opponent team box-score facts (TOV)",
@@ -10386,7 +10386,7 @@
   },
   "ewm_turnover_margin_away": {
    "name": "ewm_turnover_margin_away",
-   "summary": "EWM turnover margin \u2014 away team",
+   "summary": "Turnover margin \u2014 away team",
    "definition": "Exponentially weighted turnovers forced minus committed per game.",
    "formula": "ewm_turnover_margin_home \u2212 ewm_turnover_margin_away",
    "source": "Season log team box-score facts (TOV)",
@@ -10401,7 +10401,7 @@
   },
   "ewm_turnover_margin_diff": {
    "name": "ewm_turnover_margin_diff",
-   "summary": "Home\u2212away turnover margin",
+   "summary": "Home vs away turnover margin",
    "definition": "Exponentially weighted turnovers forced minus committed per game.",
    "formula": "ewm_turnover_margin_home \u2212 ewm_turnover_margin_away",
    "source": "Season log team box-score facts (TOV)",
@@ -10417,7 +10417,7 @@
   },
   "ewm_turnover_margin_home": {
    "name": "ewm_turnover_margin_home",
-   "summary": "EWM turnover margin \u2014 home team",
+   "summary": "Turnover margin \u2014 home team",
    "definition": "Exponentially weighted turnovers forced minus committed per game.",
    "formula": "ewm_turnover_margin_home \u2212 ewm_turnover_margin_away",
    "source": "Season log team box-score facts (TOV)",
@@ -10432,7 +10432,7 @@
   },
   "free_throw_pct_ewm_diff": {
    "name": "free_throw_pct_ewm_diff",
-   "summary": "Trailing free_throw_pct (ewm) diff",
+   "summary": "Home vs away recent free-throw shooting",
    "definition": "Per-team ewm aggregate of free_throw_pct, strictly prior to the target game.",
    "formula": "\u2014",
    "source": "normalized game/team/player box-score facts",
@@ -10464,7 +10464,7 @@
   },
   "is_playoffs": {
    "name": "is_playoffs",
-   "summary": "1 for postseason games",
+   "summary": "Postseason game flag",
    "definition": "1 for postseason game type, 0 for regular season.",
    "formula": "1 if season_type == playoffs else 0",
    "source": "Schedule (season type)",
@@ -10480,7 +10480,7 @@
   },
   "pl_d_dpm_away": {
    "name": "pl_d_dpm_away",
-   "summary": "Cross-matched team defense \u2014 away team",
+   "summary": "Team defense (DARKO) \u2014 away team",
    "definition": "Team-level DARKO defensive DPM blend, same weights and pace scale as pl_o_dpm.",
    "formula": "pl_d_dpm_home \u2212 pl_d_dpm_away",
    "source": "DARKO d_dpm as of prior day + DARKO expected minutes (same-day) \u2192 team blend \u2192 pace scale",
@@ -10495,7 +10495,7 @@
   },
   "pl_d_dpm_diff": {
    "name": "pl_d_dpm_diff",
-   "summary": "Home\u2212away cross-matched team defense (ADOPTED D arm 2026-10-31)",
+   "summary": "Home vs away team defense (DARKO)",
    "definition": "Team-level DARKO defensive DPM blend, same weights and pace scale as pl_o_dpm.",
    "formula": "pl_d_dpm_home \u2212 pl_d_dpm_away",
    "source": "DARKO d_dpm as of prior day + DARKO expected minutes (same-day) \u2192 team blend \u2192 pace scale",
@@ -10511,7 +10511,7 @@
   },
   "pl_d_dpm_home": {
    "name": "pl_d_dpm_home",
-   "summary": "Cross-matched team defense \u2014 home team",
+   "summary": "Team defense (DARKO) \u2014 home team",
    "definition": "Team-level DARKO defensive DPM blend, same weights and pace scale as pl_o_dpm.",
    "formula": "pl_d_dpm_home \u2212 pl_d_dpm_away",
    "source": "DARKO d_dpm as of prior day + DARKO expected minutes (same-day) \u2192 team blend \u2192 pace scale",
@@ -10526,7 +10526,7 @@
   },
   "pl_net_o_away": {
    "name": "pl_net_o_away",
-   "summary": "Cross-matched net offense \u2014 away team",
+   "summary": "Matchup offense \u2014 away team",
    "definition": "Matchup net: (home_OFF \u2212 away_DEF) \u00d7 projected-game-pace scale and mirror. The matchup hypothesis for trees.",
    "formula": "pl_net_o_home = (home_OFF \u2212 away_DEF) \u00d7 s; pl_net_o_away mirrors",
    "source": "team_off/team_def aggregates \u2192 cross-match",
@@ -10541,7 +10541,7 @@
   },
   "pl_net_o_home": {
    "name": "pl_net_o_home",
-   "summary": "Cross-matched net offense \u2014 home team",
+   "summary": "Matchup offense \u2014 home team",
    "definition": "Matchup net: (home_OFF \u2212 away_DEF) \u00d7 projected-game-pace scale and mirror. The matchup hypothesis for trees.",
    "formula": "pl_net_o_home = (home_OFF \u2212 away_DEF) \u00d7 s; pl_net_o_away mirrors",
    "source": "team_off/team_def aggregates \u2192 cross-match",
@@ -10556,7 +10556,7 @@
   },
   "pl_o_dpm_away": {
    "name": "pl_o_dpm_away",
-   "summary": "Cross-matched team offense \u2014 away team",
+   "summary": "Team offense (DARKO) \u2014 away team",
    "definition": "Team-level DARKO offensive DPM blend over the whole eligible healthy roster, priced by expected minutes where DARKO projects them, pace-scaled by the projected-game pace over 100. Replaces the retired position-segmented pl_dpm_* (still attached as legacy).",
    "formula": "pl_o_dpm_home \u2212 pl_o_dpm_away",
    "source": "DARKO o_dpm as of prior day + DARKO expected minutes (same-day) \u2192 team blend \u2192 pace scale",
@@ -10571,7 +10571,7 @@
   },
   "pl_o_dpm_diff": {
    "name": "pl_o_dpm_diff",
-   "summary": "Home\u2212away cross-matched team offense (ADOPTED D arm 2026-10-31)",
+   "summary": "Home vs away team offense (DARKO)",
    "definition": "Team-level DARKO offensive DPM blend over the whole eligible healthy roster, priced by expected minutes where DARKO projects them, pace-scaled by the projected-game pace over 100. Replaces the retired position-segmented pl_dpm_* (still attached as legacy).",
    "formula": "pl_o_dpm_home \u2212 pl_o_dpm_away",
    "source": "DARKO o_dpm as of prior day + DARKO expected minutes (same-day) \u2192 team blend \u2192 pace scale",
@@ -10587,7 +10587,7 @@
   },
   "pl_o_dpm_home": {
    "name": "pl_o_dpm_home",
-   "summary": "Cross-matched team offense \u2014 home team",
+   "summary": "Team offense (DARKO) \u2014 home team",
    "definition": "Team-level DARKO offensive DPM blend over the whole eligible healthy roster, priced by expected minutes where DARKO projects them, pace-scaled by the projected-game pace over 100. Replaces the retired position-segmented pl_dpm_* (still attached as legacy).",
    "formula": "pl_o_dpm_home \u2212 pl_o_dpm_away",
    "source": "DARKO o_dpm as of prior day + DARKO expected minutes (same-day) \u2192 team blend \u2192 pace scale",
@@ -10602,7 +10602,7 @@
   },
   "pl_o_pts_away": {
    "name": "pl_o_pts_away",
-   "summary": "Team expected points \u2014 away team",
+   "summary": "Expected points \u2014 away team",
    "definition": "Additive team expected points: DARKO x_pts_100 scaled by pace to a per-minute rate, summed over the healthy eligible roster at final opportunity (expected-minutes) weights. Absorbed out-star minutes reprice at the survivor's rate by construction.",
    "formula": "pl_o_pts_home \u2212 pl_o_pts_away",
    "source": "DARKO x_pts_100 + expected minutes + expected pace (same-day), strictly-prior designations",
@@ -10617,7 +10617,7 @@
   },
   "pl_o_pts_diff": {
    "name": "pl_o_pts_diff",
-   "summary": "Home\u2212away team expected points (ADOPTED B arm 2026-11-01)",
+   "summary": "Home vs away expected points",
    "definition": "Additive team expected points: DARKO x_pts_100 scaled by pace to a per-minute rate, summed over the healthy eligible roster at final opportunity (expected-minutes) weights. Absorbed out-star minutes reprice at the survivor's rate by construction.",
    "formula": "pl_o_pts_home \u2212 pl_o_pts_away",
    "source": "DARKO x_pts_100 + expected minutes + expected pace (same-day), strictly-prior designations",
@@ -10633,7 +10633,7 @@
   },
   "pl_o_pts_home": {
    "name": "pl_o_pts_home",
-   "summary": "Team expected points \u2014 home team",
+   "summary": "Expected points \u2014 home team",
    "definition": "Additive team expected points: DARKO x_pts_100 scaled by pace to a per-minute rate, summed over the healthy eligible roster at final opportunity (expected-minutes) weights. Absorbed out-star minutes reprice at the survivor's rate by construction.",
    "formula": "pl_o_pts_home \u2212 pl_o_pts_away",
    "source": "DARKO x_pts_100 + expected minutes + expected pace (same-day), strictly-prior designations",
@@ -10678,7 +10678,7 @@
   },
   "projected_game_pace_total": {
    "name": "projected_game_pace_total",
-   "summary": "Projected game pace: home x away over trailing league mean",
+   "summary": "Projected game pace",
    "definition": "Home team_pace x away team_pace over the trailing-30-day league mean, where each side pace is its trailing minutes-weighted DARKO x_pace blend as of gameday. Adopted with the D arm 2026-10-31.",
    "formula": "projected_game_pace_home x projected_game_pace_away / trailing-30d league mean",
    "source": "DARKO x_pace + expected minutes (same-day), team aggregates",
@@ -10694,7 +10694,7 @@
   },
   "rebounds_per_game_ewm_away": {
    "name": "rebounds_per_game_ewm_away",
-   "summary": "Trailing rebounds_per_game (ewm) away",
+   "summary": "Rebounds (recent) \u2014 away team",
    "definition": "Per-team ewm aggregate of rebounds_per_game, strictly prior to the target game.",
    "formula": "\u2014",
    "source": "normalized game/team/player box-score facts",
@@ -10709,7 +10709,7 @@
   },
   "rebounds_per_game_ewm_diff": {
    "name": "rebounds_per_game_ewm_diff",
-   "summary": "Trailing rebounds_per_game (ewm) diff",
+   "summary": "Home vs away recent rebounds",
    "definition": "Per-team ewm aggregate of rebounds_per_game, strictly prior to the target game.",
    "formula": "\u2014",
    "source": "normalized game/team/player box-score facts",
@@ -10725,7 +10725,7 @@
   },
   "rebounds_per_game_ewm_home": {
    "name": "rebounds_per_game_ewm_home",
-   "summary": "Trailing rebounds_per_game (ewm) home",
+   "summary": "Rebounds (recent) \u2014 home team",
    "definition": "Per-team ewm aggregate of rebounds_per_game, strictly prior to the target game.",
    "formula": "\u2014",
    "source": "normalized game/team/player box-score facts",
@@ -10755,7 +10755,7 @@
   },
   "rest_days_diff": {
    "name": "rest_days_diff",
-   "summary": "Home rest days \u2212 away rest days",
+   "summary": "Home vs away rest days",
    "definition": "Days since each team's previous game.",
    "formula": "rest_days_home \u2212 rest_days_away",
    "source": "Schedule: gap between consecutive game dates",
@@ -10786,7 +10786,7 @@
   },
   "star_out_impact_away": {
    "name": "star_out_impact_away",
-   "summary": "Unavailable top-three DARKO DPM impact \u2014 away team",
+   "summary": "Injured talent impact \u2014 away team",
    "definition": "Minutes-weighted DARKO DPM of the team's top-three prior-MPG players designated Out/Doubtful/Recovery before tipoff, over the top three's total minutes weight. Positive means positive talent is unavailable; negative means the absent player was rated below replacement. Ratings are DARKO DPM as of the prior day.",
    "formula": "star_out_impact_home \u2212 star_out_impact_away",
    "source": "DARKO DPM as of prior day (in-memory fetch) + last pre-tipoff official injury designation",
@@ -10801,7 +10801,7 @@
   },
   "star_out_impact_diff": {
    "name": "star_out_impact_diff",
-   "summary": "Home\u2212away star-out DARKO DPM impact",
+   "summary": "Home vs away injured talent impact",
    "definition": "Minutes-weighted DARKO DPM of the team's top-three prior-MPG players designated Out/Doubtful/Recovery before tipoff, over the top three's total minutes weight. Positive means positive talent is unavailable; negative means the absent player was rated below replacement. Ratings are DARKO DPM as of the prior day.",
    "formula": "star_out_impact_home \u2212 star_out_impact_away",
    "source": "DARKO DPM as of prior day (in-memory fetch) + last pre-tipoff official injury designation",
@@ -10817,7 +10817,7 @@
   },
   "star_out_impact_home": {
    "name": "star_out_impact_home",
-   "summary": "Unavailable top-three DARKO DPM impact \u2014 home team",
+   "summary": "Injured talent impact \u2014 home team",
    "definition": "Minutes-weighted DARKO DPM of the team's top-three prior-MPG players designated Out/Doubtful/Recovery before tipoff, over the top three's total minutes weight. Positive means positive talent is unavailable; negative means the absent player was rated below replacement. Ratings are DARKO DPM as of the prior day.",
    "formula": "star_out_impact_home \u2212 star_out_impact_away",
    "source": "DARKO DPM as of prior day (in-memory fetch) + last pre-tipoff official injury designation",
@@ -10832,7 +10832,7 @@
   },
   "star_out_pts_away": {
    "name": "star_out_pts_away",
-   "summary": "Unavailable top-three expected points \u2014 away team",
+   "summary": "Injured scoring \u2014 away team",
    "definition": "Expected points of the OUT top-three reference members (the same pre-availability top-three the star_out_* legs read); 0.0 when nobody is out.",
    "formula": "star_out_pts_home \u2212 star_out_pts_away",
    "source": "same as pl_o_pts, unavailable top-three leg",
@@ -10847,7 +10847,7 @@
   },
   "star_out_pts_diff": {
    "name": "star_out_pts_diff",
-   "summary": "Home\u2212away unavailable top-three expected points (ADOPTED B arm 2026-11-01)",
+   "summary": "Home vs away injured scoring",
    "definition": "Expected points of the OUT top-three reference members (the same pre-availability top-three the star_out_* legs read); 0.0 when nobody is out.",
    "formula": "star_out_pts_home \u2212 star_out_pts_away",
    "source": "same as pl_o_pts, unavailable top-three leg",
@@ -10863,7 +10863,7 @@
   },
   "star_out_pts_home": {
    "name": "star_out_pts_home",
-   "summary": "Unavailable top-three expected points \u2014 home team",
+   "summary": "Injured scoring \u2014 home team",
    "definition": "Expected points of the OUT top-three reference members (the same pre-availability top-three the star_out_* legs read); 0.0 when nobody is out.",
    "formula": "star_out_pts_home \u2212 star_out_pts_away",
    "source": "same as pl_o_pts, unavailable top-three leg",
@@ -10878,7 +10878,7 @@
   },
   "star_out_weight_share_away": {
    "name": "star_out_weight_share_away",
-   "summary": "Unavailable top-three minutes share \u2014 away team",
+   "summary": "Injured minutes share \u2014 away team",
    "definition": "Share of the team's top-three prior-MPG minutes weight that is designated Out/Doubtful/Recovery before tipoff. Separates a missing top-three role from the missing player's rating.",
    "formula": "star_out_weight_share_home \u2212 star_out_weight_share_away",
    "source": "Strictly-prior player ratings + last pre-tipoff official injury designation",
@@ -10893,7 +10893,7 @@
   },
   "star_out_weight_share_diff": {
    "name": "star_out_weight_share_diff",
-   "summary": "Home\u2212away unavailable top-three minutes share",
+   "summary": "Home vs away injured minutes share",
    "definition": "Share of the team's top-three prior-MPG minutes weight that is designated Out/Doubtful/Recovery before tipoff. Separates a missing top-three role from the missing player's rating.",
    "formula": "star_out_weight_share_home \u2212 star_out_weight_share_away",
    "source": "Strictly-prior player ratings + last pre-tipoff official injury designation",
@@ -10909,7 +10909,7 @@
   },
   "star_out_weight_share_home": {
    "name": "star_out_weight_share_home",
-   "summary": "Unavailable top-three minutes share \u2014 home team",
+   "summary": "Injured minutes share \u2014 home team",
    "definition": "Share of the team's top-three prior-MPG minutes weight that is designated Out/Doubtful/Recovery before tipoff. Separates a missing top-three role from the missing player's rating.",
    "formula": "star_out_weight_share_home \u2212 star_out_weight_share_away",
    "source": "Strictly-prior player ratings + last pre-tipoff official injury designation",
@@ -10924,7 +10924,7 @@
   },
   "three_point_pct_ewm_away": {
    "name": "three_point_pct_ewm_away",
-   "summary": "Trailing three_point_pct (ewm) away",
+   "summary": "3-point shooting (recent) \u2014 away team",
    "definition": "Per-team ewm aggregate of three_point_pct, strictly prior to the target game.",
    "formula": "\u2014",
    "source": "normalized game/team/player box-score facts",
@@ -10939,7 +10939,7 @@
   },
   "three_point_pct_ewm_diff": {
    "name": "three_point_pct_ewm_diff",
-   "summary": "Trailing three_point_pct (ewm) diff",
+   "summary": "Home vs away recent 3-point shooting",
    "definition": "Per-team ewm aggregate of three_point_pct, strictly prior to the target game.",
    "formula": "\u2014",
    "source": "normalized game/team/player box-score facts",
@@ -10955,7 +10955,7 @@
   },
   "three_point_pct_ewm_home": {
    "name": "three_point_pct_ewm_home",
-   "summary": "Trailing three_point_pct (ewm) home",
+   "summary": "3-point shooting (recent) \u2014 home team",
    "definition": "Per-team ewm aggregate of three_point_pct, strictly prior to the target game.",
    "formula": "\u2014",
    "source": "normalized game/team/player box-score facts",
@@ -10970,7 +10970,7 @@
   },
   "turnovers_per_game_ewm_diff": {
    "name": "turnovers_per_game_ewm_diff",
-   "summary": "Trailing turnovers_per_game (ewm) diff",
+   "summary": "Home vs away recent turnovers",
    "definition": "Per-team ewm aggregate of turnovers_per_game, strictly prior to the target game.",
    "formula": "\u2014",
    "source": "normalized game/team/player box-score facts",
@@ -10986,7 +10986,7 @@
   },
   "win_pct_away": {
    "name": "win_pct_away",
-   "summary": "Trailing win percentage \u2014 away team",
+   "summary": "Win rate \u2014 away team",
    "definition": "Win rate over each team's trailing games, strictly prior to the target game.",
    "formula": "win_pct_home \u2212 win_pct_away",
    "source": "Schedule + official results",
@@ -11001,7 +11001,7 @@
   },
   "win_pct_diff": {
    "name": "win_pct_diff",
-   "summary": "Home trailing win% \u2212 away trailing win%",
+   "summary": "Home vs away win rate",
    "definition": "Win rate over each team's trailing games, strictly prior to the target game.",
    "formula": "win_pct_home \u2212 win_pct_away",
    "source": "Schedule + official results",
@@ -11017,7 +11017,7 @@
   },
   "win_pct_home": {
    "name": "win_pct_home",
-   "summary": "Trailing win percentage \u2014 home team",
+   "summary": "Win rate \u2014 home team",
    "definition": "Win rate over each team's trailing games, strictly prior to the target game.",
    "formula": "win_pct_home \u2212 win_pct_away",
    "source": "Schedule + official results",

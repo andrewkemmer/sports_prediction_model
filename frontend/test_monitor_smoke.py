@@ -57,8 +57,8 @@ MLB_DD = REPO_ROOT / "mlb-backend" / "data_delivery"
 NBA_DD = REPO_ROOT / "nba-backend" / "data_delivery"
 NHL_DD = REPO_ROOT / "nhl-backend" / "data_delivery"
 
-# Newer than any committed artifact so the fixture is the one the page's
-# newest-date resolution picks up (removed after the run).
+# Fixture date. Existing monitor artifacts are hidden for the duration of
+# the run so this staged family is the only one the page can resolve.
 ARTIFACT_DATE = "20260923"
 MONITOR_NAME = f"nfl_model_monitor_{ARTIFACT_DATE}.json"
 MONITOR_PATH = NFL_DD / MONITOR_NAME
@@ -77,6 +77,11 @@ WRITTEN: list[Path] = []
 # Path -> original bytes of a PRE-EXISTING (committed) artifact this test
 # overwrites with a fixture; restored on cleanup, never deleted.
 _BACKUPS: dict[Path, bytes] = {}
+# (visible path, hidden path) for committed monitor artifacts moved aside for
+# the run. Without this, newer committed artifacts win the page's newest-date
+# resolution and the version-history fold, so the assertions no longer test
+# the staged fixtures.
+_HIDDEN: list[tuple[Path, Path]] = []
 
 
 # ---------------------------------------------------------------------------
@@ -333,8 +338,8 @@ def _nba_monitor_record() -> dict:
         # Served summary WINS (the exact-side wording, not the diff twin's
         # text with a tacked-on side).
         "elo_home": {
-            "summary": "Entering Elo rating — home team",
-            "tooltip": "What: Entering Elo rating — home team."},
+            "summary": "Elo rating — home team",
+            "tooltip": "What: Elo rating — home team."},
         # Degenerate entry: summary == the bare column name is REJECTED.
         "is_home": {"summary": "is_home", "tooltip": "What: is_home."},
     }
@@ -517,7 +522,19 @@ def _stage(path: Path, data: bytes) -> None:
     WRITTEN.append(path)
 
 
+def _hide_existing_monitors() -> None:
+    """Move committed monitor artifacts aside so fixtures are deterministic."""
+    for dd in (NFL_DD, MLB_DD, NBA_DD, NHL_DD):
+        if not dd.exists():
+            continue
+        for path in dd.glob("*model_monitor_*.json"):
+            hidden = path.with_name(path.name + ".smoke-hidden")
+            path.replace(hidden)
+            _HIDDEN.append((path, hidden))
+
+
 def _write_artifacts() -> None:
+    _hide_existing_monitors()
     NFL_DD.mkdir(parents=True, exist_ok=True)
     _stage(MONITOR_PATH, json.dumps(_monitor_record(), indent=2).encode("utf-8"))
     _stage(PREV_MONITOR_PATH,
@@ -543,6 +560,12 @@ def _remove_artifacts() -> None:
         except FileNotFoundError:
             pass
     WRITTEN.clear()
+    for visible, hidden in _HIDDEN:
+        try:
+            hidden.replace(visible)
+        except FileNotFoundError:
+            pass
+    _HIDDEN.clear()
 
 
 # ---------------------------------------------------------------------------
@@ -568,9 +591,13 @@ def run() -> int:
         sys.stdout.reconfigure(encoding="utf-8", errors="replace")
     except (AttributeError, ValueError):
         pass
-    _write_artifacts()
     problems: list[str] = []
     try:
+        try:
+            _write_artifacts()
+        except Exception:
+            _remove_artifacts()
+            raise
         at = AppTest.from_file(str(FRONTEND_DIR / "model_monitor.py"),
                                default_timeout=60)
         at.session_state["sport"] = "nfl"
@@ -866,11 +893,11 @@ def run() -> int:
         #      elo_home as "Home Elo − away Elo ... — home team"), unserved
         #      rows fall back to the static dict, and no row ships the
         #      "(no detailed metadata)" fallback tooltip.
-        if "Entering Elo rating — home team" not in nba_text:
+        if "Elo rating — home team" not in nba_text:
             nba_problems.append("drift table missing the served elo_home label")
-        if "Home Elo − away Elo (pre-game rating gap) — home team" in nba_text:
+        if "Home vs away Elo rating — home team" in nba_text:
             nba_problems.append("elo_home rendered the diff-twin side mislabel")
-        if "Home Elo − away Elo (pre-game rating gap)" not in nba_text:
+        if "Home vs away Elo rating" not in nba_text:
             nba_problems.append("drift table missing the dict fallback label")
         # The one unserved row (elo_diff, pinning the dict-fallback label)
         # legitimately carries the no-metadata tooltip; every SERVED row must
