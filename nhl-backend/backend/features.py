@@ -37,11 +37,13 @@ try:
     from backend import ingestion
     from backend import injury_stints
     from backend import player_ratings as _pr
+    from backend import team_goal_ratings as _goal_ratings
 except ImportError:
     import config
     import ingestion
     import injury_stints
     import player_ratings as _pr
+    import team_goal_ratings as _goal_ratings
 
 logger = logging.getLogger(__name__)
 
@@ -1912,6 +1914,35 @@ def _load_espn_stints(ratings: pd.DataFrame | None
     return stints, fetch_date
 
 
+def _attach_goal_ratings(df: pd.DataFrame,
+                         history: pd.DataFrame | None = None) -> pd.DataFrame:
+    """Attach the adopted causal team goal-rating block (G3S240).
+
+    ``history`` is the full settled timeline when ``df`` is a slate subset:
+    the panel is fitted once on history and the values are then mapped to
+    ``df``'s games by id.  The fit is causal by construction (each weekly
+    anchor trains strictly before itself), so passing the full frame is safe.
+    """
+    source = df if history is None else history
+    # G3S240's exact design: opponent-goalie + prior-season nuisance blocks,
+    # NOT the module's full components block. The A/B this adoption rests on
+    # measured this configuration at alpha 50 / 240 days; the defaults must
+    # not silently re-introduce the discarded own-offence block.
+    panel = _goal_ratings.build_causal_panel(
+        source, blocks=("opp_goalie", "prior"),
+        alpha=_goal_ratings.ALPHA,
+        half_life_days=_goal_ratings.HALF_LIFE_DAYS)
+    gids = source["game_id"].astype(str).to_numpy()
+    for column in _goal_ratings.GOAL_RATING_COLS:
+        values = panel[column].to_numpy()
+        if source is df:
+            df[column] = values
+        else:
+            df[column] = df["game_id"].astype(str).map(
+                dict(zip(gids, values)))
+    return df
+
+
 def build_game_features(games: pd.DataFrame,
                         boxscores: pd.DataFrame | None = None,
                         player_ratings: pd.DataFrame | None = None,
@@ -2005,6 +2036,11 @@ def build_game_features(games: pd.DataFrame,
         home_v, away_v = _per_side(ladder, gids, lad_col)
         df[side_col] = home_v if side_col.endswith("home") else away_v
 
+    # Adopted strength block (G3S240): attached after every context column it
+    # consumes exists (is_playoffs, rest_days, back_to_back, goalie state).
+    # Fitting earlier would silently zero the missing context instead.
+    df = _attach_goal_ratings(df)
+
     df = _attach_records(df, ev)
 
     # Player-pool features (MLB's roster -> injury flag -> healthy-pool mean).
@@ -2084,11 +2120,18 @@ def build_slate_features(schedule: pd.DataFrame,
         combined_excl, availability_sources = stints, None
     roster_grid = pd.DataFrame({"team": pd.concat(
         [df["home_team"], df["away_team"]], ignore_index=True)})
-    goalie_frame, goalie_ladder = goalie_state(
-        boxscores, df, sched, stints=combined_excl, rosters=_load_team_rosters(roster_grid))
-    for c in goalie_frame.columns:
-        if c not in df.columns:
-            df[c] = goalie_frame[c].to_numpy()
+    # Compute the per-game goalie state over the FULL schedule once.  The
+    # pending rows need it for serving and the goal-rating panel needs the
+    # same columns on the settled history; resolving it twice would let the
+    # two consumers disagree about a starter.
+    goalie_all, goalie_ladder = goalie_state(
+        boxscores, sched, sched, stints=combined_excl,
+        rosters=_load_team_rosters(roster_grid))
+    _goalie_ids = sched["game_id"].astype(str)
+    for c in goalie_all.columns:
+        sched[c] = goalie_all[c].to_numpy()
+        df[c] = df["game_id"].astype(str).map(
+            dict(zip(_goalie_ids, sched[c])))
     df["goalie_sv_pct_diff"] = (df.get("goalie_sv_pct_home", pd.Series(np.nan, index=df.index))
                                 - df.get("goalie_sv_pct_away", pd.Series(np.nan, index=df.index)))
     df["goalie_gaa_diff"] = (df.get("goalie_gaa_home", pd.Series(np.nan, index=df.index))
@@ -2126,6 +2169,11 @@ def build_slate_features(schedule: pd.DataFrame,
                               ("back_to_back_away", "back_to_back")):
         home_v, away_v = _per_side(ladder, gids, lad_col)
         df[side_col] = home_v if side_col.endswith("home") else away_v
+
+    # Adopted strength block: fit the panel on the settled schedule, then map
+    # to the pending rows.  Pending rows carry no target and never enter a fit.
+    # Attached after the context block so is_playoffs/rest/back-to-back exist.
+    df = _attach_goal_ratings(df, history=sched)
 
     # Records come from the COMBINED frame, not decided-only: a pending
     # game's key exists there, and ``_record_frame`` reads its entering W-L

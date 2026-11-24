@@ -85,10 +85,27 @@ RUN_SIDE_RATING_COLS = [
     "def_rating_home", "def_rating_away",
 ]
 #: Sports whose arm C is a *fitted* two-sided rating rather than arithmetic on
-#: served columns.  Both export the same seven names.
+#: served columns.  Both export the same seven names; NHL adds the game-level
+#: symmetric sum adopted with G3S240 on 2026-11-24.
 FITTED_SPORTS = ("nba", "nhl", "mlb")
+NHL_RATING_COLS = RUN_RATING_COLS + ["net_rating_sum"]
+#: NHL's retired strength block uses the NHL spellings (the shared list above
+#: carries MLB's home_elo/away_elo spellings, which NHL never built).
+NHL_RETIRED_STRENGTH_COLS = [
+    "win_pct_diff", "elo_diff",
+    "elo_home", "elo_away", "win_pct_home", "win_pct_away",
+]
 FITTED_RATING_COLS = RUN_RATING_COLS
 FITTED_SIDE_RATING_COLS = RUN_SIDE_RATING_COLS
+
+
+def _fitted_rating_cols(sport: str) -> list[str]:
+    return NHL_RATING_COLS if sport == "nhl" else FITTED_RATING_COLS
+
+
+def _retired_strength_cols(sport: str) -> list[str]:
+    return (NHL_RETIRED_STRENGTH_COLS if sport == "nhl"
+            else RETIRED_ELO_WIN_PCT)
 #: NBA's incumbent strength block: the pace-scaled DARKO offence/defence
 #: blends, the pre-computed matchup net and the expected-points sum.  B drops
 #: all eleven; C puts a fitted, schedule-adjusted replacement back.  The
@@ -319,7 +336,7 @@ def register_trial_columns(mods, sport: str) -> None:
     contract = mods.contract
     known = getattr(contract, "KNOWN_FEATURE_COLS")
     fitted = sport in FITTED_SPORTS
-    columns = FITTED_RATING_COLS if fitted else RATING_COLS
+    columns = _fitted_rating_cols(sport) if fitted else RATING_COLS
     for col in columns:
         if col not in known:
             known.append(col)
@@ -345,18 +362,19 @@ def arm_columns(mods, sport: str) -> dict[str, list[str]]:
         return {"A": active, "B": base,
                 "C": base + [c for c in FITTED_RATING_COLS if c not in base]}
     if sport in FITTED_SPORTS:
-        served = [c for c in FITTED_RATING_COLS if c in active]
+        served = [c for c in _fitted_rating_cols(sport) if c in active]
         if served:
             # The fitted rating IS the served strength block now (MLB adopted
             # scenario C on 2026-11-21).  Reconstruct the pre-adoption
             # incumbent from the retired Elo/win% columns so A/B/C keeps
             # measuring the adoption decision rather than becoming A == C.
             base = [c for c in active if c not in served]
-            retired = [c for c in RETIRED_ELO_WIN_PCT
+            retired = [c for c in _retired_strength_cols(sport)
                        if c in mods.contract.KNOWN_FEATURE_COLS]
             return {"A": base + retired, "B": base, "C": base + served}
     base = [c for c in active if c not in DROP]
-    extra = FITTED_RATING_COLS if sport in FITTED_SPORTS else RATING_COLS
+    extra = (_fitted_rating_cols(sport) if sport in FITTED_SPORTS
+             else RATING_COLS)
     return {
         "A": active,
         "B": base,

@@ -164,7 +164,8 @@ MIN_VAL_FOLD_GAMES = 40
 # ---------------------------------------------------------------------------
 # Corrected hockey inputs + true XGB categories and shared fit/refit policy.
 # Existing v1.1/v1.2 bundles require a full feature rebuild/OOF/refit, not reuse.
-FEATURE_SET_VERSION = "nhl-prod-v1.5-xpm-rollup"
+# v1.6 (2026-11-24): G3S240 goal ratings replace the Elo/win-pct strength block.
+FEATURE_SET_VERSION = "nhl-prod-v1.6-goal-ratings"
 
 # ---------------------------------------------------------------------------
 # Moneyline calibration (MLB structural parity; favored-team space ONLY)
@@ -201,8 +202,16 @@ CAL_GATE_EPS = 5e-3            # minimum out-of-sample logloss gain (nats)
 # this list (linear members -> the list minus RAW_PER_SIDE_COLS; tree members
 # -> the full list + the categorical team-ID pair).
 MONEYLINE_FEATURE_COLS = [
+    # Fitted strength block, adopted 2026-11-24 (replaces elo_/win_pct_).
+    # Causal ridge team goal ratings: goals per team-game, higher is better,
+    # 240-day half-life, weekly refit, opponent-goalie + prior-season blocks.
+    # G3S240 A/B (500 paired weekly-bootstrap draws): pooled AUC 0.6178 ->
+    # 0.6188, pooled logloss 0.6678 -> 0.6673, 45-55% band AUC 0.5437 ->
+    # 0.5457 and logloss 0.6909 -> 0.6908. The band interval still spans zero
+    # and the layout came from a small search; owner-directed adoption.
+    "off_rating_diff", "def_rating_diff", "net_rating_diff",
     # served diffs (home − away; positive = home advantage)
-    "elo_diff", "win_pct_diff", "rest_days_diff",
+    "rest_days_diff",
     "ewm_net_goals_diff", "ewm_goal_share_diff",
     "ga_per_game_diff", "shots_for_per_game_diff",
     "shots_against_per_game_diff", "pp_success_diff",
@@ -217,9 +226,11 @@ MONEYLINE_FEATURE_COLS = [
     "goalie_sv_pct_diff", "goalie_gaa_diff", "goalie_starts_diff",
     # game-level facts
     "is_playoffs",
+    # Symmetric match strength: net_home + net_away, identical for both sides.
+    # Restores the combined-quality signal the retired Elo/win-pct side levels
+    # used to give the tree members without re-introducing a side preference.
+    "net_rating_sum",
     # raw per-side levels (tree family's home/away representations).
-    "elo_home", "elo_away",
-    "win_pct_home", "win_pct_away",
     "ewm_net_goals_home", "ewm_net_goals_away",
     "ewm_goal_share_home", "ewm_goal_share_away",
     "rest_days_home", "rest_days_away",
@@ -261,6 +272,14 @@ MONEYLINE_FEATURE_COLS = [
 # The individual-xG pool triplet (served with XPM since 2026-11-23). Named
 # here because the feature builder attaches it through its own ratings table.
 NHL_PLAYER_XG_COLS = ["pl_xg_away", "pl_xg_home", "pl_xg_diff"]
+
+# Retired by the G3S240 adoption (2026-11-24). features.py still builds these
+# columns and KNOWN_FEATURE_COLS still carries them, so the A/B harness can
+# reconstruct the pre-adoption incumbent exactly; they are no longer served.
+RETIRED_STRENGTH_COLS = [
+    "elo_diff", "win_pct_diff",
+    "elo_home", "elo_away", "win_pct_home", "win_pct_away",
+]
 
 # ---------------------------------------------------------------------------
 # NHL team IDs for the tree-member categorical context (NFL pattern: a stable
@@ -374,7 +393,8 @@ RFE_CANDIDATE_COLS: list[str] = list(dict.fromkeys(
 # Trial / validation pool: universe first (canonical), then trial-only
 # columns, then candidates.
 KNOWN_FEATURE_COLS = list(dict.fromkeys(
-    list(MONEYLINE_FEATURE_COLS) + list(RFE_CANDIDATE_COLS)))
+    list(MONEYLINE_FEATURE_COLS) + list(RETIRED_STRENGTH_COLS)
+    + list(RFE_CANDIDATE_COLS)))
 
 # RFE governance: None during ordinary production runs.
 _FEATURE_SUBSET: list[str] | None = None

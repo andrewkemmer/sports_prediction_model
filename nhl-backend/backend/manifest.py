@@ -161,6 +161,93 @@ FEATURE_MANIFEST = {
         "model_family_availability": ["linear", "tree"],
         "feature_version": 1,
     },
+    "off_rating_diff": {
+        "description": "Home minus away fitted team offence rating",
+        "definition": "off_rating_home - off_rating_away, where off_rating_T "
+                      "is team T's coefficient in a weighted ridge fit of goals "
+                      "scored per team-game with team-offence and team-defence "
+                      "one-hots, the opposing goalie's SV%/GAA/starts, shrunk "
+                      "prior-season goals for/against (both clubs, 20-game "
+                      "prior), rest, back-to-back and playoff context; "
+                      "higher = stronger offence",
+        "source": "official NHL API scores + MoneyPuck goalie/skater "
+                  "archives (team goals, goalie form, prior-season goals)",
+        "lookback": "expanding settled history with a 240-day recency "
+                    "half-life; weekly refit at each 7th observed game date",
+        "aggregation": "weighted ridge (alpha 50), sample weight "
+                      "0.5**(age_days/240); goals-per-game coefficient",
+        "point_in_time_rule": "each weekly fit uses only games strictly "
+                             "before its anchor; a game's rating enters puck "
+                             "drop and never sees its own result",
+        "missing_value_policy": "NaN until 200 settled training games and "
+                               "for teams with no prior season; in-model "
+                               "handling (median imputation)",
+        "representation": "difference (all model families)",
+        "model_family_availability": ["linear", "tree"],
+        "feature_version": 1,
+    },
+    "def_rating_diff": {
+        "description": "Home minus away fitted team defence rating",
+        "definition": "def_rating_home - def_rating_away, where def_rating_T "
+                      "is MINUS team T's opponent-dummy coefficient from the "
+                      "same weighted ridge goal model; sign-flipped so higher "
+                      "= better defence (fewer goals conceded), net of the "
+                      "goalie faced and prior-season strength",
+        "source": "official NHL API scores + MoneyPuck goalie/skater "
+                  "archives (team goals, goalie form, prior-season goals)",
+        "lookback": "expanding settled history with a 240-day recency "
+                    "half-life; weekly refit at each 7th observed game date",
+        "aggregation": "weighted ridge (alpha 50), sample weight "
+                      "0.5**(age_days/240); goals-per-game coefficient",
+        "point_in_time_rule": "each weekly fit uses only games strictly "
+                             "before its anchor; never sees the current game",
+        "missing_value_policy": "NaN until 200 settled training games and "
+                               "for teams with no prior season; in-model "
+                               "handling (median imputation)",
+        "representation": "difference (all model families)",
+        "model_family_availability": ["linear", "tree"],
+        "feature_version": 1,
+    },
+    "net_rating_diff": {
+        "description": "Home minus away fitted net team rating",
+        "definition": "net_rating_home - net_rating_away, where "
+                      "net_rating_T = off_rating_T + def_rating_T; equal to "
+                      "off_rating_diff + def_rating_diff",
+        "source": "official NHL API scores + MoneyPuck goalie/skater "
+                  "archives (team goals, goalie form, prior-season goals)",
+        "lookback": "expanding settled history with a 240-day recency "
+                    "half-life; weekly refit at each 7th observed game date",
+        "aggregation": "sum of the offence and defence coefficients from one "
+                      "weighted ridge goal model (alpha 50)",
+        "point_in_time_rule": "each weekly fit uses only games strictly "
+                             "before its anchor; never sees the current game",
+        "missing_value_policy": "NaN until 200 settled training games and "
+                               "for teams with no prior season; in-model "
+                               "handling (median imputation)",
+        "representation": "difference (all model families)",
+        "model_family_availability": ["linear", "tree"],
+        "feature_version": 1,
+    },
+    "net_rating_sum": {
+        "description": "Combined fitted net strength of both clubs",
+        "definition": "net_rating_home + net_rating_away, where "
+                      "net_rating_T = off_rating_T + def_rating_T; symmetric "
+                      "in the two sides and identical for both teams in a game",
+        "source": "official NHL API scores + MoneyPuck goalie/skater "
+                  "archives (team goals, goalie form, prior-season goals)",
+        "lookback": "expanding settled history with a 240-day recency "
+                    "half-life; weekly refit at each 7th observed game date",
+        "aggregation": "sum of both clubs' net coefficients from one weighted "
+                      "ridge goal model (alpha 50)",
+        "point_in_time_rule": "each weekly fit uses only games strictly "
+                             "before its anchor; never sees the current game",
+        "missing_value_policy": "NaN until 200 settled training games and "
+                               "for teams with no prior season; in-model "
+                               "handling (median imputation)",
+        "representation": "game-level sum (all model families)",
+        "model_family_availability": ["linear", "tree"],
+        "feature_version": 1,
+    },
     "rest_days_diff": {
         "description": "Home minus away days since each team's previous game",
         "definition": "(game_date_t - game_date_{t-1}).days per team",
@@ -960,6 +1047,13 @@ for _rep in ("away", "home", "diff"):
             "feature_version": 4,
         }
 
+
+# Retired by the G3S240 adoption (2026-11-24).  The manifest is name-for-name
+# parity with the SERVED contract (validate()), so these six entries leave it
+# even though features.py still builds the columns for A/B reconstruction.
+for _retired in ("elo_diff", "win_pct_diff", "elo_home", "elo_away",
+                 "win_pct_home", "win_pct_away"):
+    FEATURE_MANIFEST.pop(_retired, None)
 
 # The shared monitor page builds its hover text as
 # ``<span title='{html.escape(tooltip, quote=False)}'>``. With quote=False the

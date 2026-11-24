@@ -2912,6 +2912,13 @@ def test_raw_per_side_levels_served_for_every_diff_family():
         base = d[: -len("_diff")]
         if base in ("is_playoffs", "is_home"):
             continue  # game-level facts have no level halves
+        if base.startswith(("off_rating", "def_rating", "net_rating")):
+            # The adopted G3S240 fitted block ships diffs + the symmetric sum
+            # ON PURPOSE. Its own experiment rejected the side levels (they
+            # lost the 45-55 band and flipped sign across refits), so the
+            # tree family consumes the sufficient-strength pair, not raw
+            # halves. This is the one deliberate exception to the twin rule.
+            continue
         h, a = f"{base}_home", f"{base}_away"
         assert h in served and a in served, f"{d} served without its level twins"
         if not base.startswith("pl_"):
@@ -2922,6 +2929,28 @@ def test_raw_per_side_levels_served_for_every_diff_family():
         d = pd.to_numeric(df[f"{base}_diff"], errors="coerce")
         assert np.allclose(h - a, d, equal_nan=True), \
             f"{base}: home - away does not reproduce the served diff"
+
+
+def test_adopted_goal_ratings_are_the_g3s240_fit():
+    """The served ratings must be the measured arm, not the module default.
+
+    G3S240 was fitted with the opponent-goalie + prior blocks only; the
+    module's default adds the own-offence components block, a materially
+    different design.  A silent fallback to the default would ship ratings
+    the A/B never measured, so pin the exact fit here.
+    """
+    import team_goal_ratings as tgr
+
+    games = _synth_games(n_days=130, games_per_day=2)
+    df = feat_mod.build_game_features(games, _synth_boxscores(games))
+    reference = tgr.build_causal_panel(
+        games, blocks=("opp_goalie", "prior"),
+        alpha=50.0, half_life_days=240.0)
+    for column in ("off_rating_diff", "def_rating_diff",
+                   "net_rating_diff", "net_rating_sum"):
+        assert column in df.columns, column
+        assert np.allclose(df[column].to_numpy(),
+                           reference[column].to_numpy(), equal_nan=True), column
 
 
 def test_raw_per_side_levels_are_populated_and_strictly_prior():
