@@ -1,17 +1,17 @@
 {
  "status": "ok",
  "errors": [],
- "run_date": "2026-11-23",
+ "run_date": "2026-11-24",
  "artifacts": [
-  "nba_moneyline_v1_20261123.json",
-  "nba_player_leader_matchup_20261123.json",
-  "nba_calibration_20261123.json",
-  "nba_predictions_history_20261123.csv",
-  "nba_run_engine_markets_20261123.csv",
-  "nba_run_engine_markets_20261123.meta.json",
-  "nba_power_rankings_20261123.csv",
-  "nba_player_rapm_20261123.csv",
-  "nba_feature_v1_20261123.json",
+  "nba_moneyline_v1_20261124.json",
+  "nba_player_leader_matchup_20261124.json",
+  "nba_calibration_20261124.json",
+  "nba_predictions_history_20261124.csv",
+  "nba_run_engine_markets_20261124.csv",
+  "nba_run_engine_markets_20261124.meta.json",
+  "nba_power_rankings_20261124.csv",
+  "nba_player_rapm_20261124.csv",
+  "nba_feature_v1_20261124.json",
   "shap_game_20261123_MEM@CHA.csv",
   "shap_game_20261123_POR@PHI.csv",
   "shap_game_20261123_OKC@IND.csv",
@@ -22,27 +22,30 @@
   "shap_game_20261123_LAC@HOU.csv",
   "shap_game_20261123_UTA@LAL.csv",
   "shap_game_20261123_SAS@SAC.csv",
-  "nba_feature_selection_20261123.json",
-  "nba_run_engine_feature_drift_20261123.csv",
-  "nba_run_engine_feature_coverage_20261123.csv",
+  "shap_game_20261124_DET@ORL.csv",
+  "shap_game_20261124_BOS@WAS.csv",
+  "shap_game_20261124_DAL@DEN.csv",
+  "nba_feature_selection_20261124.json",
+  "nba_run_engine_feature_drift_20261124.csv",
+  "nba_run_engine_feature_coverage_20261124.csv",
   "models/nba_ensemble_latest.joblib",
-  "nba_model_monitor_20261123.json",
-  "nba_run_engine_monitor_20261123.json",
+  "nba_model_monitor_20261124.json",
+  "nba_run_engine_monitor_20261124.json",
   "nba_production_cards_history.csv",
   "nba_roster_history.parquet"
  ],
  "score_means_stability": {
   "status": "ok",
-  "prior_file": "nba_run_engine_markets_20261122.csv",
-  "n_common": 3952,
-  "mean_abs_dmu_home": 0.0188,
-  "mean_abs_dmu_away": 0.0329,
-  "derived_auc_new": 0.7394,
-  "derived_logloss_new": 0.59796,
-  "derived_auc_prior": 0.7394,
-  "derived_logloss_prior": 0.59789,
+  "prior_file": "nba_run_engine_markets_20261123.csv",
+  "n_common": 3959,
+  "mean_abs_dmu_home": 0.0001,
+  "mean_abs_dmu_away": 0.0001,
+  "derived_auc_new": 0.7389,
+  "derived_logloss_new": 0.59827,
+  "derived_auc_prior": 0.7389,
+  "derived_logloss_prior": 0.59827,
   "derived_auc_delta_bps": 0.0,
-  "derived_logloss_delta_bps": 0.7
+  "derived_logloss_delta_bps": 0.0
  },
  "weights": {
   "elasticnet": 0.8609,
@@ -836,7 +839,7 @@
   }
  },
  "n_settled": 4189,
- "n_slate": 10,
+ "n_slate": 13,
  "n_features": 92,
  "features_empty": {
   "frame": [],
@@ -1013,7 +1016,7 @@
    }
   }
  },
- "elapsed_seconds": 5313.87,
+ "elapsed_seconds": 5530.48,
  "source_manifest": {
   "source_id": "espn schedule + stats.nba.com LeagueGameLog + playbyplayv3",
   "source_route": "espn schedule + stats.nba.com LeagueGameLog + playbyplayv3",
@@ -1026,7 +1029,7 @@
   },
   "window": [
    "2023-10-24",
-   "2026-11-23"
+   "2026-11-24"
   ],
   "seasons": [
    "2023-24",
@@ -1035,7 +1038,7 @@
    "2026-27"
   ],
   "tables": {
-   "games": 4213,
+   "games": 4216,
    "team_stats": 8378,
    "player_stats": 90313,
    "team_events": 8378,
