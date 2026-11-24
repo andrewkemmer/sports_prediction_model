@@ -1,17 +1,17 @@
 {
  "status": "ok",
  "errors": [],
- "run_date": "2026-11-23",
+ "run_date": "2026-11-24",
  "artifacts": [
-  "nba_moneyline_v1_20261123.json",
-  "nba_player_leader_matchup_20261123.json",
-  "nba_calibration_20261123.json",
-  "nba_predictions_history_20261123.csv",
-  "nba_run_engine_markets_20261123.csv",
-  "nba_run_engine_markets_20261123.meta.json",
-  "nba_power_rankings_20261123.csv",
-  "nba_player_rapm_20261123.csv",
-  "nba_feature_v1_20261123.json",
+  "nba_moneyline_v1_20261124.json",
+  "nba_player_leader_matchup_20261124.json",
+  "nba_calibration_20261124.json",
+  "nba_predictions_history_20261124.csv",
+  "nba_run_engine_markets_20261124.csv",
+  "nba_run_engine_markets_20261124.meta.json",
+  "nba_power_rankings_20261124.csv",
+  "nba_player_rapm_20261124.csv",
+  "nba_feature_v1_20261124.json",
   "shap_game_20261123_MEM@CHA.csv",
   "shap_game_20261123_POR@PHI.csv",
   "shap_game_20261123_OKC@IND.csv",
@@ -22,31 +22,34 @@
   "shap_game_20261123_LAC@HOU.csv",
   "shap_game_20261123_UTA@LAL.csv",
   "shap_game_20261123_SAS@SAC.csv",
-  "nba_feature_selection_20261123.json",
-  "nba_run_engine_feature_drift_20261123.csv",
-  "nba_run_engine_feature_coverage_20261123.csv",
+  "shap_game_20261124_DET@ORL.csv",
+  "shap_game_20261124_BOS@WAS.csv",
+  "shap_game_20261124_DAL@DEN.csv",
+  "nba_feature_selection_20261124.json",
+  "nba_run_engine_feature_drift_20261124.csv",
+  "nba_run_engine_feature_coverage_20261124.csv",
   "models/nba_ensemble_latest.joblib",
-  "nba_model_monitor_20261123.json",
-  "nba_run_engine_monitor_20261123.json",
+  "nba_model_monitor_20261124.json",
+  "nba_run_engine_monitor_20261124.json",
   "nba_production_cards_history.csv",
   "nba_roster_history.parquet"
  ],
  "score_means_stability": {
   "status": "ok",
-  "prior_file": "nba_run_engine_markets_20261122.csv",
-  "n_common": 3952,
-  "mean_abs_dmu_home": 0.0181,
-  "mean_abs_dmu_away": 0.0326,
-  "derived_auc_new": 0.7394,
-  "derived_logloss_new": 0.59798,
-  "derived_auc_prior": 0.7394,
-  "derived_logloss_prior": 0.59789,
+  "prior_file": "nba_run_engine_markets_20261123.csv",
+  "n_common": 3959,
+  "mean_abs_dmu_home": 0.0001,
+  "mean_abs_dmu_away": 0.0001,
+  "derived_auc_new": 0.7389,
+  "derived_logloss_new": 0.59827,
+  "derived_auc_prior": 0.7389,
+  "derived_logloss_prior": 0.59827,
   "derived_auc_delta_bps": 0.0,
-  "derived_logloss_delta_bps": 0.9
+  "derived_logloss_delta_bps": 0.0
  },
  "weights": {
-  "elasticnet": 0.8561,
-  "lightgbm": 0.1439,
+  "elasticnet": 0.8609,
+  "lightgbm": 0.1391,
   "xgboost": 0.0
  },
  "folds": {
@@ -66,10 +69,10 @@
   "min_val_fold_games": 40,
   "oof_regular": {
    "n": 3588,
-   "auc": 0.7470041644283582,
-   "logloss": 0.5912677501735782,
-   "brier": 0.20285809398037224,
-   "ece": 0.022119904035597087,
+   "auc": 0.7469775396513407,
+   "logloss": 0.5912759457414194,
+   "brier": 0.2028624439110049,
+   "ece": 0.022683699776098763,
    "sufficient": true
   },
   "oof_postseason": {
@@ -82,18 +85,18 @@
   },
   "oof_provisional": {
    "n": 344,
-   "auc": 0.6764535576824824,
-   "logloss": 0.6388669718078662,
-   "brier": 0.22344627746599732,
-   "ece": 0.038970095914725236,
+   "auc": 0.6765216798937294,
+   "logloss": 0.6388174243325182,
+   "brier": 0.22341955139341643,
+   "ece": 0.041884029846320135,
    "sufficient": true
   },
   "oof_all": {
    "n": 3959,
-   "auc": 0.7406826829506896,
-   "logloss": 0.5956670016729637,
-   "brier": 0.2047305289687356,
-   "ece": 0.022469314071609417,
+   "auc": 0.7406636322913824,
+   "logloss": 0.5956701240184789,
+   "brier": 0.20473214901979453,
+   "ece": 0.023226965151217114,
    "sufficient": true
   },
   "calibration_gate": {
@@ -790,32 +793,32 @@
      "n_prior": 3424,
      "decision": "identity",
      "reason": "gated_no_gain",
-     "raw_logloss": 0.5719201413212565,
-     "nested_holdout_logloss": 0.5694188231324779,
+     "raw_logloss": 0.571921655423048,
+     "nested_holdout_logloss": 0.5693720677940208,
      "fold_id": 86
     },
     {
      "n_prior": 3485,
      "decision": "identity",
      "reason": "gated_no_gain",
-     "raw_logloss": 0.5609107199817202,
-     "nested_holdout_logloss": 0.5580171245079064,
+     "raw_logloss": 0.5609492265510653,
+     "nested_holdout_logloss": 0.5579504904908968,
      "fold_id": 87
     },
     {
      "n_prior": 3536,
      "decision": "identity",
      "reason": "gated_no_gain",
-     "raw_logloss": 0.5582992163118228,
-     "nested_holdout_logloss": 0.5550749296796327,
+     "raw_logloss": 0.5583265504755086,
+     "nested_holdout_logloss": 0.5550056411680152,
      "fold_id": 88
     },
     {
      "n_prior": 3588,
      "decision": "identity",
      "reason": "gated_no_gain",
-     "raw_logloss": 0.5591523393879699,
-     "nested_holdout_logloss": 0.5562316678682112,
+     "raw_logloss": 0.5591851216593344,
+     "nested_holdout_logloss": 0.5561617706270657,
      "fold_id": 89
     }
    ],
@@ -823,27 +826,27 @@
     "n_prior": 3588,
     "decision": "identity",
     "reason": "gated_no_gain",
-    "raw_logloss": 0.5591523393879699,
-    "nested_holdout_logloss": 0.5562316678682112
+    "raw_logloss": 0.5591851216593344,
+    "nested_holdout_logloss": 0.5561617706270657
    }
   },
   "moneyline_retrospective_not_oof": {
    "n": 3588,
-   "auc": 0.7480719746030949,
-   "logloss": 0.5908511247931307,
-   "brier": 0.20267208732240505,
-   "ece": 0.02632253706863152
+   "auc": 0.7480675893457038,
+   "logloss": 0.5908603226855128,
+   "brier": 0.20267787309156002,
+   "ece": 0.02663953301822163
   }
  },
  "n_settled": 4189,
- "n_slate": 10,
+ "n_slate": 13,
  "n_features": 92,
  "features_empty": {
   "frame": [],
   "slate": []
  },
  "play_by_play": {
-  "actions": 2078962,
+  "actions": 2078961,
   "event_rows": 8378,
   "games_covered": 4189,
   "cross_check": {
@@ -1013,7 +1016,7 @@
    }
   }
  },
- "elapsed_seconds": 5799.67,
+ "elapsed_seconds": 5530.48,
  "source_manifest": {
   "source_id": "espn schedule + stats.nba.com LeagueGameLog + playbyplayv3",
   "source_route": "espn schedule + stats.nba.com LeagueGameLog + playbyplayv3",
@@ -1026,7 +1029,7 @@
   },
   "window": [
    "2023-10-24",
-   "2026-11-23"
+   "2026-11-24"
   ],
   "seasons": [
    "2023-24",
@@ -1035,11 +1038,11 @@
    "2026-27"
   ],
   "tables": {
-   "games": 4213,
+   "games": 4216,
    "team_stats": 8378,
    "player_stats": 90313,
    "team_events": 8378,
-   "play_by_play": 2078962
+   "play_by_play": 2078961
   },
   "event_rollup": {
    "sweep_team_games": 8378,
