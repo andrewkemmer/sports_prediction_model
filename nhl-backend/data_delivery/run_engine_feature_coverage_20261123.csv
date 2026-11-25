@@ -1,6 +1,7 @@
 feature,window,n_games,pct_measured,pct_nonnull,n_default_zero,status,n_measured,n_null,n_cold_null,n_warm_null,n_cold_default,n_warm_default,pct_measured_eligible,first_warm_null_game,cause
-elo_diff,baseline,250,100.0,100.0,0,OK,250,0,0,0,0,0,100.0,,complete
-win_pct_diff,baseline,250,100.0,100.0,0,OK,250,0,0,0,0,0,100.0,,complete
+off_rating_diff,baseline,250,100.0,100.0,0,OK,250,0,0,0,0,0,100.0,,complete
+def_rating_diff,baseline,250,100.0,100.0,0,OK,250,0,0,0,0,0,100.0,,complete
+net_rating_diff,baseline,250,100.0,100.0,0,OK,250,0,0,0,0,0,100.0,,complete
 rest_days_diff,baseline,250,100.0,100.0,0,OK,250,0,0,0,0,0,100.0,,complete
 ewm_net_goals_diff,baseline,250,100.0,100.0,0,OK,250,0,0,0,0,0,100.0,,complete
 ewm_goal_share_diff,baseline,250,100.0,100.0,0,OK,250,0,0,0,0,0,100.0,,complete
@@ -16,10 +17,7 @@ goalie_sv_pct_diff,baseline,250,100.0,100.0,0,OK,250,0,0,0,0,0,100.0,,complete
 goalie_gaa_diff,baseline,250,100.0,100.0,0,OK,250,0,0,0,0,0,100.0,,complete
 goalie_starts_diff,baseline,250,100.0,100.0,0,OK,250,0,0,0,0,0,100.0,,complete
 is_playoffs,baseline,250,100.0,100.0,0,OK,250,0,0,0,0,0,100.0,,complete
-elo_home,baseline,250,100.0,100.0,0,OK,250,0,0,0,0,0,100.0,,complete
-elo_away,baseline,250,100.0,100.0,0,OK,250,0,0,0,0,0,100.0,,complete
-win_pct_home,baseline,250,100.0,100.0,0,OK,250,0,0,0,0,0,100.0,,complete
-win_pct_away,baseline,250,100.0,100.0,0,OK,250,0,0,0,0,0,100.0,,complete
+net_rating_sum,baseline,250,100.0,100.0,0,OK,250,0,0,0,0,0,100.0,,complete
 ewm_net_goals_home,baseline,250,100.0,100.0,0,OK,250,0,0,0,0,0,100.0,,complete
 ewm_net_goals_away,baseline,250,100.0,100.0,0,OK,250,0,0,0,0,0,100.0,,complete
 ewm_goal_share_home,baseline,250,100.0,100.0,0,OK,250,0,0,0,0,0,100.0,,complete
@@ -55,8 +53,9 @@ pl_xpm_diff,baseline,250,95.2,100.0,12,OK,238,0,0,0,0,12,95.2,,position_prior_de
 pl_xg_away,baseline,250,100.0,100.0,0,OK,250,0,0,0,0,0,100.0,,complete
 pl_xg_home,baseline,250,100.0,100.0,0,OK,250,0,0,0,0,0,100.0,,complete
 pl_xg_diff,baseline,250,100.0,100.0,0,OK,250,0,0,0,0,0,100.0,,complete
-elo_diff,current,60,100.0,100.0,0,OK,60,0,0,0,0,0,100.0,,complete
-win_pct_diff,current,60,100.0,100.0,0,OK,60,0,0,0,0,0,100.0,,complete
+off_rating_diff,current,60,100.0,100.0,0,OK,60,0,0,0,0,0,100.0,,complete
+def_rating_diff,current,60,100.0,100.0,0,OK,60,0,0,0,0,0,100.0,,complete
+net_rating_diff,current,60,100.0,100.0,0,OK,60,0,0,0,0,0,100.0,,complete
 rest_days_diff,current,60,100.0,100.0,0,OK,60,0,0,0,0,0,100.0,,complete
 ewm_net_goals_diff,current,60,100.0,100.0,0,OK,60,0,0,0,0,0,100.0,,complete
 ewm_goal_share_diff,current,60,100.0,100.0,0,OK,60,0,0,0,0,0,100.0,,complete
@@ -72,10 +71,7 @@ goalie_sv_pct_diff,current,60,100.0,100.0,0,OK,60,0,0,0,0,0,100.0,,complete
 goalie_gaa_diff,current,60,100.0,100.0,0,OK,60,0,0,0,0,0,100.0,,complete
 goalie_starts_diff,current,60,100.0,100.0,0,OK,60,0,0,0,0,0,100.0,,complete
 is_playoffs,current,60,100.0,100.0,0,OK,60,0,0,0,0,0,100.0,,complete
-elo_home,current,60,100.0,100.0,0,OK,60,0,0,0,0,0,100.0,,complete
-elo_away,current,60,100.0,100.0,0,OK,60,0,0,0,0,0,100.0,,complete
-win_pct_home,current,60,100.0,100.0,0,OK,60,0,0,0,0,0,100.0,,complete
-win_pct_away,current,60,100.0,100.0,0,OK,60,0,0,0,0,0,100.0,,complete
+net_rating_sum,current,60,100.0,100.0,0,OK,60,0,0,0,0,0,100.0,,complete
 ewm_net_goals_home,current,60,100.0,100.0,0,OK,60,0,0,0,0,0,100.0,,complete
 ewm_net_goals_away,current,60,100.0,100.0,0,OK,60,0,0,0,0,0,100.0,,complete
 ewm_goal_share_home,current,60,100.0,100.0,0,OK,60,0,0,0,0,0,100.0,,complete
@@ -111,8 +107,9 @@ pl_xpm_diff,current,60,90.0,100.0,6,OK,54,0,0,0,2,4,93.1,,position_prior_default
 pl_xg_away,current,60,100.0,100.0,0,OK,60,0,0,0,0,0,100.0,,complete
 pl_xg_home,current,60,100.0,100.0,0,OK,60,0,0,0,0,0,100.0,,complete
 pl_xg_diff,current,60,100.0,100.0,0,OK,60,0,0,0,0,0,100.0,,complete
-elo_diff,serving slate,7,100.0,100.0,0,OK,7,0,0,0,0,0,100.0,,complete
-win_pct_diff,serving slate,7,100.0,100.0,0,OK,7,0,0,0,0,0,100.0,,complete
+off_rating_diff,serving slate,7,100.0,100.0,0,OK,7,0,0,0,0,0,100.0,,complete
+def_rating_diff,serving slate,7,100.0,100.0,0,OK,7,0,0,0,0,0,100.0,,complete
+net_rating_diff,serving slate,7,100.0,100.0,0,OK,7,0,0,0,0,0,100.0,,complete
 rest_days_diff,serving slate,7,100.0,100.0,0,OK,7,0,0,0,0,0,100.0,,complete
 ewm_net_goals_diff,serving slate,7,100.0,100.0,0,OK,7,0,0,0,0,0,100.0,,complete
 ewm_goal_share_diff,serving slate,7,100.0,100.0,0,OK,7,0,0,0,0,0,100.0,,complete
@@ -128,10 +125,7 @@ goalie_sv_pct_diff,serving slate,7,100.0,100.0,0,OK,7,0,0,0,0,0,100.0,,complete
 goalie_gaa_diff,serving slate,7,100.0,100.0,0,OK,7,0,0,0,0,0,100.0,,complete
 goalie_starts_diff,serving slate,7,100.0,100.0,0,OK,7,0,0,0,0,0,100.0,,complete
 is_playoffs,serving slate,7,100.0,100.0,0,OK,7,0,0,0,0,0,100.0,,complete
-elo_home,serving slate,7,100.0,100.0,0,OK,7,0,0,0,0,0,100.0,,complete
-elo_away,serving slate,7,100.0,100.0,0,OK,7,0,0,0,0,0,100.0,,complete
-win_pct_home,serving slate,7,100.0,100.0,0,OK,7,0,0,0,0,0,100.0,,complete
-win_pct_away,serving slate,7,100.0,100.0,0,OK,7,0,0,0,0,0,100.0,,complete
+net_rating_sum,serving slate,7,100.0,100.0,0,OK,7,0,0,0,0,0,100.0,,complete
 ewm_net_goals_home,serving slate,7,100.0,100.0,0,OK,7,0,0,0,0,0,100.0,,complete
 ewm_net_goals_away,serving slate,7,100.0,100.0,0,OK,7,0,0,0,0,0,100.0,,complete
 ewm_goal_share_home,serving slate,7,100.0,100.0,0,OK,7,0,0,0,0,0,100.0,,complete
