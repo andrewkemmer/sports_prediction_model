@@ -9,10 +9,8 @@ B  A minus every Elo and win-percentage name the contract serves.  The
    ``win_pct_away`` (NBA/NHL/NFL) and ``home_elo``/``away_elo``/
    ``home_win_pct``/``away_win_pct`` (MLB's raw per-side twins).  MLB used to
    keep four of these because only the diff spellings were listed.
-C  B plus a team-level rating.  For NBA/NHL/NFL the rating is arithmetic on
-   columns B already serves; for MLB it is a fitted two-sided run model
-   (``team_run_ratings``), because no served column contains a
-   opponent-adjusted offence/defence split in runs.
+C  B plus a team-level rating.  NBA/NHL/MLB/NFL all use fitted two-sided
+   models now; the fitted NFL block is ``team_score_ratings``.
 
 C ratings
 ---------
@@ -23,22 +21,24 @@ NHL  seven fitted columns from a causal ridge of goals per 60 on side rows
      mean of the eight served xPM cells plus a goalie term -- a recombination
      of columns B already carries, which measured flat (0.00009).  The fit
      replaces it with an explicit opponent-adjusted team effect.
-NFL  SUM of the four per-game DVOA legs (defence-adjusted) minus the
-     defence's EPA/play converted to EPA/game.  The old C averaged the
-     legs, which divided the quarterback's contribution by four, and
-     subtracted EPA/play from EPA/game, mixing units.
+NFL  seven fitted columns from a causal ridge of points scored on side
+     rows: team-offence and opponent-defence one-hots plus a shrunk
+     prior-season scoring bridge, with a 25% causal win-strength channel
+     folded into the net.  The old arithmetic DVOA C mixed EPA/play
+     with EPA/game and divided the quarterback leg by four; the fitted split
+     replaces it and is signed so higher is always better.
 MLB  seven fitted columns from a causal ridge of runs scored on side rows:
      ``off_rating_{home,away,diff}``, ``def_rating_{home,away,diff}`` and
      ``net_rating_diff``.  Signed so higher is better.
 
-MLB adopted its fitted rating into production on 2026-11-21 (scenario C), so
-``arm_columns`` detects that the rating is already served and rebuilds the
-pre-adoption incumbent A from the retired Elo/win-percentage columns (still
-generated, still in the known pool).  The same A/B/C comparison therefore
-stays runnable after adoption instead of collapsing to A == C.  NBA/NHL/NFL
-ratings remain trial-only: registered in the process-local known pool with
-their side levels routed tree-only, exactly like the existing trial families,
-and no production contract is changed.
+MLB adopted its fitted rating into production on 2026-11-21 (scenario C) and
+NFL followed on 2026-11-24, so ``arm_columns`` detects that the rating is
+already served and rebuilds the pre-adoption incumbent A from the retired
+Elo/win-percentage columns (still generated, still in the known pool).  The
+same A/B/C comparison therefore stays runnable after adoption instead of
+collapsing to A == C.  NBA/NHL ratings remain trial-only: registered in the
+process-local known pool with their side levels routed tree-only, exactly
+like the existing trial families, and no production contract is changed.
 
 Usage
 -----
@@ -85,9 +85,9 @@ RUN_SIDE_RATING_COLS = [
     "def_rating_home", "def_rating_away",
 ]
 #: Sports whose arm C is a *fitted* two-sided rating rather than arithmetic on
-#: served columns.  Both export the same seven names; NHL adds the game-level
-#: symmetric sum adopted with G3S240 on 2026-11-24.
-FITTED_SPORTS = ("nba", "nhl", "mlb")
+#: served columns.  NFL uses the same seven names as MLB; NHL adds the
+#: game-level symmetric sum adopted with G3S240 on 2026-11-24.
+FITTED_SPORTS = ("nba", "nhl", "mlb", "nfl")
 NHL_RATING_COLS = RUN_RATING_COLS + ["net_rating_sum"]
 #: NHL's retired strength block uses the NHL spellings (the shared list above
 #: carries MLB's home_elo/away_elo spellings, which NHL never built).
@@ -95,17 +95,31 @@ NHL_RETIRED_STRENGTH_COLS = [
     "win_pct_diff", "elo_diff",
     "elo_home", "elo_away", "win_pct_home", "win_pct_away",
 ]
+NFL_RETIRED_STRENGTH_COLS = [
+    "win_pct_diff", "elo_diff",
+    "elo_home", "elo_away", "win_pct_home", "win_pct_away",
+]
+#: NFL uses the same seven fitted scoring names as MLB (off/def/net ratings).
+NFL_RATING_COLS = RUN_RATING_COLS
+NFL_SIDE_RATING_COLS = RUN_SIDE_RATING_COLS
 FITTED_RATING_COLS = RUN_RATING_COLS
 FITTED_SIDE_RATING_COLS = RUN_SIDE_RATING_COLS
 
 
 def _fitted_rating_cols(sport: str) -> list[str]:
-    return NHL_RATING_COLS if sport == "nhl" else FITTED_RATING_COLS
+    if sport == "nhl":
+        return NHL_RATING_COLS
+    if sport == "nfl":
+        return NFL_RATING_COLS
+    return FITTED_RATING_COLS
 
 
 def _retired_strength_cols(sport: str) -> list[str]:
-    return (NHL_RETIRED_STRENGTH_COLS if sport == "nhl"
-            else RETIRED_ELO_WIN_PCT)
+    if sport == "nhl":
+        return NHL_RETIRED_STRENGTH_COLS
+    if sport == "nfl":
+        return NFL_RETIRED_STRENGTH_COLS
+    return RETIRED_ELO_WIN_PCT
 #: NBA's incumbent strength block: the pace-scaled DARKO offence/defence
 #: blends, the pre-computed matchup net and the expected-points sum.  B drops
 #: all eleven; C puts a fitted, schedule-adjusted replacement back.  The
@@ -242,57 +256,11 @@ def build_frame(mods, sport: str) -> pd.DataFrame:
     return frame
 
 
-#: NFL skill groups whose per-game DVOA legs sum to the offence's total.
-NFL_DVOA_POSITIONS = ("qb", "wr", "te", "rb")
-#: Fallback team plays/game when ``pace_plays_min`` is unusable.
-NFL_FALLBACK_PLAYS = 62.0
-def _plays_per_game(frame: pd.DataFrame, side: str) -> pd.Series:
-    """Team plays per game, reconstructed from the served pace rate.
-
-    ``pace_plays_min`` is plays over elapsed *game-clock* minutes, so a
-    regulation game is ``pace * 60``.  Implausible values degrade to that
-    side's median rather than producing a 90-play defensive volume.
-    """
-    pace = pd.to_numeric(frame.get(f"pace_plays_min_{side}"),
-                         errors="coerce")
-    plays = pace * 60.0
-    ok = plays.where((plays >= 40.0) & (plays <= 90.0))
-    fill = float(np.nanmedian(ok.to_numpy())) if ok.notna().any() \
-        else NFL_FALLBACK_PLAYS
-    return ok.fillna(fill)
-
-
-def _nfl_team_rating(out: pd.DataFrame) -> None:
-    """Sum the per-game DVOA legs, subtract per-game defensive EPA.
-
-    The defence term prefers the opponent-adjusted series
-    (``pbp_def_epa_play_opp_adj_ewm_*``), which subtracts the quality of the
-    offence actually faced.  When that trial column is absent the raw series
-    is used, so the arm still builds on an older frame.
-    """
-    adjusted = "pbp_def_epa_play_opp_adj_ewm_home" in out.columns
-    source = ("pbp_def_epa_play_opp_adj_ewm" if adjusted
-              else "pbp_def_epa_play_ewm")
-    for side, other in (("home", "away"), ("away", "home")):
-        legs = [pd.to_numeric(out.get(f"pl_dvoa_{p}_{side}"), errors="coerce")
-                for p in NFL_DVOA_POSITIONS]
-        if all(leg is None for leg in legs):
-            off = pd.Series(np.nan, index=out.index, dtype=float)
-        else:
-            off = pd.concat([leg for leg in legs if leg is not None],
-                            axis=1).sum(axis=1, min_count=1)
-        # The defence faces the OPPONENT's offence, so its volume is the
-        # opponent's projected plays, not its own.
-        volume = _plays_per_game(out, other)
-        allowed = (pd.to_numeric(out.get(f"{source}_{side}"),
-                                 errors="coerce") * volume)
-        out[f"team_rating_{side}"] = off - allowed
-    print(f"NFL rating: DVOA legs summed, {source} x opponent plays",
-          flush=True)
-
-
 def attach_team_rating(frame: pd.DataFrame, sport: str) -> pd.DataFrame:
-    """Attach the trial team rating triple without touching a contract."""
+    """Attach the trial team-rating block without touching a contract."""
+    backend = ROOT / f"{sport}-backend" / "backend"
+    if backend.is_dir() and str(backend) not in sys.path:
+        sys.path.insert(0, str(backend))
     out = frame.copy()
     if sport == "nba":
         # Fitted, not recombined: the point model refits on a causal grid from
@@ -305,7 +273,8 @@ def attach_team_rating(frame: pd.DataFrame, sport: str) -> pd.DataFrame:
         from team_goal_ratings import attach_goal_ratings  # noqa: E402
         return attach_goal_ratings(out)
     elif sport == "nfl":
-        _nfl_team_rating(out)
+        from team_score_ratings import attach_score_ratings  # noqa: E402
+        return attach_score_ratings(out)
     elif sport == "mlb":
         # Fitted, not recombined: the run model refits on a causal grid and
         # returns its own seven columns.  There is no ``team_rating_*`` for
@@ -502,7 +471,10 @@ def evaluate(sport: str, mods, frame: pd.DataFrame, out_dir: Path,
     meta: dict[str, dict] = {}
     for label in ARMS:
         started = time.time()
-        _set_arm(mods, None if label == "A" else arms[label])
+        # A is normally the full active contract, but a just-adopted fitted
+        # block (MLB/NFL) makes A the pre-adoption reconstruction.  Always
+        # apply the arm's explicit list so the incumbent is not silently C.
+        _set_arm(mods, arms[label])
         try:
             active = list(mods.contract.active_moneyline_feature_cols())
             print(f"[{label}] {len(active)} active features", flush=True)
@@ -572,8 +544,8 @@ def evaluate(sport: str, mods, frame: pd.DataFrame, out_dir: Path,
         "drop": sorted(DROP),
         "drop_present": sorted(DROP & set(arms["A"])),
         "drop_absent": sorted(DROP - set(arms["A"])),
-        "rating_columns": (FITTED_RATING_COLS if sport in FITTED_SPORTS
-                           else RATING_COLS),
+        "rating_columns": (_fitted_rating_cols(sport)
+                           if sport in FITTED_SPORTS else RATING_COLS),
         "arms": meta,
         "metrics": metrics.to_dict(orient="records"),
         "paired_deltas": deltas.to_dict(orient="records"),

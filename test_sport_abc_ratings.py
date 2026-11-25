@@ -1,9 +1,10 @@
-"""Unit tests for the NFL and NHL arm-C rating construction.
+"""Harness tests for the NFL arm-C fitted scoring rating.
 
-These pin the two things the old C arm got wrong: NFL summed units (not a
-four-way mean) with the defence converted from EPA/play to EPA/game, and NHL
-weights that follow who is actually on the ice instead of averaging the eight
-position/situation cells equally.
+The old arm C recombined four served DVOA legs arithmetically.  The adopted
+arm C is the causal two-sided points model in
+``nfl-backend/backend/team_score_ratings.py``; these tests pin the harness
+surface (seven columns, identity, routing) while the backend test file owns
+the causal-fit details.
 """
 from __future__ import annotations
 
@@ -13,73 +14,69 @@ import pandas as pd
 import sport_abc as sa
 
 
-def _frame(n: int = 2, **columns) -> pd.DataFrame:
-    base = {"gameday": pd.date_range("2025-09-01", periods=n, freq="D")}
-    base.update({k: np.full(n, v, dtype=float) if np.isscalar(v) else v
-                 for k, v in columns.items()})
-    return pd.DataFrame(base)
+def _nfl_frame(n: int = 240) -> pd.DataFrame:
+    """A small, continuous league with enough decided games to fit."""
+    teams = ("A", "B", "C", "D")
+    dates = pd.date_range("2020-09-01", periods=n, freq="D")
+    rows = []
+    for i, date in enumerate(dates):
+        home = teams[i % len(teams)]
+        away = teams[(i + 1) % len(teams)]
+        # Vary the scoring so the design is not rank-deficient; the exact
+        # values are irrelevant to the identity and routing assertions.
+        rows.append({
+            "game_id": f"g{i:04d}",
+            "gameday": date,
+            "season": 2020,
+            "home_team": home,
+            "away_team": away,
+            "home_score": 20 + (i % 7),
+            "away_score": 17 + ((i * 3) % 7),
+        })
+    return pd.DataFrame(rows)
 
 
-def _nfl_frame(**over) -> pd.DataFrame:
-    cols = {f"pl_dvoa_{p}_{s}": 0.0
-            for p in ("qb", "wr", "te", "rb") for s in ("home", "away")}
-    cols.update({"pbp_def_epa_play_ewm_home": 0.0,
-                 "pbp_def_epa_play_ewm_away": 0.0,
-                 "pace_plays_min_home": 1.0, "pace_plays_min_away": 1.0})
-    cols.update(over)
-    return _frame(**cols)
+def test_nfl_attaches_the_seven_adopted_columns():
+    out = sa.attach_team_rating(_nfl_frame(), "nfl")
+    expected = {
+        "off_rating_diff", "off_rating_home", "off_rating_away",
+        "def_rating_diff", "def_rating_home", "def_rating_away",
+        "net_rating_diff",
+    }
+    assert expected <= set(out.columns)
+    assert not {"team_rating_diff", "team_rating_home",
+                "team_rating_away"} & set(out.columns)
+    assert out["net_rating_diff"].notna().any()
 
 
-# ---------------------------------------------------------------- NFL
-
-def test_nfl_sums_the_four_dvoa_legs():
-    """A 10-EPA quarterback must not be diluted to one quarter of himself."""
-    frame = _nfl_frame(pl_dvoa_qb_home=10.0, pl_dvoa_wr_home=1.0,
-                       pl_dvoa_te_home=1.0, pl_dvoa_rb_home=1.0)
-    out = sa.attach_team_rating(frame, "nfl")
-    assert out["team_rating_home"].iloc[0] == 13.0
-    assert out["team_rating_home"].iloc[0] != 3.25  # the old mean()
-
-
-def test_nfl_defensive_epa_play_becomes_epa_per_game():
-    frame = _nfl_frame(pbp_def_epa_play_ewm_home=0.1,
-                       pace_plays_min_home=1.0, pace_plays_min_away=1.0)
-    out = sa.attach_team_rating(frame, "nfl")
-    # 0.1 EPA/play over 60 plays is 6.0 EPA/game, not 0.1.
-    assert out["team_rating_home"].iloc[0] == -6.0
+def test_nfl_off_def_identity_and_diffs():
+    out = sa.attach_team_rating(_nfl_frame(), "nfl")
+    rated = out.dropna(subset=["net_rating_diff"])
+    assert len(rated) > 0
+    net = rated["off_rating_home"] + rated["def_rating_home"]
+    assert np.allclose(rated["net_rating_diff"],
+                       net - (rated["off_rating_away"]
+                              + rated["def_rating_away"]),
+                       atol=1e-9)
+    assert np.allclose(rated["off_rating_diff"],
+                       rated["off_rating_home"] - rated["off_rating_away"],
+                       atol=1e-9)
+    assert np.allclose(rated["def_rating_diff"],
+                       rated["def_rating_home"] - rated["def_rating_away"],
+                       atol=1e-9)
 
 
-def test_nfl_defence_volume_is_the_opponents_pace():
-    frame = _nfl_frame(pbp_def_epa_play_ewm_home=0.1,
-                       pbp_def_epa_play_ewm_away=0.1,
-                       pace_plays_min_home=1.0, pace_plays_min_away=1.2)
-    out = sa.attach_team_rating(frame, "nfl")
-    assert np.isclose(out["team_rating_home"].iloc[0], -0.1 * 72.0)
-    # The away defence faces the home offence's 60 plays.
-    assert np.isclose(out["team_rating_away"].iloc[0], -0.1 * 60.0)
-
-
-def test_nfl_prefers_the_opponent_adjusted_defence():
-    """When the adjusted series exists it must win over the raw one."""
-    frame = _nfl_frame(pbp_def_epa_play_ewm_home=0.10,
-                       pbp_def_epa_play_ewm_away=0.10,
-                       pbp_def_epa_play_opp_adj_ewm_home=0.02,
-                       pbp_def_epa_play_opp_adj_ewm_away=0.02)
-    out = sa.attach_team_rating(frame, "nfl")
-    assert np.isclose(out["team_rating_home"].iloc[0], -0.02 * 60.0)
-
-
-def test_nfl_falls_back_to_the_raw_defence():
-    frame = _nfl_frame(pbp_def_epa_play_ewm_home=0.10,
-                       pbp_def_epa_play_ewm_away=0.10)
-    out = sa.attach_team_rating(frame, "nfl")
-    assert np.isclose(out["team_rating_home"].iloc[0], -0.10 * 60.0)
-
-
-def test_nfl_rating_diff_is_home_minus_away():
-    frame = _nfl_frame(pl_dvoa_qb_home=3.0, pl_dvoa_qb_away=1.0)
-    out = sa.attach_team_rating(frame, "nfl")
-    assert np.allclose(out["team_rating_diff"],
-                       out["team_rating_home"] - out["team_rating_away"])
-
-
+def test_nfl_arm_c_is_the_fitted_block_and_a_reconstructs_incumbent():
+    mods = sa.load_modules("nfl")
+    arms = sa.arm_columns(mods, "nfl")
+    fitted = set(sa._fitted_rating_cols("nfl"))
+    assert fitted == {
+        "off_rating_diff", "off_rating_home", "off_rating_away",
+        "def_rating_diff", "def_rating_home", "def_rating_away",
+        "net_rating_diff",
+    }
+    assert fitted <= set(arms["C"])
+    assert fitted.isdisjoint(arms["A"])
+    assert set(sa._retired_strength_cols("nfl")) <= set(arms["A"])
+    assert len(arms["A"]) == len(arms["B"]) + 6
+    assert len(arms["C"]) == len(arms["B"]) + 7

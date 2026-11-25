@@ -323,16 +323,27 @@ check("contract is declared once with unique names",
 check("raw per-side routing is a subset of the TRIABLE pool",
       set(config.RAW_PER_SIDE_COLS) <= set(config.KNOWN_FEATURE_COLS),
       f"n_raw={len(config.RAW_PER_SIDE_COLS)} n_pool={len(config.KNOWN_FEATURE_COLS)}")
-check("raw per-side routing is pool-served or declared candidates",
-      all(f in contract or f in config.RFE_CANDIDATE_COLS
+check("raw per-side routing is pool-served, retired, or declared candidates",
+      all(f in contract or f in config.RETIRED_STRENGTH_COLS
+          or f in config.RFE_CANDIDATE_COLS
           for f in config.RAW_PER_SIDE_COLS),
-      "served raws route now; candidate raws route after adoption")
+      "served raws route now; retired raws stay reconstructable; candidate "
+      "raws route after adoption")
+check("rating diffs are served to every model family",
+      {"off_rating_diff", "def_rating_diff", "net_rating_diff"}
+      <= set(contract)
+      and not ({"off_rating_diff", "def_rating_diff"}
+               & set(config.TREE_ONLY_COLS))
+      and set(config.TREE_ONLY_COLS) <= set(config.KNOWN_FEATURE_COLS),
+      "the net blends the Elo prior, so the off/def diffs are not redundant")
 check("candidate manifest documents every declared candidate",
       not __import__("manifest").validate(),
       "manifest.validate() includes candidate parity")
-check("pool == contract + declared candidates (derived, never re-listed)",
+check("pool == contract + retired + declared candidates (derived)",
       config.KNOWN_FEATURE_COLS == list(dict.fromkeys(
-          contract + [c for c in config.RFE_CANDIDATE_COLS if c not in contract])))
+          contract + config.RETIRED_STRENGTH_COLS
+          + [c for c in config.RFE_CANDIDATE_COLS
+             if c not in contract and c not in config.RETIRED_STRENGTH_COLS])))
 config.set_feature_subset(["elo_diff", "elo_diff", "is_home", "elo_away"])
 subset = list(config.active_moneyline_feature_cols())
 check("subsets rebuild canonically from the pool (duplicates impossible)",
@@ -345,7 +356,7 @@ config.reset_feature_subset()
 exp_tree = ([c for c in subset if c in feats.columns]
             + config.TREE_CATEGORICAL_COLS)
 exp_lin = [c for c in subset
-           if c not in config.RAW_PER_SIDE_COLS and c in feats.columns]
+           if c not in config.TREE_ONLY_COLS and c in feats.columns]
 check("subset views stay unique and pool-ordered",
       len(set(sub_tree)) == len(sub_tree) and len(set(sub_lin)) == len(sub_lin)
       and sub_tree == exp_tree

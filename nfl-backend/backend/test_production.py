@@ -85,13 +85,14 @@ check("rest manifest documents season-boundary missingness",
 # doc-drift finding), so it must track WARMUP_SEASONS / OOF_FIRST_SEASON and
 # can never re-harden the stale "2018 warmup onward" phrasing. Pin it to the
 # authoritative config values.
-_elo_src = manifest.FEATURE_MANIFEST["elo_diff"]["source"]
+# Elo is retired from the served contract (2026-11-24 fitted-scoring
+# adoption), so its manifest entries are popped.  The source builder still
+# exists for the A-arm reconstruction and must keep tracking config.
+_elo_src = manifest._ELO_SOURCE
 check("Elo source string tracks config (no stale 2018-warmup drift)",
       "2018" not in _elo_src
       and f"{min(config.WARMUP_SEASONS)} warmup" in _elo_src
-      and f"{config.OOF_FIRST_SEASON} onward" in _elo_src
-      and manifest.FEATURE_MANIFEST["elo_home"]["source"] == _elo_src
-      and manifest.FEATURE_MANIFEST["elo_away"]["source"] == _elo_src,
+      and f"{config.OOF_FIRST_SEASON} onward" in _elo_src,
       _elo_src)
 check("Elo source string names every rendered game type (REG + postseason)",
       all(t in _elo_src for t in config.GAME_TYPES - {"POST"}), _elo_src)
@@ -227,8 +228,9 @@ check("the four rest/travel side twins are in the served contract, out of the RF
           and c in manifest.FEATURE_MANIFEST
           and c not in manifest.CANDIDATE_MANIFEST
           for c in _twins)
-      # 2026-11-01 v10.1: unscaled deleted; served set unchanged at 76 clean names.
-      and len(config.MONEYLINE_FEATURE_COLS) == 79)
+      # 2026-11-24: 7 fitted scoring columns in, 6 Elo/win% columns out;
+      # served width is 80 (the old 79 minus six plus seven).
+      and len(config.MONEYLINE_FEATURE_COLS) == 80)
 check("rest/travel side twins route tree-only like every raw level",
       set(_twins) <= set(config.RAW_PER_SIDE_COLS)
       and all(manifest.FEATURE_MANIFEST[c]["model_family_availability"] == ["tree"]
@@ -276,9 +278,9 @@ except Exception:
 # model-family views: pure projections of the ONE master list
 lin = feat_mod.linear_view(feats)
 tr = feat_mod.tree_view(feats)
-check("linear view = contract minus raw per-side levels",
+check("linear view = contract minus tree-only routing columns",
       list(lin.columns) == [c for c in config.active_moneyline_feature_cols()
-                            if c not in config.RAW_PER_SIDE_COLS and c in feats.columns])
+                            if c not in config.TREE_ONLY_COLS and c in feats.columns])
 check("tree view = the served contract + appended team-ID pair",
       list(tr.columns) == [c for c in config.active_moneyline_feature_cols()
                            if c in feats.columns] + config.TREE_CATEGORICAL_COLS)
@@ -451,7 +453,7 @@ check("all four hourly weather features are in the active contract",
       _weather_features <= set(config.MONEYLINE_FEATURE_COLS))
 check("active moneyline contract includes the 12 pace EPA lineup features",
       set(config.EPA_PACE_SCALED_FEATURE_COLS) <= set(config.MONEYLINE_FEATURE_COLS)
-      and len(config.MONEYLINE_FEATURE_COLS) == 79)
+      and len(config.MONEYLINE_FEATURE_COLS) == 80)
 
 # Coverage gate (2026-09-27 side-twin promotion, owner >99% bar): the four
 # twins must clear the bar on the OOF population (2017+, what folds evaluate
@@ -2651,7 +2653,7 @@ try:
         return _full, _recent
 
     def _drift_status(seed: int, n_recent: int, shift: float = 0.0,
-                      feature: str = "elo_diff"):
+                      feature: str = "net_rating_diff"):
         _f, _r = _drift_frame(seed, n_recent, shift)
         return [row for row in monitoring_mod.feature_drift(_f, _r)
                 if row["feature"] == feature][0]
@@ -3059,7 +3061,7 @@ check("the 12 pace legs are served under clean names; unscaled lists deleted",
               and c in manifest.FEATURE_MANIFEST
               and c not in manifest.CANDIDATE_MANIFEST
               for c in _expected_epa)
-      and len(config.MONEYLINE_FEATURE_COLS) == 79)
+      and len(config.MONEYLINE_FEATURE_COLS) == 80)
 check("clean pace sides route tree-only, diffs shared",
       all(f"{base}_{side}" in config.RAW_PER_SIDE_COLS
           for base in config.EPA_PACE_SCALED_BASES for side in ("home", "away"))
@@ -3218,7 +3220,7 @@ check("promoted PBWR columns are in the served contract and out of the RFE pool"
           and manifest.FEATURE_MANIFEST[c]["candidate"] is False
           for c in _promoted_pbwr)
       and all(c in manifest._RFE_PROMOTED for c in _promoted_pbwr)
-      and len(config.MONEYLINE_FEATURE_COLS) == 79)
+      and len(config.MONEYLINE_FEATURE_COLS) == 80)
 check("promoted PBWR routing matches the contract rule: sides tree-only, diff shared",
       all(f"pbp_pbwr_edge_ewm_{side}" in config.RAW_PER_SIDE_COLS
           and manifest.FEATURE_MANIFEST[
@@ -3237,7 +3239,7 @@ check("the served contract still carries an explicit defensive quantity",
       # Before this promotion the contract held NO defensive column at all:
       # defensive quality arrived only via the opponent's Elo/win%/net-points.
       any(c.startswith("pbp_def_epa_play_") for c in config.MONEYLINE_FEATURE_COLS)
-      and len(config.MONEYLINE_FEATURE_COLS) == 79)
+      and len(config.MONEYLINE_FEATURE_COLS) == 80)
 
 # ---------------------------------------------------------------------------
 # Weekly-report injury-share family (2026-09-27 Tier B promotion, 18 cols).
@@ -4342,11 +4344,11 @@ try:
           and all(m.get("tooltip") and "manifest.py" not in m["tooltip"]
                   for m in _meta.values()),
           f"{len(_meta)}/{len(_cov_names)} tooltips")
-    _elo_tip = _meta.get("elo_diff", {}).get("tooltip", "")
+    _rating_tip = _meta.get("net_rating_diff", {}).get("tooltip", "")
     check("a tooltip states definition, source, window and the PIT rule",
-          all(k in _elo_tip for k in ("Definition:", "Source:", "Window:",
-                                      "Point-in-time rule:")),
-          _elo_tip.replace("\n", " | ")[:120])
+          all(k in _rating_tip for k in ("Definition:", "Source:", "Window:",
+                                         "Point-in-time rule:")),
+          _rating_tip.replace("\n", " | ")[:120])
     _emitted_meta = _ident["features_metadata"]
     check("the monitor artifact reads the manifest instead of a placeholder",
           "feature_tooltips" in inspect.getsource(monitoring_mod)
@@ -4355,7 +4357,7 @@ try:
                   and str(m.get("definition", "")).strip()
                   for m in _emitted_meta.values()),
           f"emitted {len(_emitted_meta)} real definitions, "
-          f"e.g. {str(_emitted_meta['elo_diff']['definition'])[:60]!r}")
+          f"e.g. {str(_emitted_meta['net_rating_diff']['definition'])[:60]!r}")
     check("a feature with no manifest entry is absent, not given an empty blurb",
           manifest_mod.feature_tooltips(["not_a_real_feature"]) == {})
     # The page embeds the tooltip in <span title='...'> WITHOUT escaping
@@ -4371,7 +4373,7 @@ try:
           else f"all {len(_meta)} tooltips are quote-safe")
     # Same property as the page sees it: html.escape(quote=False) leaves quotes
     # alone, so the attribute is only intact if the raw tooltip had none.
-    _esc = _html.escape(_meta["elo_diff"]["tooltip"], quote=False)
+    _esc = _html.escape(_meta["net_rating_diff"]["tooltip"], quote=False)
     check("an escaped tooltip leaves the title attribute unterminated",
           "'" not in _esc and '"' not in _esc,
           "escape(quote=False) cannot introduce a quote, so none may pre-exist")
@@ -5481,10 +5483,10 @@ check("documented-policy absence classifies STRUCTURAL with the reason, "
       and _cov_rows[("temp_f", "current")].get("structural_reason")
       == "indoor/closed"
       and _cov_rows[("rest_days_home", "current")]["status"] == "STRUCTURAL"
-      and _cov_rows[("elo_diff", "current")]["status"] == "OK",
+      and _cov_rows[("is_dome_home", "current")]["status"] == "OK",
       f"temp_f={_cov_rows[('temp_f', 'current')]['status']}, "
       f"rest={_cov_rows[('rest_days_home', 'current')]['status']}, "
-      f"elo={_cov_rows[('elo_diff', 'current')]['status']}")
+      f"dome={_cov_rows[('is_dome_home', 'current')]['status']}")
 
 # The weather-truncation class: temp_f collapses from 68% to 8.3% while
 # the rest family stays stable — the window-stability rule alone blocks
@@ -5501,8 +5503,8 @@ check("an unstable structural-feature drop still escalates "
       f"collapsed temp_f={_cov_rows2[('temp_f', 'current')]['status']}, "
       f"its baseline={_cov_rows2[('temp_f', 'baseline')]['status']}")
 
-_cov_nopol_base = pd.DataFrame({"elo_diff": [np.nan] * 80 + [1.0] * 20})
-_cov_nopol_cur = pd.DataFrame({"elo_diff": [np.nan] * 48 + [2.0] * 12})
+_cov_nopol_base = pd.DataFrame({"is_dome_home": [np.nan] * 80 + [1.0] * 20})
+_cov_nopol_cur = pd.DataFrame({"is_dome_home": [np.nan] * 48 + [1.0] * 12})
 _rows3 = monitoring_mod.coverage(_cov_nopol_base, current_df=_cov_nopol_cur)
 check("features without a declared policy keep the raw thresholds "
       "(never STRUCTURAL)",

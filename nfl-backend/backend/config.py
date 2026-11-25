@@ -173,7 +173,15 @@ MIN_VAL_FOLD_GAMES = 15    # ordinary OOF validation minimum; final tail retaine
 # v10.2 adopts the 3 PBWR matchup legs (2026-11-01, owner-directed):
 # the served contract grows 76 -> 79 columns. Rebuild features,
 # OOF and refits together - old 76-wide bundles no longer match.
-FEATURE_SET_VERSION = "nfl-prod-v10.2-pbwr"
+# v11.0 adopts the fitted off/def/net scoring block (2026-11-24): elo_* and
+# win_pct_* retire from serving (still generated, still in the known pool)
+# and the seven rating names enter. Width 79 -> 80. The rating VALUES changed
+# again with the win-channel blend and canonical team identity, so bundles
+# keyed on the old values must be rebuilt.
+# v11.1 adds the trailing components panel to the rating fit (2026-11-25):
+# the served list is unchanged at 80, but every rating value moves, so old
+# v11.0 bundles must be rebuilt again.
+FEATURE_SET_VERSION = "nfl-prod-v11.1-ratings-components"
 
 # ---------------------------------------------------------------------------
 # Moneyline calibration (MLB structural parity; favored-team space ONLY)
@@ -214,14 +222,33 @@ CAL_GATE_EPS = 5e-3            # minimum out-of-sample logloss gain (nats)
 #
 # Member routing is a RULE over this list, never a second list:
 #   tree members (xgboost, lightgbm) -> the full list
-#   linear members (elasticnet, mlp) -> the list minus RAW_PER_SIDE_COLS
+#   linear members (elasticnet, mlp) -> the list minus TREE_ONLY_COLS
+#     (raw per-side levels plus the two collinear rating component diffs)
 # so `features.linear_view` / `features.tree_view` are pure projections of
 # whatever appears here. A column that is not in this list cannot reach a
 # model, and a column that is in it is unique by construction — no view needs
 # duplicate protection.
 MONEYLINE_FEATURE_COLS = [
+    # Fitted two-sided scoring block, adopted 2026-11-24 (replaces elo_ and
+    # win_pct_); the trailing component panel joined the design 2026-11-25.
+    # Causal weekly ridge on side rows (points scored, team offence/opponent
+    # defence one-hots, trailing own-offence components and opponent
+    # defensive EPA, shrunk prior-season scoring, 240-day half-life) plus a
+    # 25% causal win-strength channel folded into the net; team labels are
+    # canonicalised across relocation seams.  Signed higher-is-better; the net
+    # is the two-channel net blended 55/45 with the Elo prior, so it is NOT
+    # off + def.  The Elo tilt keeps the three diffs off a single collinear
+    # plane, so every family receives all three; only the raw per-side levels
+    # are tree-only.
+    # Final A/B/C on the 2016-2025 frame (1,626 graded, 500-draw weekly
+    # bootstrap): pooled AUC 0.6994 vs 0.7023, logloss 0.6287 vs 0.6268 (CI
+    # includes 0; flat); 40-60 band AUC 0.5548 vs 0.5503, logloss 0.6894 vs
+    # 0.6903 (better).  Keeping elo/win_pct and adding the block (D) was also
+    # pooled-flat (+0.00086 logloss) with a smaller band gain, so the removal
+    # layout is retained.
+    "off_rating_diff", "def_rating_diff", "net_rating_diff",
     # served diffs (home − away; positive = home advantage)
-    "elo_diff", "win_pct_diff", "rest_days_diff", "is_dome_home",
+    "rest_days_diff", "is_dome_home",
     "ewm_net_pts_diff", "ewm_ypp_diff",
     "pace_plays_min_diff", "rest_short_diff", "rest_short_home",
     "rest_short_away", "div_game",
@@ -278,8 +305,8 @@ MONEYLINE_FEATURE_COLS = [
     # how far each team actually traveled. Served from the same
     # strictly-prior home-venue computation as the diff, tree-only routing.
     "travel_miles_home", "travel_miles_away",
-    "elo_home", "elo_away",
-    "win_pct_home", "win_pct_away",
+    "off_rating_home", "off_rating_away",
+    "def_rating_home", "def_rating_away",
     "ewm_net_pts_home", "ewm_net_pts_away",
     "ewm_ypp_home", "ewm_ypp_away",
     "rest_days_home", "rest_days_away",
@@ -728,6 +755,8 @@ PBP_CANDIDATE_COLS: list[str] = list(dict.fromkeys(
 # where the same routing rule must apply (a promoted raw level must never
 # reach the linear members).
 RAW_PER_SIDE_COLS = frozenset({
+    "off_rating_home", "off_rating_away",
+    "def_rating_home", "def_rating_away",
     "elo_home", "elo_away",
     "win_pct_home", "win_pct_away",
     "ewm_net_pts_home", "ewm_net_pts_away",
@@ -744,6 +773,18 @@ RAW_PER_SIDE_COLS = frozenset({
     | {f"{m}_{s}" for m in DVOA_QUALITY_BASES for s in ("home", "away")}
     | {f"{m}_{s}" for m in YDS_SCALED_BASES for s in ("home", "away")}
     | {f"{m}_{s}" for m in INJURY_SHARE_BASES for s in ("home", "away")})
+
+# The rating block is NOT collinear as served: `net_rating_diff` is a
+# strength index that blends the scoring net with the causal win channel and
+# the pre-kickoff Elo prior, so it carries a direction the off/def
+# decomposition does not.  All three rating diffs are therefore served to
+# every family; giving the linear/MLP pair only the net cost a full strength
+# direction (pooled AUC 0.69943 versus 0.70267 once the decomposition was
+# restored).  Only the raw per-side rating levels stay tree-only.
+#: Columns the linear/MLP family never receives: the raw per-side levels.
+#: `features.linear_feature_columns` is the only consumer of this selector;
+#: the tree view stays the full contract.
+TREE_ONLY_COLS = RAW_PER_SIDE_COLS
 
 # The full candidate list (RFE trial space), defined ONCE. Additions may only
 # name these; the RFE never derives candidates from a frame. A candidate must
@@ -765,13 +806,22 @@ RFE_CANDIDATE_COLS: list[str] = list(dict.fromkeys(
     + [f"{m}_{s}" for m in DVOA_QUALITY_BASES
        for s in ("home", "away", "diff")]))
 
-# Trial / validation pool: universe first (canonical), then candidates.
-# set_feature_subset validates against the POOL, because an adopted RFE record
-# may promote candidates into serving width. Only an explicit owner-directed
-# structural deletion removes names from it (2026-11-01 unscaled removal:
-# pool 268 -> 241).
+# Retired by the 2026-11-24 fitted-scoring adoption: features.py still
+# builds these, and the known pool still carries them so the A/B harness can
+# reconstruct the pre-adoption incumbent and an old bundle can validate.
+RETIRED_STRENGTH_COLS = [
+    "elo_diff", "win_pct_diff",
+    "elo_home", "elo_away", "win_pct_home", "win_pct_away",
+]
+
+# Trial / validation pool: universe first (canonical), then retired strength
+# columns and candidates. set_feature_subset validates against the POOL,
+# because an adopted RFE record may promote candidates into serving width.
+# Only an explicit owner-directed structural deletion removes names from it
+# (2026-11-01 unscaled removal: pool 268 -> 241).
 KNOWN_FEATURE_COLS = list(dict.fromkeys(
-    list(MONEYLINE_FEATURE_COLS) + list(RFE_CANDIDATE_COLS)))
+    list(MONEYLINE_FEATURE_COLS) + list(RETIRED_STRENGTH_COLS)
+    + list(RFE_CANDIDATE_COLS)))
 
 if not set(EPA_PACE_SCALED_FEATURE_COLS
             + YDS_SCALED_FEATURE_COLS) <= set(MONEYLINE_FEATURE_COLS):

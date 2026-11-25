@@ -45,6 +45,11 @@ try:
 except ImportError:
     import weather as weather_provider
 
+try:
+    from backend import team_score_ratings as _score_ratings
+except ImportError:
+    import team_score_ratings as _score_ratings
+
 logger = logging.getLogger(__name__)
 
 EARTH_RADIUS_MILES = 3958.8
@@ -3954,6 +3959,46 @@ def _attach_injury_share_features(df: pd.DataFrame,
 # ---------------------------------------------------------------------------
 # Public builders
 # ---------------------------------------------------------------------------
+def _attach_score_ratings(
+        df: pd.DataFrame,
+        source: pd.DataFrame | None = None) -> pd.DataFrame:
+    """Attach the adopted causal NFL offence/defence/net scoring block.
+
+    ``source`` is the full settled feature timeline when ``df`` is a slate
+    subset: the panel is fitted once on history plus the pending rows (whose
+    scores are NaN and therefore never enter a fit), then mapped to ``df`` by
+    game id.  The fit is causal by construction (each anchor trains strictly
+    before itself), so passing the combined frame is safe.
+    """
+    fit_source = df if source is None else source
+    if not len(fit_source):
+        for column in _score_ratings.SCORE_RATING_COLS:
+            df[column] = np.nan
+        return df
+    panel = _score_ratings.build_causal_panel(
+        fit_source,
+        alpha=_score_ratings.ALPHA,
+        half_life_days=_score_ratings.HALF_LIFE_DAYS,
+        min_train_games=_score_ratings.MIN_TRAIN_GAMES,
+        blocks=_score_ratings.DESIGN_BLOCKS,
+    )
+    gids = fit_source["game_id"].astype(str).to_numpy()
+    for column in _score_ratings.SCORE_RATING_COLS:
+        values = panel[column].to_numpy() if len(panel) else np.nan
+        if fit_source is df:
+            df[column] = values
+        else:
+            df[column] = df["game_id"].astype(str).map(
+                dict(zip(gids, values)))
+    coverage = {c: float(df[c].notna().mean())
+                for c in _score_ratings.SCORE_RATING_COLS}
+    logger.info(
+        "NFL score ratings: %d causal fits, %d teams, coverage %s",
+        panel.attrs.get("fits", 0), panel.attrs.get("teams", 0),
+        ", ".join(f"{c} {v:.1%}" for c, v in coverage.items()))
+    return df
+
+
 def build_game_features(games: pd.DataFrame,
                         pbp: pd.DataFrame | None = None,
                         ps: pd.DataFrame | None = None,
@@ -4069,6 +4114,10 @@ def build_game_features(games: pd.DataFrame,
     df = _attach_injury_share_features(
         df, injury_share_table(snaps, weekly_injuries, crosswalk,
                                roster_unavailable, weekly_rosters), games)
+    # Adopted strength block (2026-11-24): fitted opponent-adjusted team
+    # offence/defence.  Attached after every context/score column it reads
+    # exists; the fit itself is strictly prior, so this is safe here.
+    df = _attach_score_ratings(df)
 
     # targets (kept beside features for OOF assembly; never model inputs)
     df["margin"] = df["home_score"].astype(float) - df["away_score"].astype(float)
@@ -4101,6 +4150,7 @@ def build_slate_features(schedule: pd.DataFrame,
                          crosswalk: pd.DataFrame | None = None,
                          roster_unavailable: pd.DataFrame | None = None,
                          weekly_rosters: pd.DataFrame | None = None,
+                         history_features: pd.DataFrame | None = None,
                          serve_from=None,
                          redistribute_phase1: bool = True,
                          phase1_caps: dict | None = None,
@@ -4222,6 +4272,14 @@ def build_slate_features(schedule: pd.DataFrame,
     df = _attach_injury_share_features(
         df, injury_share_table(snaps, weekly_injuries, crosswalk,
                                roster_unavailable, weekly_rosters), sched)
+    # Adopted strength block: fit on the settled feature timeline plus the
+    # pending rows (which have NaN targets), then map back to the slate.
+    if history_features is not None and len(history_features):
+        source = pd.concat([history_features, df], ignore_index=True,
+                           sort=False)
+        df = _attach_score_ratings(df, source=source)
+    else:
+        df = _attach_score_ratings(df)
     return df
 
 
@@ -4232,11 +4290,14 @@ def linear_feature_columns(active: list[str] | None = None) -> list[str]:
     """Diff/anchor projection of the contract (linear + MLP member view).
 
     Routing RULE, not a second list: the linear family never sees the raw
-    per-side levels (config.RAW_PER_SIDE_COLS) — those exist for the tree
-    members, which consume the whole contract.
+    per-side levels (config.RAW_PER_SIDE_COLS); those exist for the tree
+    members, which consume the whole contract.  All three rating diffs are
+    served: the net blends the scoring components with the causal win channel
+    and the pre-kickoff Elo prior, so ``off + def != net`` and the three
+    columns are not collinear.
     """
     cols = config.active_moneyline_feature_cols() if active is None else list(active)
-    return [c for c in cols if c not in config.RAW_PER_SIDE_COLS]
+    return [c for c in cols if c not in config.TREE_ONLY_COLS]
 
 
 def linear_view(df: pd.DataFrame) -> pd.DataFrame:

@@ -521,6 +521,161 @@ _ELO_SOURCE = _elo_schedule_source()
 
 # One entry per served feature. Field order mirrors the spec (section 11).
 FEATURE_MANIFEST = {
+    "off_rating_diff": {
+        "description": "Home minus away fitted team offence rating",
+        "definition": "off_rating_home - off_rating_away, where off_rating_T "
+                      "is team T's own-offence coefficient in a weighted "
+                      "ridge fit of points scored per side row with team "
+                      "offence and opponent defence one-hots, trailing "
+                      "own-offence components and opponent defensive EPA, "
+                      "plus shrunk prior-season points for/against (both "
+                      "clubs); higher "
+                      "= stronger offence.  Re-centred by half of the net's "
+                      "win-channel adjustment so off + def is the two-channel "
+                      "net plus zero; the Elo prior moves only the net",
+        "source": "decided NFL game scores (nflverse schedules)",
+        "lookback": "expanding settled history with a 240-day recency "
+                    "half-life; refit at every observed game date",
+        "aggregation": "weighted ridge (alpha 50), sample weight "
+                      "0.5**(age_days/240); points-per-game coefficient",
+        "point_in_time_rule": "each weekly fit uses only games strictly "
+                             "before its anchor; a game's rating enters "
+                             "kickoff and never sees its own result",
+        "missing_value_policy": "NaN until 200 settled training games and "
+                               "for teams with no prior history; in-model "
+                               "median imputation",
+        "representation": "difference (all model families; not collinear with net_rating_diff)",
+        "model_family_availability": ["linear", "tree", "mlp"],
+        "feature_version": 1,
+    },
+    "off_rating_home": {
+        "description": "Home team fitted offence rating",
+        "definition": "off_rating_T for the home team from the causal "
+                      "two-sided scoring + win-channel fit; points per game "
+                      "above league average, higher = stronger offence",
+        "source": "decided NFL game scores (nflverse schedules)",
+        "lookback": "expanding settled history with a 240-day recency "
+                    "half-life; refit at every observed game date",
+        "aggregation": "weighted ridge (alpha 50); points-per-game "
+                      "coefficient",
+        "point_in_time_rule": "each weekly fit uses only games strictly "
+                             "before its anchor; never sees the current game",
+        "missing_value_policy": "NaN until 200 settled training games and "
+                               "for teams with no prior history; in-model "
+                               "median imputation",
+        "representation": "side level (tree members only)",
+        "model_family_availability": ["tree"],
+        "feature_version": 1,
+    },
+    "off_rating_away": {
+        "description": "Away team fitted offence rating",
+        "definition": "off_rating_T for the away team from the causal "
+                      "two-sided scoring + win-channel fit; points per game "
+                      "above league average, higher = stronger offence",
+        "source": "decided NFL game scores (nflverse schedules)",
+        "lookback": "expanding settled history with a 240-day recency "
+                    "half-life; refit at every observed game date",
+        "aggregation": "weighted ridge (alpha 50); points-per-game "
+                      "coefficient",
+        "point_in_time_rule": "each weekly fit uses only games strictly "
+                             "before its anchor; never sees the current game",
+        "missing_value_policy": "NaN until 200 settled training games and "
+                               "for teams with no prior history; in-model "
+                               "median imputation",
+        "representation": "side level (tree members only)",
+        "model_family_availability": ["tree"],
+        "feature_version": 1,
+    },
+    "def_rating_diff": {
+        "description": "Home minus away fitted team defence rating",
+        "definition": "def_rating_home - def_rating_away, where def_rating_T "
+                      "is MINUS team T's opponent-dummy coefficient from "
+                      "the same weighted ridge points model; sign-flipped "
+                      "so higher = better defence (fewer points conceded), "
+                      "net of the offences faced, with the trailing "
+                      "own-offence and opponent-defensive-EPA component "
+                      "panel beside the one-hots.  Re-centred by half of the "
+                      "net's win-channel adjustment; the Elo prior moves only "
+                      "the net",
+        "source": "decided NFL game scores (nflverse schedules)",
+        "lookback": "expanding settled history with a 240-day recency "
+                    "half-life; refit at every observed game date",
+        "aggregation": "weighted ridge (alpha 50); points-per-game "
+                      "coefficient",
+        "point_in_time_rule": "each weekly fit uses only games strictly "
+                             "before its anchor; never sees the current game",
+        "missing_value_policy": "NaN until 200 settled training games and "
+                               "for teams with no prior history; in-model "
+                               "median imputation",
+        "representation": "difference (all model families; not collinear with net_rating_diff)",
+        "model_family_availability": ["linear", "tree", "mlp"],
+        "feature_version": 1,
+    },
+    "def_rating_home": {
+        "description": "Home team fitted defence rating",
+        "definition": "def_rating_T for the home team from the causal "
+                      "two-sided scoring + win-channel fit; points per game "
+                      "above league average prevented, higher = better",
+        "source": "decided NFL game scores (nflverse schedules)",
+        "lookback": "expanding settled history with a 240-day recency "
+                    "half-life; refit at every observed game date",
+        "aggregation": "weighted ridge (alpha 50); points-per-game "
+                      "coefficient",
+        "point_in_time_rule": "each weekly fit uses only games strictly "
+                             "before its anchor; never sees the current game",
+        "missing_value_policy": "NaN until 200 settled training games and "
+                               "for teams with no prior history; in-model "
+                               "median imputation",
+        "representation": "side level (tree members only)",
+        "model_family_availability": ["tree"],
+        "feature_version": 1,
+    },
+    "def_rating_away": {
+        "description": "Away team fitted defence rating",
+        "definition": "def_rating_T for the away team from the causal "
+                      "two-sided scoring + win-channel fit; points per game "
+                      "above league average prevented, higher = better",
+        "source": "decided NFL game scores (nflverse schedules)",
+        "lookback": "expanding settled history with a 240-day recency "
+                    "half-life; refit at every observed game date",
+        "aggregation": "weighted ridge (alpha 50); points-per-game "
+                      "coefficient",
+        "point_in_time_rule": "each weekly fit uses only games strictly "
+                             "before its anchor; never sees the current game",
+        "missing_value_policy": "NaN until 200 settled training games and "
+                               "for teams with no prior history; in-model "
+                               "median imputation",
+        "representation": "side level (tree members only)",
+        "model_family_availability": ["tree"],
+        "feature_version": 1,
+    },
+    "net_rating_diff": {
+        "description": "Home minus away fitted net team rating",
+        "definition": "net_rating_home - net_rating_away, where net_rating_T "
+                      "is the two-channel scoring+win net (equal to "
+                      "off_rating_T + def_rating_T) blended 55/45 with a "
+                      "calibrated pre-kickoff Elo prior.  The Elo prior is "
+                      "consumed at build time and is NOT served; the raw "
+                      "elo_* columns remain retired, and the net is not equal "
+                      "to off_rating_diff + def_rating_diff",
+        "source": "decided NFL game scores (nflverse schedules)",
+        "lookback": "expanding settled history; 240-day scoring half-life, "
+                    "180-day win-channel half-life, last pre-kickoff Elo; "
+                    "refit at every observed game date",
+        "aggregation": "fixed-weight blend (0.41 scoring net, 0.14 win "
+                      "ridge, 0.45 Elo) of the per-anchor z-scores across the "
+                      "32 team identities, rescaled to the scoring net's "
+                      "points centre and spread",
+        "point_in_time_rule": "each weekly fit uses only games strictly "
+                             "before its anchor; the Elo entering the game "
+                             "is the frame's point-in-time value",
+        "missing_value_policy": "complete: before 200 settled training games "
+                               "the net is ELO_BLEND * the calibrated Elo "
+                               "prior (a zero fitted net); no NaN warmup",
+        "representation": "difference (all model families)",
+        "model_family_availability": ["linear", "tree", "mlp"],
+        "feature_version": 1,
+    },
     "elo_diff": {
         "description": "Home minus away pre-game Elo rating",
         "definition": "elo_home_entering - elo_away_entering; Elo update r += K*(actual - expected), expected = 1/(1+10**((r_opp - r_self)/400)); actual = 1 win / 0 loss / 0.5 tie; ELO_SEASON_REVERT (1/3) toward ELO_PRIOR at each season boundary (MLB/NHL/NBA parity)",
@@ -1248,6 +1403,15 @@ def feature_tooltips(names: list[str] | None = None) -> dict:
     return out
 
 
+# Retired by the 2026-11-24 fitted-scoring adoption.  The manifest is
+# name-for-name parity with the SERVED contract (validate()), so these six
+# entries leave it even though features.py still builds the columns for A/B
+# reconstruction and config.KNOWN_FEATURE_COLS keeps them triable.
+for _retired in ("elo_diff", "win_pct_diff", "elo_home", "elo_away",
+                 "win_pct_home", "win_pct_away"):
+    FEATURE_MANIFEST.pop(_retired, None)
+
+
 def validate() -> list[str]:
     """Manifest consistency checks; returns a list of problems (empty = OK)."""
     problems = []
@@ -1275,6 +1439,9 @@ def validate() -> list[str]:
     for f in _c.RAW_PER_SIDE_COLS:
         if f not in pool:
             problems.append(f"raw per-side column {f!r} is not in the declared pool")
+    for f in getattr(_c, "TREE_ONLY_COLS", ()):
+        if f not in pool:
+            problems.append(f"tree-only column {f!r} is not in the declared pool")
     # Candidate documentation must name the effective trial space exactly.
     # Triable-but-unserved names live in CANDIDATE_MANIFEST; structurally
     # promoted names live in FEATURE_MANIFEST and leave the trial space.

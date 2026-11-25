@@ -840,6 +840,9 @@ def main(argv: list[str] | None = None) -> int:
         weekly_injuries=weekly_injuries, crosswalk=crosswalk,
         roster_unavailable=roster_unavailable,
         weekly_rosters=weekly_rosters,
+        # The settled feature timeline is the rating fit's history; pending
+        # rows have NaN targets and never enter the fit.
+        history_features=game_df,
         serve_from=run_date)
     if len(slate):
         slate = slate.sort_values("gameday").reset_index(drop=True)
