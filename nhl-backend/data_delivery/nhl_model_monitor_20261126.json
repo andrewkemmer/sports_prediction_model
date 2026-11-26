@@ -1,0 +1,6541 @@
+{
+ "date": "20261126",
+ "version": "v2026.11.26",
+ "last_retrained": "2026-11-26",
+ "last_retrained_note": null,
+ "next_retrain": "2026-11-26",
+ "next_retrain_note": null,
+ "upset_note": null,
+ "feature_drift": [
+  {
+   "feature": "off_rating_diff",
+   "current_mean": 0.0186,
+   "baseline_mean": -0.0071,
+   "psi": 0.2002661816902876,
+   "psi_adjusted": 0.107266,
+   "noise_floor": 0.093,
+   "mean_shift": 0.02572,
+   "shift_se": 0.043415,
+   "location_shift": false,
+   "status": "OK",
+   "weight_pct": 11.86,
+   "n_baseline": 250,
+   "n_current": 60
+  },
+  {
+   "feature": "def_rating_diff",
+   "current_mean": 0.0092,
+   "baseline_mean": -0.0024,
+   "psi": 1.301727465198877,
+   "psi_adjusted": 1.208727,
+   "noise_floor": 0.093,
+   "mean_shift": 0.011619,
+   "shift_se": 0.03574,
+   "location_shift": false,
+   "status": "OK",
+   "weight_pct": 0.97,
+   "n_baseline": 250,
+   "n_current": 60
+  },
+  {
+   "feature": "net_rating_diff",
+   "current_mean": 0.0278,
+   "baseline_mean": -0.0095,
+   "psi": 0.22386322084064408,
+   "psi_adjusted": 0.130863,
+   "noise_floor": 0.093,
+   "mean_shift": 0.037339,
+   "shift_se": 0.062599,
+   "location_shift": false,
+   "status": "OK",
+   "weight_pct": 4.86,
+   "n_baseline": 250,
+   "n_current": 60
+  },
+  {
+   "feature": "rest_days_diff",
+   "current_mean": 0.5833,
+   "baseline_mean": 0.424,
+   "psi": 0.07053417861093553,
+   "psi_adjusted": 0.0,
+   "noise_floor": 0.093,
+   "mean_shift": 0.159333,
+   "shift_se": 0.246858,
+   "location_shift": false,
+   "status": "OK",
+   "weight_pct": 1.02,
+   "n_baseline": 250,
+   "n_current": 60
+  },
+  {
+   "feature": "ewm_net_goals_diff",
+   "current_mean": 0.0485,
+   "baseline_mean": -0.1032,
+   "psi": 0.16155305168509482,
+   "psi_adjusted": 0.068553,
+   "noise_floor": 0.093,
+   "mean_shift": 0.151691,
+   "shift_se": 0.309215,
+   "location_shift": false,
+   "status": "OK",
+   "weight_pct": 1.74,
+   "n_baseline": 250,
+   "n_current": 60
+  },
+  {
+   "feature": "ewm_goal_share_diff",
+   "current_mean": 0.0016,
+   "baseline_mean": -0.008,
+   "psi": 0.1067482970810887,
+   "psi_adjusted": 0.013748,
+   "noise_floor": 0.093,
+   "mean_shift": 0.009562,
+   "shift_se": 0.026785,
+   "location_shift": false,
+   "status": "OK",
+   "weight_pct": 0.23,
+   "n_baseline": 250,
+   "n_current": 60
+  },
+  {
+   "feature": "ga_per_game_diff",
+   "current_mean": -0.1,
+   "baseline_mean": 0.0768,
+   "psi": 0.26387573984613494,
+   "psi_adjusted": 0.170876,
+   "noise_floor": 0.093,
+   "mean_shift": -0.1768,
+   "shift_se": 0.236196,
+   "location_shift": false,
+   "status": "OK",
+   "weight_pct": 2.95,
+   "n_baseline": 250,
+   "n_current": 60
+  },
+  {
+   "feature": "shots_for_per_game_diff",
+   "current_mean": -0.1,
+   "baseline_mean": -0.5056,
+   "psi": 0.32129158203246594,
+   "psi_adjusted": 0.228292,
+   "noise_floor": 0.093,
+   "mean_shift": 0.4056,
+   "shift_se": 1.029852,
+   "location_shift": false,
+   "status": "OK",
+   "weight_pct": 6.44,
+   "n_baseline": 250,
+   "n_current": 60
+  },
+  {
+   "feature": "shots_against_per_game_diff",
+   "current_mean": -0.16,
+   "baseline_mean": 0.3568,
+   "psi": 0.16938054891446025,
+   "psi_adjusted": 0.076381,
+   "noise_floor": 0.093,
+   "mean_shift": -0.5168,
+   "shift_se": 0.920916,
+   "location_shift": false,
+   "status": "OK",
+   "weight_pct": 14.94,
+   "n_baseline": 250,
+   "n_current": 60
+  },
+  {
+   "feature": "pp_success_diff",
+   "current_mean": -0.0326,
+   "baseline_mean": 0.0147,
+   "psi": 0.39011582219851487,
+   "psi_adjusted": 0.297116,
+   "noise_floor": 0.093,
+   "mean_shift": -0.047269,
+   "shift_se": 0.032173,
+   "location_shift": false,
+   "status": "OK",
+   "weight_pct": 0.33,
+   "n_baseline": 250,
+   "n_current": 60
+  },
+  {
+   "feature": "faceoff_win_diff",
+   "current_mean": -0.0074,
+   "baseline_mean": 0.0044,
+   "psi": 0.2041696643632537,
+   "psi_adjusted": 0.11117,
+   "noise_floor": 0.093,
+   "mean_shift": -0.011789,
+   "shift_se": 0.013335,
+   "location_shift": false,
+   "status": "OK",
+   "weight_pct": 1.46,
+   "n_baseline": 250,
+   "n_current": 60
+  },
+  {
+   "feature": "back_to_back_diff",
+   "current_mean": -0.0667,
+   "baseline_mean": -0.132,
+   "psi": 0.05156417840950841,
+   "psi_adjusted": 0.0,
+   "noise_floor": 0.093,
+   "mean_shift": 0.065333,
+   "shift_se": 0.083677,
+   "location_shift": false,
+   "status": "OK",
+   "weight_pct": 11.19,
+   "n_baseline": 250,
+   "n_current": 60
+  },
+  {
+   "feature": "nhl_giveaways_pg_ewm_diff",
+   "current_mean": 0.1026,
+   "baseline_mean": 0.0991,
+   "psi": 0.24735597984292307,
+   "psi_adjusted": 0.154356,
+   "noise_floor": 0.093,
+   "mean_shift": 0.003456,
+   "shift_se": 0.414211,
+   "location_shift": false,
+   "status": "OK",
+   "weight_pct": 1.6,
+   "n_baseline": 250,
+   "n_current": 60
+  },
+  {
+   "feature": "nhl_takeaways_pg_ewm_diff",
+   "current_mean": 0.0679,
+   "baseline_mean": -0.0048,
+   "psi": 0.2009981689225349,
+   "psi_adjusted": 0.107998,
+   "noise_floor": 0.093,
+   "mean_shift": 0.072727,
+   "shift_se": 0.193373,
+   "location_shift": false,
+   "status": "OK",
+   "weight_pct": 0.27,
+   "n_baseline": 250,
+   "n_current": 60
+  },
+  {
+   "feature": "goalie_sv_pct_diff",
+   "current_mean": -0.0009,
+   "baseline_mean": 0.0007,
+   "psi": 0.16668065472199983,
+   "psi_adjusted": 0.073681,
+   "noise_floor": 0.093,
+   "mean_shift": -0.001649,
+   "shift_se": 0.010507,
+   "location_shift": false,
+   "status": "OK",
+   "weight_pct": 1.45,
+   "n_baseline": 250,
+   "n_current": 60
+  },
+  {
+   "feature": "goalie_gaa_diff",
+   "current_mean": 0.0692,
+   "baseline_mean": 0.0531,
+   "psi": 0.24020656509825614,
+   "psi_adjusted": 0.147207,
+   "noise_floor": 0.093,
+   "mean_shift": 0.016078,
+   "shift_se": 0.310733,
+   "location_shift": false,
+   "status": "OK",
+   "weight_pct": 0.2,
+   "n_baseline": 250,
+   "n_current": 60
+  },
+  {
+   "feature": "goalie_starts_diff",
+   "current_mean": 0.9167,
+   "baseline_mean": 0.148,
+   "psi": 0.6357105668160966,
+   "psi_adjusted": 0.542711,
+   "noise_floor": 0.093,
+   "mean_shift": 0.768667,
+   "shift_se": 0.895202,
+   "location_shift": false,
+   "status": "OK",
+   "weight_pct": 1.08,
+   "n_baseline": 250,
+   "n_current": 60
+  },
+  {
+   "feature": "is_playoffs",
+   "current_mean": 0.0,
+   "baseline_mean": 0.0,
+   "psi": null,
+   "psi_adjusted": 0.0,
+   "noise_floor": 0.093,
+   "mean_shift": 0.0,
+   "shift_se": 0.0,
+   "location_shift": false,
+   "status": "INSUFFICIENT",
+   "weight_pct": 0.0,
+   "n_baseline": 250,
+   "n_current": 60
+  },
+  {
+   "feature": "net_rating_sum",
+   "current_mean": -0.0016,
+   "baseline_mean": -0.007,
+   "psi": 0.15979010009271083,
+   "psi_adjusted": 0.06679,
+   "noise_floor": 0.093,
+   "mean_shift": 0.005448,
+   "shift_se": 0.062243,
+   "location_shift": false,
+   "status": "OK",
+   "weight_pct": 0.17,
+   "n_baseline": 250,
+   "n_current": 60
+  },
+  {
+   "feature": "ewm_net_goals_home",
+   "current_mean": 0.0481,
+   "baseline_mean": -0.1148,
+   "psi": 0.05181768264768323,
+   "psi_adjusted": 0.0,
+   "noise_floor": 0.093,
+   "mean_shift": 0.162848,
+   "shift_se": 0.214924,
+   "location_shift": false,
+   "status": "OK",
+   "weight_pct": 0.4,
+   "n_baseline": 250,
+   "n_current": 60
+  },
+  {
+   "feature": "ewm_net_goals_away",
+   "current_mean": -0.0004,
+   "baseline_mean": -0.0116,
+   "psi": 0.26269347815583005,
+   "psi_adjusted": 0.169693,
+   "noise_floor": 0.093,
+   "mean_shift": 0.011157,
+   "shift_se": 0.223397,
+   "location_shift": false,
+   "status": "OK",
+   "weight_pct": 0.33,
+   "n_baseline": 250,
+   "n_current": 60
+  },
+  {
+   "feature": "ewm_goal_share_home",
+   "current_mean": 0.5015,
+   "baseline_mean": 0.4904,
+   "psi": 0.07047154224553065,
+   "psi_adjusted": 0.0,
+   "noise_floor": 0.093,
+   "mean_shift": 0.011125,
+   "shift_se": 0.018962,
+   "location_shift": false,
+   "status": "OK",
+   "weight_pct": 0.3,
+   "n_baseline": 250,
+   "n_current": 60
+  },
+  {
+   "feature": "ewm_goal_share_away",
+   "current_mean": 0.4999,
+   "baseline_mean": 0.4984,
+   "psi": 0.3749879491534388,
+   "psi_adjusted": 0.281988,
+   "noise_floor": 0.093,
+   "mean_shift": 0.001562,
+   "shift_se": 0.019782,
+   "location_shift": false,
+   "status": "OK",
+   "weight_pct": 0.27,
+   "n_baseline": 250,
+   "n_current": 60
+  },
+  {
+   "feature": "rest_days_home",
+   "current_mean": 2.7167,
+   "baseline_mean": 2.528,
+   "psi": 0.1538162009848199,
+   "psi_adjusted": 0.060816,
+   "noise_floor": 0.093,
+   "mean_shift": 0.188667,
+   "shift_se": 0.201332,
+   "location_shift": false,
+   "status": "OK",
+   "weight_pct": 0.1,
+   "n_baseline": 250,
+   "n_current": 60
+  },
+  {
+   "feature": "rest_days_away",
+   "current_mean": 2.1333,
+   "baseline_mean": 2.104,
+   "psi": 0.06419124823355003,
+   "psi_adjusted": 0.0,
+   "noise_floor": 0.093,
+   "mean_shift": 0.029333,
+   "shift_se": 0.154559,
+   "location_shift": false,
+   "status": "OK",
+   "weight_pct": 0.47,
+   "n_baseline": 250,
+   "n_current": 60
+  },
+  {
+   "feature": "ga_per_game_home",
+   "current_mean": 3.1067,
+   "baseline_mean": 3.2488,
+   "psi": 0.0896795266178971,
+   "psi_adjusted": 0.0,
+   "noise_floor": 0.093,
+   "mean_shift": -0.142133,
+   "shift_se": 0.172599,
+   "location_shift": false,
+   "status": "OK",
+   "weight_pct": 0.17,
+   "n_baseline": 250,
+   "n_current": 60
+  },
+  {
+   "feature": "ga_per_game_away",
+   "current_mean": 3.2067,
+   "baseline_mean": 3.172,
+   "psi": 0.12372959687836957,
+   "psi_adjusted": 0.03073,
+   "noise_floor": 0.093,
+   "mean_shift": 0.034667,
+   "shift_se": 0.169688,
+   "location_shift": false,
+   "status": "OK",
+   "weight_pct": 0.27,
+   "n_baseline": 250,
+   "n_current": 60
+  },
+  {
+   "feature": "shots_for_per_game_home",
+   "current_mean": 27.5133,
+   "baseline_mean": 27.2,
+   "psi": 0.21792526686347982,
+   "psi_adjusted": 0.124925,
+   "noise_floor": 0.093,
+   "mean_shift": 0.313333,
+   "shift_se": 0.69393,
+   "location_shift": false,
+   "status": "OK",
+   "weight_pct": 0.7,
+   "n_baseline": 250,
+   "n_current": 60
+  },
+  {
+   "feature": "shots_for_per_game_away",
+   "current_mean": 27.6133,
+   "baseline_mean": 27.7056,
+   "psi": 0.17559251741203138,
+   "psi_adjusted": 0.082593,
+   "noise_floor": 0.093,
+   "mean_shift": -0.092267,
+   "shift_se": 0.691565,
+   "location_shift": false,
+   "status": "OK",
+   "weight_pct": 0.5,
+   "n_baseline": 250,
+   "n_current": 60
+  },
+  {
+   "feature": "shots_against_per_game_home",
+   "current_mean": 27.54,
+   "baseline_mean": 27.6648,
+   "psi": 0.10160042238079971,
+   "psi_adjusted": 0.0086,
+   "noise_floor": 0.093,
+   "mean_shift": -0.1248,
+   "shift_se": 0.698054,
+   "location_shift": false,
+   "status": "OK",
+   "weight_pct": 0.9,
+   "n_baseline": 250,
+   "n_current": 60
+  },
+  {
+   "feature": "shots_against_per_game_away",
+   "current_mean": 27.7,
+   "baseline_mean": 27.308,
+   "psi": 0.18484877325100588,
+   "psi_adjusted": 0.091849,
+   "noise_floor": 0.093,
+   "mean_shift": 0.392,
+   "shift_se": 0.661469,
+   "location_shift": false,
+   "status": "OK",
+   "weight_pct": 1.14,
+   "n_baseline": 250,
+   "n_current": 60
+  },
+  {
+   "feature": "pp_success_home",
+   "current_mean": 0.2093,
+   "baseline_mean": 0.2331,
+   "psi": 0.28335562793200114,
+   "psi_adjusted": 0.190356,
+   "noise_floor": 0.093,
+   "mean_shift": -0.023853,
+   "shift_se": 0.022394,
+   "location_shift": false,
+   "status": "OK",
+   "weight_pct": 0.2,
+   "n_baseline": 250,
+   "n_current": 60
+  },
+  {
+   "feature": "pp_success_away",
+   "current_mean": 0.2419,
+   "baseline_mean": 0.2185,
+   "psi": 0.18613783816566698,
+   "psi_adjusted": 0.093138,
+   "noise_floor": 0.093,
+   "mean_shift": 0.023416,
+   "shift_se": 0.023637,
+   "location_shift": false,
+   "status": "OK",
+   "weight_pct": 0.33,
+   "n_baseline": 250,
+   "n_current": 60
+  },
+  {
+   "feature": "faceoff_win_home",
+   "current_mean": 0.4977,
+   "baseline_mean": 0.502,
+   "psi": 0.1447294398540342,
+   "psi_adjusted": 0.051729,
+   "noise_floor": 0.093,
+   "mean_shift": -0.004347,
+   "shift_se": 0.009683,
+   "location_shift": false,
+   "status": "OK",
+   "weight_pct": 0.27,
+   "n_baseline": 250,
+   "n_current": 60
+  },
+  {
+   "feature": "faceoff_win_away",
+   "current_mean": 0.505,
+   "baseline_mean": 0.4976,
+   "psi": 0.2160033985450518,
+   "psi_adjusted": 0.123003,
+   "noise_floor": 0.093,
+   "mean_shift": 0.007443,
+   "shift_se": 0.009545,
+   "location_shift": false,
+   "status": "OK",
+   "weight_pct": 1.04,
+   "n_baseline": 250,
+   "n_current": 60
+  },
+  {
+   "feature": "back_to_back_home",
+   "current_mean": 0.05,
+   "baseline_mean": 0.048,
+   "psi": null,
+   "psi_adjusted": 0.0,
+   "noise_floor": 0.093,
+   "mean_shift": 0.002,
+   "shift_se": 0.046422,
+   "location_shift": false,
+   "status": "INSUFFICIENT",
+   "weight_pct": 0.0,
+   "n_baseline": 250,
+   "n_current": 60
+  },
+  {
+   "feature": "back_to_back_away",
+   "current_mean": 0.1167,
+   "baseline_mean": 0.18,
+   "psi": null,
+   "psi_adjusted": 0.0,
+   "noise_floor": 0.093,
+   "mean_shift": -0.063333,
+   "shift_se": 0.08065,
+   "location_shift": false,
+   "status": "INSUFFICIENT",
+   "weight_pct": 0.03,
+   "n_baseline": 250,
+   "n_current": 60
+  },
+  {
+   "feature": "nhl_giveaways_pg_ewm_home",
+   "current_mean": 15.0646,
+   "baseline_mean": 15.5859,
+   "psi": 0.2915875452304075,
+   "psi_adjusted": 0.198588,
+   "noise_floor": 0.093,
+   "mean_shift": -0.521271,
+   "shift_se": 0.302988,
+   "location_shift": false,
+   "status": "OK",
+   "weight_pct": 0.13,
+   "n_baseline": 250,
+   "n_current": 60
+  },
+  {
+   "feature": "nhl_giveaways_pg_ewm_away",
+   "current_mean": 14.962,
+   "baseline_mean": 15.4867,
+   "psi": 0.20641288352908635,
+   "psi_adjusted": 0.113413,
+   "noise_floor": 0.093,
+   "mean_shift": -0.524727,
+   "shift_se": 0.276052,
+   "location_shift": false,
+   "status": "OK",
+   "weight_pct": 0.33,
+   "n_baseline": 250,
+   "n_current": 60
+  },
+  {
+   "feature": "nhl_takeaways_pg_ewm_home",
+   "current_mean": 3.9459,
+   "baseline_mean": 4.1004,
+   "psi": 0.39706592534268964,
+   "psi_adjusted": 0.304066,
+   "noise_floor": 0.093,
+   "mean_shift": -0.154507,
+   "shift_se": 0.138087,
+   "location_shift": false,
+   "status": "OK",
+   "weight_pct": 0.2,
+   "n_baseline": 250,
+   "n_current": 60
+  },
+  {
+   "feature": "nhl_takeaways_pg_ewm_away",
+   "current_mean": 3.878,
+   "baseline_mean": 4.1052,
+   "psi": 0.3427237981537783,
+   "psi_adjusted": 0.249724,
+   "noise_floor": 0.093,
+   "mean_shift": -0.227234,
+   "shift_se": 0.124435,
+   "location_shift": false,
+   "status": "OK",
+   "weight_pct": 0.4,
+   "n_baseline": 250,
+   "n_current": 60
+  },
+  {
+   "feature": "goalie_sv_pct_home",
+   "current_mean": 0.8878,
+   "baseline_mean": 0.8868,
+   "psi": 0.32480342028333564,
+   "psi_adjusted": 0.231803,
+   "noise_floor": 0.093,
+   "mean_shift": 0.001076,
+   "shift_se": 0.007286,
+   "location_shift": false,
+   "status": "OK",
+   "weight_pct": 0.5,
+   "n_baseline": 250,
+   "n_current": 60
+  },
+  {
+   "feature": "goalie_sv_pct_away",
+   "current_mean": 0.8888,
+   "baseline_mean": 0.886,
+   "psi": 0.1073544244839366,
+   "psi_adjusted": 0.014354,
+   "noise_floor": 0.093,
+   "mean_shift": 0.002726,
+   "shift_se": 0.007151,
+   "location_shift": false,
+   "status": "OK",
+   "weight_pct": 0.37,
+   "n_baseline": 250,
+   "n_current": 60
+  },
+  {
+   "feature": "goalie_gaa_home",
+   "current_mean": 3.1155,
+   "baseline_mean": 3.1043,
+   "psi": 0.2701197309747273,
+   "psi_adjusted": 0.17712,
+   "noise_floor": 0.093,
+   "mean_shift": 0.011182,
+   "shift_se": 0.229255,
+   "location_shift": false,
+   "status": "OK",
+   "weight_pct": 0.3,
+   "n_baseline": 250,
+   "n_current": 60
+  },
+  {
+   "feature": "goalie_gaa_away",
+   "current_mean": 3.0463,
+   "baseline_mean": 3.0512,
+   "psi": 0.0678580171654677,
+   "psi_adjusted": 0.0,
+   "noise_floor": 0.093,
+   "mean_shift": -0.004896,
+   "shift_se": 0.197943,
+   "location_shift": false,
+   "status": "OK",
+   "weight_pct": 0.33,
+   "n_baseline": 250,
+   "n_current": 60
+  },
+  {
+   "feature": "goalie_starts_home",
+   "current_mean": 12.6667,
+   "baseline_mean": 7.016,
+   "psi": 3.247433871238931,
+   "psi_adjusted": 3.154434,
+   "noise_floor": 0.093,
+   "mean_shift": 5.650667,
+   "shift_se": 0.745099,
+   "location_shift": true,
+   "status": "OK-SEASONAL",
+   "weight_pct": 0.37,
+   "n_baseline": 250,
+   "n_current": 60
+  },
+  {
+   "feature": "goalie_starts_away",
+   "current_mean": 11.75,
+   "baseline_mean": 6.868,
+   "psi": 1.9836997271740215,
+   "psi_adjusted": 1.8907,
+   "noise_floor": 0.093,
+   "mean_shift": 4.882,
+   "shift_se": 0.789242,
+   "location_shift": true,
+   "status": "OK-SEASONAL",
+   "weight_pct": 0.03,
+   "n_baseline": 250,
+   "n_current": 60
+  },
+  {
+   "feature": "is_home",
+   "current_mean": 1.0,
+   "baseline_mean": 1.0,
+   "psi": null,
+   "psi_adjusted": 0.0,
+   "noise_floor": 0.093,
+   "mean_shift": 0.0,
+   "shift_se": 0.0,
+   "location_shift": false,
+   "status": "INSUFFICIENT",
+   "weight_pct": 0.0,
+   "n_baseline": 250,
+   "n_current": 60
+  },
+  {
+   "feature": "pl_xpm_away",
+   "current_mean": 0.195,
+   "baseline_mean": 0.1979,
+   "psi": 0.12356877587331243,
+   "psi_adjusted": 0.030569,
+   "noise_floor": 0.093,
+   "mean_shift": -0.002867,
+   "shift_se": 0.107061,
+   "location_shift": false,
+   "status": "OK",
+   "weight_pct": 9.13,
+   "n_baseline": 250,
+   "n_current": 60
+  },
+  {
+   "feature": "pl_xpm_home",
+   "current_mean": 0.2005,
+   "baseline_mean": 0.1411,
+   "psi": 1.2567853385834027,
+   "psi_adjusted": 1.163785,
+   "noise_floor": 0.093,
+   "mean_shift": 0.059462,
+   "shift_se": 0.104614,
+   "location_shift": false,
+   "status": "OK",
+   "weight_pct": 0.5,
+   "n_baseline": 250,
+   "n_current": 60
+  },
+  {
+   "feature": "pl_xpm_diff",
+   "current_mean": 0.0056,
+   "baseline_mean": -0.0568,
+   "psi": 0.15735372492307612,
+   "psi_adjusted": 0.064354,
+   "noise_floor": 0.093,
+   "mean_shift": 0.062329,
+   "shift_se": 0.152856,
+   "location_shift": false,
+   "status": "OK",
+   "weight_pct": 9.29,
+   "n_baseline": 250,
+   "n_current": 60
+  },
+  {
+   "feature": "pl_xg_away",
+   "current_mean": 0.7227,
+   "baseline_mean": 0.7273,
+   "psi": 0.182824576898136,
+   "psi_adjusted": 0.089825,
+   "noise_floor": 0.093,
+   "mean_shift": -0.004518,
+   "shift_se": 0.017621,
+   "location_shift": false,
+   "status": "OK",
+   "weight_pct": 0.7,
+   "n_baseline": 250,
+   "n_current": 60
+  },
+  {
+   "feature": "pl_xg_home",
+   "current_mean": 0.7258,
+   "baseline_mean": 0.7175,
+   "psi": 0.11065177975405485,
+   "psi_adjusted": 0.017652,
+   "noise_floor": 0.093,
+   "mean_shift": 0.008348,
+   "shift_se": 0.017263,
+   "location_shift": false,
+   "status": "OK",
+   "weight_pct": 6.32,
+   "n_baseline": 250,
+   "n_current": 60
+  },
+  {
+   "feature": "pl_xg_diff",
+   "current_mean": 0.0031,
+   "baseline_mean": -0.0098,
+   "psi": 0.41020358110519645,
+   "psi_adjusted": 0.317204,
+   "noise_floor": 0.093,
+   "mean_shift": 0.012867,
+   "shift_se": 0.025138,
+   "location_shift": false,
+   "status": "OK",
+   "weight_pct": 0.9,
+   "n_baseline": 250,
+   "n_current": 60
+  }
+ ],
+ "features_metadata": {
+  "off_rating_diff": {
+   "tooltip": "What: Home minus away fitted team offence rating\nDefinition: off_rating_home - off_rating_away, where off_rating_T is team T\u2019s coefficient in a weighted ridge fit of goals scored per team-game with team-offence and team-defence one-hots, the opposing goalie\u2019s SV%/GAA/starts, shrunk prior-season goals for/against (both clubs, 20-game prior), rest, back-to-back and playoff context; higher = stronger offence\nSource: official NHL API scores + MoneyPuck goalie/skater archives (team goals, goalie form, prior-season goals)\nWindow: expanding settled history with a 240-day recency half-life; weekly refit at each 7th observed game date \u00b7 Built as: weighted ridge (alpha 50), sample weight 0.5**(age_days/240); goals-per-game coefficient\nPoint-in-time rule: each weekly fit uses only games strictly before its anchor; a game\u2019s rating enters puck drop and never sees its own result\nMissing values: NaN until 200 settled training games and for teams with no prior season; in-model handling (median imputation)\nAvailable to: [\u2019linear\u2019, \u2019tree\u2019]",
+   "summary": "Home minus away fitted team offence rating",
+   "description": "Home minus away fitted team offence rating",
+   "definition": "off_rating_home - off_rating_away, where off_rating_T is team T's coefficient in a weighted ridge fit of goals scored per team-game with team-offence and team-defence one-hots, the opposing goalie's SV%/GAA/starts, shrunk prior-season goals for/against (both clubs, 20-game prior), rest, back-to-back and playoff context; higher = stronger offence",
+   "source": "official NHL API scores + MoneyPuck goalie/skater archives (team goals, goalie form, prior-season goals)",
+   "lookback": "expanding settled history with a 240-day recency half-life; weekly refit at each 7th observed game date"
+  },
+  "def_rating_diff": {
+   "tooltip": "What: Home minus away fitted team defence rating\nDefinition: def_rating_home - def_rating_away, where def_rating_T is MINUS team T\u2019s opponent-dummy coefficient from the same weighted ridge goal model; sign-flipped so higher = better defence (fewer goals conceded), net of the goalie faced and prior-season strength\nSource: official NHL API scores + MoneyPuck goalie/skater archives (team goals, goalie form, prior-season goals)\nWindow: expanding settled history with a 240-day recency half-life; weekly refit at each 7th observed game date \u00b7 Built as: weighted ridge (alpha 50), sample weight 0.5**(age_days/240); goals-per-game coefficient\nPoint-in-time rule: each weekly fit uses only games strictly before its anchor; never sees the current game\nMissing values: NaN until 200 settled training games and for teams with no prior season; in-model handling (median imputation)\nAvailable to: [\u2019linear\u2019, \u2019tree\u2019]",
+   "summary": "Home minus away fitted team defence rating",
+   "description": "Home minus away fitted team defence rating",
+   "definition": "def_rating_home - def_rating_away, where def_rating_T is MINUS team T's opponent-dummy coefficient from the same weighted ridge goal model; sign-flipped so higher = better defence (fewer goals conceded), net of the goalie faced and prior-season strength",
+   "source": "official NHL API scores + MoneyPuck goalie/skater archives (team goals, goalie form, prior-season goals)",
+   "lookback": "expanding settled history with a 240-day recency half-life; weekly refit at each 7th observed game date"
+  },
+  "net_rating_diff": {
+   "tooltip": "What: Home minus away fitted net team rating\nDefinition: net_rating_home - net_rating_away, where net_rating_T = off_rating_T + def_rating_T; equal to off_rating_diff + def_rating_diff\nSource: official NHL API scores + MoneyPuck goalie/skater archives (team goals, goalie form, prior-season goals)\nWindow: expanding settled history with a 240-day recency half-life; weekly refit at each 7th observed game date \u00b7 Built as: sum of the offence and defence coefficients from one weighted ridge goal model (alpha 50)\nPoint-in-time rule: each weekly fit uses only games strictly before its anchor; never sees the current game\nMissing values: NaN until 200 settled training games and for teams with no prior season; in-model handling (median imputation)\nAvailable to: [\u2019linear\u2019, \u2019tree\u2019]",
+   "summary": "Home minus away fitted net team rating",
+   "description": "Home minus away fitted net team rating",
+   "definition": "net_rating_home - net_rating_away, where net_rating_T = off_rating_T + def_rating_T; equal to off_rating_diff + def_rating_diff",
+   "source": "official NHL API scores + MoneyPuck goalie/skater archives (team goals, goalie form, prior-season goals)",
+   "lookback": "expanding settled history with a 240-day recency half-life; weekly refit at each 7th observed game date"
+  },
+  "rest_days_diff": {
+   "tooltip": "What: Home minus away days since each team\u2019s previous game\nDefinition: (game_date_t - game_date_{t-1}).days per team\nSource: official NHL API schedule\nWindow: 1 \u00b7 Built as: date difference\nPoint-in-time rule: days since the team\u2019s own strictly-prior game\nMissing values: NaN for a team\u2019s first game of the window; in-model handling\nAvailable to: [\u2019linear\u2019, \u2019tree\u2019]",
+   "summary": "Home minus away days since each team's previous game",
+   "description": "Home minus away days since each team's previous game",
+   "definition": "(game_date_t - game_date_{t-1}).days per team",
+   "source": "official NHL API schedule",
+   "lookback": 1
+  },
+  "ewm_net_goals_diff": {
+   "tooltip": "What: Home minus away exponentially-weighted net goals per game\nDefinition: ewm(halflife=3).mean() of the team\u2019s net goals (for - against) over strictly-prior games\nSource: decided game scores\nWindow: decaying (halflife=3 games) \u00b7 Built as: per-team EWM\nPoint-in-time rule: per-team ewm over prior games then shift(1)\nMissing values: NaN when the team has no prior games\nAvailable to: [\u2019linear\u2019, \u2019tree\u2019]",
+   "summary": "Home minus away exponentially-weighted net goals per game",
+   "description": "Home minus away exponentially-weighted net goals per game",
+   "definition": "ewm(halflife=3).mean() of the team's net goals (for - against) over strictly-prior games",
+   "source": "decided game scores",
+   "lookback": "decaying (halflife=3 games)"
+  },
+  "ewm_goal_share_diff": {
+   "tooltip": "What: Home minus away exponentially-weighted goal share\nDefinition: ewm(halflife=3).mean() of goals_for / (goals_for + goals_against) over strictly-prior games \u2014 possession-neutral scoring strength in [0, 1]\nSource: decided game scores\nWindow: decaying (halflife=3 games) \u00b7 Built as: per-team EWM of the per-game goal share\nPoint-in-time rule: per-team ewm over prior games then shift(1)\nMissing values: NaN when the team has no prior games\nAvailable to: [\u2019linear\u2019, \u2019tree\u2019]",
+   "summary": "Home minus away exponentially-weighted goal share",
+   "description": "Home minus away exponentially-weighted goal share",
+   "definition": "ewm(halflife=3).mean() of goals_for / (goals_for + goals_against) over strictly-prior games \u2014 possession-neutral scoring strength in [0, 1]",
+   "source": "decided game scores",
+   "lookback": "decaying (halflife=3 games)"
+  },
+  "ga_per_game_diff": {
+   "tooltip": "What: Home minus away trailing goals allowed per game\nDefinition: rolling(5).mean() of goals against over strictly-prior games (lower = stingier defense; the diff is home \u2212 away)\nSource: decided game scores\nWindow: 5 \u00b7 Built as: trailing windowed mean\nPoint-in-time rule: per-team rolling(5).mean().shift(1)\nMissing values: NaN when the team has no prior games\nAvailable to: [\u2019linear\u2019, \u2019tree\u2019]",
+   "summary": "Home minus away trailing goals allowed per game",
+   "description": "Home minus away trailing goals allowed per game",
+   "definition": "rolling(5).mean() of goals against over strictly-prior games (lower = stingier defense; the diff is home \u2212 away)",
+   "source": "decided game scores",
+   "lookback": 5
+  },
+  "shots_for_per_game_diff": {
+   "tooltip": "What: Home minus away trailing shots on goal per game\nDefinition: rolling(5).mean() of team shots on goal over strictly-prior games\nSource: official NHL API boxscores (team SOG), falling back to the settled score feed\u2019s identical team SOG when a boxscore row is missing\nWindow: 5 \u00b7 Built as: trailing windowed mean\nPoint-in-time rule: per-team rolling(5).mean().shift(1)\nMissing values: NaN when the team has no prior games with SOG recorded\nAvailable to: [\u2019linear\u2019, \u2019tree\u2019]",
+   "summary": "Home minus away trailing shots on goal per game",
+   "description": "Home minus away trailing shots on goal per game",
+   "definition": "rolling(5).mean() of team shots on goal over strictly-prior games",
+   "source": "official NHL API boxscores (team SOG), falling back to the settled score feed's identical team SOG when a boxscore row is missing",
+   "lookback": 5
+  },
+  "shots_against_per_game_diff": {
+   "tooltip": "What: Home minus away trailing shots against per game\nDefinition: rolling(5).mean() of opponent shots on goal over strictly-prior games (lower = better defensive structure)\nSource: official NHL API boxscores (team SOG), falling back to the settled score feed\u2019s identical team SOG when a boxscore row is missing\nWindow: 5 \u00b7 Built as: trailing windowed mean\nPoint-in-time rule: per-team rolling(5).mean().shift(1)\nMissing values: NaN when the team has no prior games with SOG recorded\nAvailable to: [\u2019linear\u2019, \u2019tree\u2019]",
+   "summary": "Home minus away trailing shots against per game",
+   "description": "Home minus away trailing shots against per game",
+   "definition": "rolling(5).mean() of opponent shots on goal over strictly-prior games (lower = better defensive structure)",
+   "source": "official NHL API boxscores (team SOG), falling back to the settled score feed's identical team SOG when a boxscore row is missing",
+   "lookback": 5
+  },
+  "pp_success_diff": {
+   "tooltip": "What: Home minus away trailing power-play success rate\nDefinition: pooled team power-play goals / opportunities over five prior games\nSource: official NHL API right-rail teamGameStats (powerPlay)\nWindow: 5 \u00b7 Built as: trailing pooled count ratio\nPoint-in-time rule: per-team rolling(5) sums then shift(1)\nMissing values: NaN without observed opportunities; zero chances contribute zero counts, missing games contribute neither count\nAvailable to: [\u2019linear\u2019, \u2019tree\u2019]",
+   "summary": "Home minus away trailing power-play success rate",
+   "description": "Home minus away trailing power-play success rate",
+   "definition": "pooled team power-play goals / opportunities over five prior games",
+   "source": "official NHL API right-rail teamGameStats (powerPlay)",
+   "lookback": 5
+  },
+  "faceoff_win_diff": {
+   "tooltip": "What: Home minus away trailing faceoff win rate\nDefinition: pooled team faceoff wins / attempts over five strictly-prior games\nSource: official NHL API right-rail teamGameStats (faceoffWins)\nWindow: 5 \u00b7 Built as: trailing pooled count ratio\nPoint-in-time rule: per-team rolling(5) sums then shift(1)\nMissing values: NaN when the team has no prior games with faceoff data\nAvailable to: [\u2019linear\u2019, \u2019tree\u2019]",
+   "summary": "Home minus away trailing faceoff win rate",
+   "description": "Home minus away trailing faceoff win rate",
+   "definition": "pooled team faceoff wins / attempts over five strictly-prior games",
+   "source": "official NHL API right-rail teamGameStats (faceoffWins)",
+   "lookback": 5
+  },
+  "back_to_back_diff": {
+   "tooltip": "What: Home minus away back-to-back flag (rest < 1 day)\nDefinition: 1.0 when the team played the previous calendar day else 0.0; home flag minus away flag\nSource: official NHL API schedule\nWindow: 1 \u00b7 Built as: thresholded date difference\nPoint-in-time rule: function of the team\u2019s strictly-prior game date\nMissing values: NaN when either team has no prior game\nAvailable to: [\u2019linear\u2019, \u2019tree\u2019]",
+   "summary": "Home minus away back-to-back flag (rest < 1 day)",
+   "description": "Home minus away back-to-back flag (rest < 1 day)",
+   "definition": "1.0 when the team played the previous calendar day else 0.0; home flag minus away flag",
+   "source": "official NHL API schedule",
+   "lookback": 1
+  },
+  "nhl_giveaways_pg_ewm_diff": {
+   "tooltip": "What: Home minus away trailing giveaways per game (committed turnovers)\nDefinition: exponentially-weighted mean (halflife=3 games) of each team\u2019s per-game giveaways over strictly-prior games; home \u2212 away\nSource: official NHL API boxscores (team giveaways)\nWindow: decaying (halflife=3 games) \u00b7 Built as: per-team EWM of the per-game count\nPoint-in-time rule: trailing EWM then shift(1) \u2014 strictly-prior games only\nMissing values: NaN when the team has no prior games with boxscore data\nAvailable to: [\u2019linear\u2019, \u2019tree\u2019]",
+   "summary": "Home minus away trailing giveaways per game (committed turnovers)",
+   "description": "Home minus away trailing giveaways per game (committed turnovers)",
+   "definition": "exponentially-weighted mean (halflife=3 games) of each team's per-game giveaways over strictly-prior games; home \u2212 away",
+   "source": "official NHL API boxscores (team giveaways)",
+   "lookback": "decaying (halflife=3 games)"
+  },
+  "nhl_takeaways_pg_ewm_diff": {
+   "tooltip": "What: Home minus away trailing takeaways per game (forced turnovers)\nDefinition: exponentially-weighted mean (halflife=3 games) of each team\u2019s per-game takeaways over strictly-prior games; home \u2212 away\nSource: official NHL API boxscores (team takeaways)\nWindow: decaying (halflife=3 games) \u00b7 Built as: per-team EWM of the per-game count\nPoint-in-time rule: trailing EWM then shift(1) \u2014 strictly-prior games only\nMissing values: NaN when the team has no prior games with boxscore data\nAvailable to: [\u2019linear\u2019, \u2019tree\u2019]",
+   "summary": "Home minus away trailing takeaways per game (forced turnovers)",
+   "description": "Home minus away trailing takeaways per game (forced turnovers)",
+   "definition": "exponentially-weighted mean (halflife=3 games) of each team's per-game takeaways over strictly-prior games; home \u2212 away",
+   "source": "official NHL API boxscores (team takeaways)",
+   "lookback": "decaying (halflife=3 games)"
+  },
+  "goalie_sv_pct_diff": {
+   "tooltip": "What: Home minus away expected-starter rolling save percentage\nDefinition: season-to-date (rolling-30-start EWM) save percentage of each team\u2019s expected starting goalie; home \u2212 away. The NHL analog of MLB\u2019s SP ERA diff\nSource: official NHL API boxscores (goalie TOI + decision + shots faced)\nWindow: decaying (halflife=3 starts) over the season\u2019s starts \u00b7 Built as: per-goalie EWM of the per-start save fraction\nPoint-in-time rule: each goalie\u2019s strictly-prior starts only; the expected starter is the highest SEASON-TO-DATE prior-workload AVAILABLE goalie (season-scoped, so a prior-season workhorse cannot be served as tonight\u2019s starter) \u2014 goalies known unavailable strictly before puck drop (Out/IR/Doubtful from the ESPN snapshot replay, or an announced non-medical leave from the versioned nhl_leave_events.json ledger, replayed as intervals) are removed from the workload vote before it runs, and the fallback follows the same opportunity order over the remaining goalies; every candidate excluded -> honest NaN; starter vote uses team/season workload, prior observed team changes and fresh roster captures strictly before exact puck drop; quality uses only earlier game dates\nMissing values: NaN when the team has no goalie with a prior start this season (e.g. opening-night unknown starter); never fabricated\nAvailable to: [\u2019linear\u2019, \u2019tree\u2019]",
+   "summary": "Home minus away expected-starter rolling save percentage",
+   "description": "Home minus away expected-starter rolling save percentage",
+   "definition": "season-to-date (rolling-30-start EWM) save percentage of each team's expected starting goalie; home \u2212 away. The NHL analog of MLB's SP ERA diff",
+   "source": "official NHL API boxscores (goalie TOI + decision + shots faced)",
+   "lookback": "decaying (halflife=3 starts) over the season's starts"
+  },
+  "goalie_gaa_diff": {
+   "tooltip": "What: Home minus away expected-starter rolling goals-against average\nDefinition: season-to-date (rolling-30-start EWM) GAA of each team\u2019s expected starting goalie; home \u2212 away. The NHL analog of MLB\u2019s SP K/9 diff\nSource: official NHL API boxscores (goalie goals against + TOI)\nWindow: decaying (halflife=3 starts) over the season\u2019s starts \u00b7 Built as: per-goalie EWM of the per-start goals-against rate (per 60 min)\nPoint-in-time rule: each goalie\u2019s strictly-prior starts only; starter vote uses team/season workload, prior observed team changes and fresh roster captures strictly before exact puck drop; quality uses only earlier game dates\nMissing values: NaN when no goalie has a prior start; never fabricated\nAvailable to: [\u2019linear\u2019, \u2019tree\u2019]",
+   "summary": "Home minus away expected-starter rolling goals-against average",
+   "description": "Home minus away expected-starter rolling goals-against average",
+   "definition": "season-to-date (rolling-30-start EWM) GAA of each team's expected starting goalie; home \u2212 away. The NHL analog of MLB's SP K/9 diff",
+   "source": "official NHL API boxscores (goalie goals against + TOI)",
+   "lookback": "decaying (halflife=3 starts) over the season's starts"
+  },
+  "goalie_starts_diff": {
+   "tooltip": "What: Home minus away expected-starter season starts\nDefinition: season-to-date starts of each team\u2019s expected starting goalie \u2014 a workload/experience proxy for the SV%/GAA pair\nSource: official NHL API boxscores (goalie appearances)\nWindow: season to date \u00b7 Built as: per-goalie start count\nPoint-in-time rule: strictly-prior starts only; the expected starter excludes goalies known unavailable strictly before puck drop (injury snapshots or announced non-medical leaves); starter vote uses team/season workload, prior observed team changes and fresh roster captures strictly before exact puck drop; quality uses only earlier game dates\nMissing values: NaN when no goalie has a prior start\nAvailable to: [\u2019linear\u2019, \u2019tree\u2019]",
+   "summary": "Home minus away expected-starter season starts",
+   "description": "Home minus away expected-starter season starts",
+   "definition": "season-to-date starts of each team's expected starting goalie \u2014 a workload/experience proxy for the SV%/GAA pair",
+   "source": "official NHL API boxscores (goalie appearances)",
+   "lookback": "season to date"
+  },
+  "is_playoffs": {
+   "tooltip": "What: Postseason game flag\nDefinition: 1.0 when the game\u2019s gameType is 3 (playoffs) else 0.0\nSource: official NHL API gameType\nWindow: \u2014 \u00b7 Built as: static pre-game fact\nPoint-in-time rule: known before puck drop\nMissing values: 0.0 when gameType is absent (defaults to regular season)\nAvailable to: [\u2019linear\u2019, \u2019tree\u2019]",
+   "summary": "Postseason game flag",
+   "description": "Postseason game flag",
+   "definition": "1.0 when the game's gameType is 3 (playoffs) else 0.0",
+   "source": "official NHL API gameType",
+   "lookback": 0
+  },
+  "net_rating_sum": {
+   "tooltip": "What: Combined fitted net strength of both clubs\nDefinition: net_rating_home + net_rating_away, where net_rating_T = off_rating_T + def_rating_T; symmetric in the two sides and identical for both teams in a game\nSource: official NHL API scores + MoneyPuck goalie/skater archives (team goals, goalie form, prior-season goals)\nWindow: expanding settled history with a 240-day recency half-life; weekly refit at each 7th observed game date \u00b7 Built as: sum of both clubs\u2019 net coefficients from one weighted ridge goal model (alpha 50)\nPoint-in-time rule: each weekly fit uses only games strictly before its anchor; never sees the current game\nMissing values: NaN until 200 settled training games and for teams with no prior season; in-model handling (median imputation)\nAvailable to: [\u2019linear\u2019, \u2019tree\u2019]",
+   "summary": "Combined fitted net strength of both clubs",
+   "description": "Combined fitted net strength of both clubs",
+   "definition": "net_rating_home + net_rating_away, where net_rating_T = off_rating_T + def_rating_T; symmetric in the two sides and identical for both teams in a game",
+   "source": "official NHL API scores + MoneyPuck goalie/skater archives (team goals, goalie form, prior-season goals)",
+   "lookback": "expanding settled history with a 240-day recency half-life; weekly refit at each 7th observed game date"
+  },
+  "ewm_net_goals_home": {
+   "tooltip": "What: Home team\u2019s exponentially-weighted net goals per game\nDefinition: ewm(halflife=3).mean() of the team\u2019s net goals (for - against) over strictly-prior games\nSource: decided game scores\nWindow: decaying (halflife=3 games) \u00b7 Built as: per-team EWM\nPoint-in-time rule: per-team ewm over prior games then shift(1)\nMissing values: NaN when the team has no prior games\nAvailable to: [\u2019tree\u2019]",
+   "summary": "Home team's exponentially-weighted net goals per game",
+   "description": "Home team's exponentially-weighted net goals per game",
+   "definition": "ewm(halflife=3).mean() of the team's net goals (for - against) over strictly-prior games",
+   "source": "decided game scores",
+   "lookback": "decaying (halflife=3 games)"
+  },
+  "ewm_net_goals_away": {
+   "tooltip": "What: Away team\u2019s exponentially-weighted net goals per game\nDefinition: ewm(halflife=3).mean() of the team\u2019s net goals (for - against) over strictly-prior games\nSource: decided game scores\nWindow: decaying (halflife=3 games) \u00b7 Built as: per-team EWM\nPoint-in-time rule: per-team ewm over prior games then shift(1)\nMissing values: NaN when the team has no prior games\nAvailable to: [\u2019tree\u2019]",
+   "summary": "Away team's exponentially-weighted net goals per game",
+   "description": "Away team's exponentially-weighted net goals per game",
+   "definition": "ewm(halflife=3).mean() of the team's net goals (for - against) over strictly-prior games",
+   "source": "decided game scores",
+   "lookback": "decaying (halflife=3 games)"
+  },
+  "ewm_goal_share_home": {
+   "tooltip": "What: Home team\u2019s exponentially-weighted goal share\nDefinition: ewm(halflife=3).mean() of goals_for / (goals_for + goals_against) over strictly-prior games -- home side of ewm_goal_share_diff\nSource: decided game scores\nWindow: decaying (halflife=3 games) \u00b7 Built as: per-team EWM of the per-game goal share\nPoint-in-time rule: per-team ewm over prior games then shift(1)\nMissing values: NaN when the team has no prior games\nAvailable to: [\u2019tree\u2019]",
+   "summary": "Home team's exponentially-weighted goal share",
+   "description": "Home team's exponentially-weighted goal share",
+   "definition": "ewm(halflife=3).mean() of goals_for / (goals_for + goals_against) over strictly-prior games -- home side of ewm_goal_share_diff",
+   "source": "decided game scores",
+   "lookback": "decaying (halflife=3 games)"
+  },
+  "ewm_goal_share_away": {
+   "tooltip": "What: Away team\u2019s exponentially-weighted goal share\nDefinition: ewm(halflife=3).mean() of goals_for / (goals_for + goals_against) over strictly-prior games -- away side of ewm_goal_share_diff\nSource: decided game scores\nWindow: decaying (halflife=3 games) \u00b7 Built as: per-team EWM of the per-game goal share\nPoint-in-time rule: per-team ewm over prior games then shift(1)\nMissing values: NaN when the team has no prior games\nAvailable to: [\u2019tree\u2019]",
+   "summary": "Away team's exponentially-weighted goal share",
+   "description": "Away team's exponentially-weighted goal share",
+   "definition": "ewm(halflife=3).mean() of goals_for / (goals_for + goals_against) over strictly-prior games -- away side of ewm_goal_share_diff",
+   "source": "decided game scores",
+   "lookback": "decaying (halflife=3 games)"
+  },
+  "rest_days_home": {
+   "tooltip": "What: Home team\u2019s days since its previous game\nDefinition: (game_date_t - game_date_{t-1}).days for the home team\nSource: official NHL API schedule\nWindow: 1 \u00b7 Built as: date difference\nPoint-in-time rule: days since the team\u2019s own strictly-prior game\nMissing values: NaN for a team\u2019s first game of the window; in-model handling\nAvailable to: [\u2019tree\u2019]",
+   "summary": "Home team's days since its previous game",
+   "description": "Home team's days since its previous game",
+   "definition": "(game_date_t - game_date_{t-1}).days for the home team",
+   "source": "official NHL API schedule",
+   "lookback": 1
+  },
+  "rest_days_away": {
+   "tooltip": "What: Away team\u2019s days since its previous game\nDefinition: (game_date_t - game_date_{t-1}).days for the away team\nSource: official NHL API schedule\nWindow: 1 \u00b7 Built as: date difference\nPoint-in-time rule: days since the team\u2019s own strictly-prior game\nMissing values: NaN for a team\u2019s first game of the window; in-model handling\nAvailable to: [\u2019tree\u2019]",
+   "summary": "Away team's days since its previous game",
+   "description": "Away team's days since its previous game",
+   "definition": "(game_date_t - game_date_{t-1}).days for the away team",
+   "source": "official NHL API schedule",
+   "lookback": 1
+  },
+  "ga_per_game_home": {
+   "tooltip": "What: Home team\u2019s trailing goals allowed per game\nDefinition: rolling(5).mean() of goals against over strictly-prior games (lower = stingier defense) -- home side of ga_per_game_diff\nSource: decided game scores\nWindow: 5 \u00b7 Built as: trailing windowed mean\nPoint-in-time rule: per-team rolling(5).mean().shift(1)\nMissing values: NaN when the team has no prior games\nAvailable to: [\u2019tree\u2019]",
+   "summary": "Home team's trailing goals allowed per game",
+   "description": "Home team's trailing goals allowed per game",
+   "definition": "rolling(5).mean() of goals against over strictly-prior games (lower = stingier defense) -- home side of ga_per_game_diff",
+   "source": "decided game scores",
+   "lookback": 5
+  },
+  "ga_per_game_away": {
+   "tooltip": "What: Away team\u2019s trailing goals allowed per game\nDefinition: rolling(5).mean() of goals against over strictly-prior games (lower = stingier defense) -- away side of ga_per_game_diff\nSource: decided game scores\nWindow: 5 \u00b7 Built as: trailing windowed mean\nPoint-in-time rule: per-team rolling(5).mean().shift(1)\nMissing values: NaN when the team has no prior games\nAvailable to: [\u2019tree\u2019]",
+   "summary": "Away team's trailing goals allowed per game",
+   "description": "Away team's trailing goals allowed per game",
+   "definition": "rolling(5).mean() of goals against over strictly-prior games (lower = stingier defense) -- away side of ga_per_game_diff",
+   "source": "decided game scores",
+   "lookback": 5
+  },
+  "shots_for_per_game_home": {
+   "tooltip": "What: Home team\u2019s trailing shots on goal per game\nDefinition: rolling(5).mean() of team shots on goal over strictly-prior games (home side of shots_for_per_game_diff)\nSource: official NHL API boxscores (team SOG), falling back to the settled score feed\u2019s identical team SOG when a boxscore row is missing\nWindow: 5 \u00b7 Built as: trailing windowed mean\nPoint-in-time rule: per-team rolling(5).mean().shift(1)\nMissing values: NaN when the team has no prior games with SOG recorded\nAvailable to: [\u2019tree\u2019]",
+   "summary": "Home team's trailing shots on goal per game",
+   "description": "Home team's trailing shots on goal per game",
+   "definition": "rolling(5).mean() of team shots on goal over strictly-prior games (home side of shots_for_per_game_diff)",
+   "source": "official NHL API boxscores (team SOG), falling back to the settled score feed's identical team SOG when a boxscore row is missing",
+   "lookback": 5
+  },
+  "shots_for_per_game_away": {
+   "tooltip": "What: Away team\u2019s trailing shots on goal per game\nDefinition: rolling(5).mean() of team shots on goal over strictly-prior games (away side of shots_for_per_game_diff)\nSource: official NHL API boxscores (team SOG), falling back to the settled score feed\u2019s identical team SOG when a boxscore row is missing\nWindow: 5 \u00b7 Built as: trailing windowed mean\nPoint-in-time rule: per-team rolling(5).mean().shift(1)\nMissing values: NaN when the team has no prior games with SOG recorded\nAvailable to: [\u2019tree\u2019]",
+   "summary": "Away team's trailing shots on goal per game",
+   "description": "Away team's trailing shots on goal per game",
+   "definition": "rolling(5).mean() of team shots on goal over strictly-prior games (away side of shots_for_per_game_diff)",
+   "source": "official NHL API boxscores (team SOG), falling back to the settled score feed's identical team SOG when a boxscore row is missing",
+   "lookback": 5
+  },
+  "shots_against_per_game_home": {
+   "tooltip": "What: Home team\u2019s trailing shots allowed per game\nDefinition: rolling(5).mean() of opponent shots on goal over strictly-prior games (lower = better defensive structure) -- home side of shots_against_per_game_diff\nSource: official NHL API boxscores (team SOG), falling back to the settled score feed\u2019s identical team SOG when a boxscore row is missing\nWindow: 5 \u00b7 Built as: trailing windowed mean\nPoint-in-time rule: per-team rolling(5).mean().shift(1)\nMissing values: NaN when the team has no prior games with SOG recorded\nAvailable to: [\u2019tree\u2019]",
+   "summary": "Home team's trailing shots allowed per game",
+   "description": "Home team's trailing shots allowed per game",
+   "definition": "rolling(5).mean() of opponent shots on goal over strictly-prior games (lower = better defensive structure) -- home side of shots_against_per_game_diff",
+   "source": "official NHL API boxscores (team SOG), falling back to the settled score feed's identical team SOG when a boxscore row is missing",
+   "lookback": 5
+  },
+  "shots_against_per_game_away": {
+   "tooltip": "What: Away team\u2019s trailing shots allowed per game\nDefinition: rolling(5).mean() of opponent shots on goal over strictly-prior games (lower = better defensive structure) -- away side of shots_against_per_game_diff\nSource: official NHL API boxscores (team SOG), falling back to the settled score feed\u2019s identical team SOG when a boxscore row is missing\nWindow: 5 \u00b7 Built as: trailing windowed mean\nPoint-in-time rule: per-team rolling(5).mean().shift(1)\nMissing values: NaN when the team has no prior games with SOG recorded\nAvailable to: [\u2019tree\u2019]",
+   "summary": "Away team's trailing shots allowed per game",
+   "description": "Away team's trailing shots allowed per game",
+   "definition": "rolling(5).mean() of opponent shots on goal over strictly-prior games (lower = better defensive structure) -- away side of shots_against_per_game_diff",
+   "source": "official NHL API boxscores (team SOG), falling back to the settled score feed's identical team SOG when a boxscore row is missing",
+   "lookback": 5
+  },
+  "pp_success_home": {
+   "tooltip": "What: Home team\u2019s trailing power-play success rate\nDefinition: pooled power-play goals / opportunities over the trailing window (volume-weighted) -- home side of pp_success_diff\nSource: official NHL API right-rail teamGameStats (powerPlay)\nWindow: 5 \u00b7 Built as: trailing pooled count ratio\nPoint-in-time rule: per-team rolling(5) sums then shift(1)\nMissing values: NaN when the team has no power-play opportunities in the window\nAvailable to: [\u2019tree\u2019]",
+   "summary": "Home team's trailing power-play success rate",
+   "description": "Home team's trailing power-play success rate",
+   "definition": "pooled power-play goals / opportunities over the trailing window (volume-weighted) -- home side of pp_success_diff",
+   "source": "official NHL API right-rail teamGameStats (powerPlay)",
+   "lookback": 5
+  },
+  "pp_success_away": {
+   "tooltip": "What: Away team\u2019s trailing power-play success rate\nDefinition: pooled power-play goals / opportunities over the trailing window (volume-weighted) -- away side of pp_success_diff\nSource: official NHL API right-rail teamGameStats (powerPlay)\nWindow: 5 \u00b7 Built as: trailing pooled count ratio\nPoint-in-time rule: per-team rolling(5) sums then shift(1)\nMissing values: NaN when the team has no power-play opportunities in the window\nAvailable to: [\u2019tree\u2019]",
+   "summary": "Away team's trailing power-play success rate",
+   "description": "Away team's trailing power-play success rate",
+   "definition": "pooled power-play goals / opportunities over the trailing window (volume-weighted) -- away side of pp_success_diff",
+   "source": "official NHL API right-rail teamGameStats (powerPlay)",
+   "lookback": 5
+  },
+  "faceoff_win_home": {
+   "tooltip": "What: Home team\u2019s trailing faceoff win rate\nDefinition: pooled team faceoff wins / attempts over five strictly-prior games (home side of faceoff_win_diff)\nSource: official NHL API right-rail teamGameStats (faceoffWins)\nWindow: 5 \u00b7 Built as: trailing pooled count ratio\nPoint-in-time rule: per-team rolling(5) sums then shift(1)\nMissing values: NaN when the team has no prior games with faceoff data\nAvailable to: [\u2019tree\u2019]",
+   "summary": "Home team's trailing faceoff win rate",
+   "description": "Home team's trailing faceoff win rate",
+   "definition": "pooled team faceoff wins / attempts over five strictly-prior games (home side of faceoff_win_diff)",
+   "source": "official NHL API right-rail teamGameStats (faceoffWins)",
+   "lookback": 5
+  },
+  "faceoff_win_away": {
+   "tooltip": "What: Away team\u2019s trailing faceoff win rate\nDefinition: pooled team faceoff wins / attempts over five strictly-prior games (away side of faceoff_win_diff)\nSource: official NHL API right-rail teamGameStats (faceoffWins)\nWindow: 5 \u00b7 Built as: trailing pooled count ratio\nPoint-in-time rule: per-team rolling(5) sums then shift(1)\nMissing values: NaN when the team has no prior games with faceoff data\nAvailable to: [\u2019tree\u2019]",
+   "summary": "Away team's trailing faceoff win rate",
+   "description": "Away team's trailing faceoff win rate",
+   "definition": "pooled team faceoff wins / attempts over five strictly-prior games (away side of faceoff_win_diff)",
+   "source": "official NHL API right-rail teamGameStats (faceoffWins)",
+   "lookback": 5
+  },
+  "back_to_back_home": {
+   "tooltip": "What: Home team\u2019s back-to-back flag (rest < 1 day)\nDefinition: 1.0 when the team played the previous calendar day else 0.0 (home side of back_to_back_diff)\nSource: official NHL API schedule\nWindow: 1 \u00b7 Built as: thresholded date difference\nPoint-in-time rule: function of the team\u2019s strictly-prior game date\nMissing values: NaN for a team\u2019s first game of the window\nAvailable to: [\u2019tree\u2019]",
+   "summary": "Home team's back-to-back flag (rest < 1 day)",
+   "description": "Home team's back-to-back flag (rest < 1 day)",
+   "definition": "1.0 when the team played the previous calendar day else 0.0 (home side of back_to_back_diff)",
+   "source": "official NHL API schedule",
+   "lookback": 1
+  },
+  "back_to_back_away": {
+   "tooltip": "What: Away team\u2019s back-to-back flag (rest < 1 day)\nDefinition: 1.0 when the team played the previous calendar day else 0.0 (away side of back_to_back_diff)\nSource: official NHL API schedule\nWindow: 1 \u00b7 Built as: thresholded date difference\nPoint-in-time rule: function of the team\u2019s strictly-prior game date\nMissing values: NaN for a team\u2019s first game of the window\nAvailable to: [\u2019tree\u2019]",
+   "summary": "Away team's back-to-back flag (rest < 1 day)",
+   "description": "Away team's back-to-back flag (rest < 1 day)",
+   "definition": "1.0 when the team played the previous calendar day else 0.0 (away side of back_to_back_diff)",
+   "source": "official NHL API schedule",
+   "lookback": 1
+  },
+  "nhl_giveaways_pg_ewm_home": {
+   "tooltip": "What: Home team\u2019s trailing giveaways per game\nDefinition: exponentially-weighted mean (halflife=3 games) of the home team\u2019s per-game giveaways over strictly-prior games (home side of nhl_giveaways_pg_ewm_diff)\nSource: official NHL API boxscores (team giveaways)\nWindow: decaying (halflife=3 games) \u00b7 Built as: per-team EWM of the per-game count\nPoint-in-time rule: trailing EWM then shift(1) \u2014 strictly-prior games only\nMissing values: NaN when the team has no prior games with boxscore data\nAvailable to: [\u2019tree\u2019]",
+   "summary": "Home team's trailing giveaways per game",
+   "description": "Home team's trailing giveaways per game",
+   "definition": "exponentially-weighted mean (halflife=3 games) of the home team's per-game giveaways over strictly-prior games (home side of nhl_giveaways_pg_ewm_diff)",
+   "source": "official NHL API boxscores (team giveaways)",
+   "lookback": "decaying (halflife=3 games)"
+  },
+  "nhl_giveaways_pg_ewm_away": {
+   "tooltip": "What: Away team\u2019s trailing giveaways per game\nDefinition: exponentially-weighted mean (halflife=3 games) of the away team\u2019s per-game giveaways over strictly-prior games (away side of nhl_giveaways_pg_ewm_diff)\nSource: official NHL API boxscores (team giveaways)\nWindow: decaying (halflife=3 games) \u00b7 Built as: per-team EWM of the per-game count\nPoint-in-time rule: trailing EWM then shift(1) \u2014 strictly-prior games only\nMissing values: NaN when the team has no prior games with boxscore data\nAvailable to: [\u2019tree\u2019]",
+   "summary": "Away team's trailing giveaways per game",
+   "description": "Away team's trailing giveaways per game",
+   "definition": "exponentially-weighted mean (halflife=3 games) of the away team's per-game giveaways over strictly-prior games (away side of nhl_giveaways_pg_ewm_diff)",
+   "source": "official NHL API boxscores (team giveaways)",
+   "lookback": "decaying (halflife=3 games)"
+  },
+  "nhl_takeaways_pg_ewm_home": {
+   "tooltip": "What: Home team\u2019s trailing takeaways per game\nDefinition: exponentially-weighted mean (halflife=3 games) of the home team\u2019s per-game takeaways over strictly-prior games (home side of nhl_takeaways_pg_ewm_diff)\nSource: official NHL API boxscores (team takeaways)\nWindow: decaying (halflife=3 games) \u00b7 Built as: per-team EWM of the per-game count\nPoint-in-time rule: trailing EWM then shift(1) \u2014 strictly-prior games only\nMissing values: NaN when the team has no prior games with boxscore data\nAvailable to: [\u2019tree\u2019]",
+   "summary": "Home team's trailing takeaways per game",
+   "description": "Home team's trailing takeaways per game",
+   "definition": "exponentially-weighted mean (halflife=3 games) of the home team's per-game takeaways over strictly-prior games (home side of nhl_takeaways_pg_ewm_diff)",
+   "source": "official NHL API boxscores (team takeaways)",
+   "lookback": "decaying (halflife=3 games)"
+  },
+  "nhl_takeaways_pg_ewm_away": {
+   "tooltip": "What: Away team\u2019s trailing takeaways per game\nDefinition: exponentially-weighted mean (halflife=3 games) of the away team\u2019s per-game takeaways over strictly-prior games (away side of nhl_takeaways_pg_ewm_diff)\nSource: official NHL API boxscores (team takeaways)\nWindow: decaying (halflife=3 games) \u00b7 Built as: per-team EWM of the per-game count\nPoint-in-time rule: trailing EWM then shift(1) \u2014 strictly-prior games only\nMissing values: NaN when the team has no prior games with boxscore data\nAvailable to: [\u2019tree\u2019]",
+   "summary": "Away team's trailing takeaways per game",
+   "description": "Away team's trailing takeaways per game",
+   "definition": "exponentially-weighted mean (halflife=3 games) of the away team's per-game takeaways over strictly-prior games (away side of nhl_takeaways_pg_ewm_diff)",
+   "source": "official NHL API boxscores (team takeaways)",
+   "lookback": "decaying (halflife=3 games)"
+  },
+  "goalie_sv_pct_home": {
+   "tooltip": "What: Home team\u2019s expected-starter rolling save percentage\nDefinition: season-to-date (rolling-30-start EWM) save percentage of the home team\u2019s expected starting goalie (home side of goalie_sv_pct_diff)\nSource: official NHL API boxscores (goalie TOI + decision + shots faced)\nWindow: decaying (halflife=3 starts) over the season\u2019s starts \u00b7 Built as: per-goalie EWM of the per-start save fraction\nPoint-in-time rule: each goalie\u2019s strictly-prior starts only; starter vote uses team/season workload, prior observed team changes and fresh roster captures strictly before exact puck drop; quality uses only earlier game dates\nMissing values: NaN when the team has no goalie with a prior start this season; never fabricated\nAvailable to: [\u2019tree\u2019]",
+   "summary": "Home team's expected-starter rolling save percentage",
+   "description": "Home team's expected-starter rolling save percentage",
+   "definition": "season-to-date (rolling-30-start EWM) save percentage of the home team's expected starting goalie (home side of goalie_sv_pct_diff)",
+   "source": "official NHL API boxscores (goalie TOI + decision + shots faced)",
+   "lookback": "decaying (halflife=3 starts) over the season's starts"
+  },
+  "goalie_sv_pct_away": {
+   "tooltip": "What: Away team\u2019s expected-starter rolling save percentage\nDefinition: season-to-date (rolling-30-start EWM) save percentage of the away team\u2019s expected starting goalie (away side of goalie_sv_pct_diff)\nSource: official NHL API boxscores (goalie TOI + decision + shots faced)\nWindow: decaying (halflife=3 starts) over the season\u2019s starts \u00b7 Built as: per-goalie EWM of the per-start save fraction\nPoint-in-time rule: each goalie\u2019s strictly-prior starts only; starter vote uses team/season workload, prior observed team changes and fresh roster captures strictly before exact puck drop; quality uses only earlier game dates\nMissing values: NaN when the team has no goalie with a prior start this season; never fabricated\nAvailable to: [\u2019tree\u2019]",
+   "summary": "Away team's expected-starter rolling save percentage",
+   "description": "Away team's expected-starter rolling save percentage",
+   "definition": "season-to-date (rolling-30-start EWM) save percentage of the away team's expected starting goalie (away side of goalie_sv_pct_diff)",
+   "source": "official NHL API boxscores (goalie TOI + decision + shots faced)",
+   "lookback": "decaying (halflife=3 starts) over the season's starts"
+  },
+  "goalie_gaa_home": {
+   "tooltip": "What: Home team\u2019s expected-starter rolling goals-against average\nDefinition: season-to-date (rolling-30-start EWM) GAA of the home team\u2019s expected starting goalie (home side of goalie_gaa_diff)\nSource: official NHL API boxscores (goalie goals against + TOI)\nWindow: decaying (halflife=3 starts) over the season\u2019s starts \u00b7 Built as: per-goalie EWM of the per-start goals-against rate (per 60 min)\nPoint-in-time rule: each goalie\u2019s strictly-prior starts only; starter vote uses team/season workload, prior observed team changes and fresh roster captures strictly before exact puck drop; quality uses only earlier game dates\nMissing values: NaN when no goalie has a prior start; never fabricated\nAvailable to: [\u2019tree\u2019]",
+   "summary": "Home team's expected-starter rolling goals-against average",
+   "description": "Home team's expected-starter rolling goals-against average",
+   "definition": "season-to-date (rolling-30-start EWM) GAA of the home team's expected starting goalie (home side of goalie_gaa_diff)",
+   "source": "official NHL API boxscores (goalie goals against + TOI)",
+   "lookback": "decaying (halflife=3 starts) over the season's starts"
+  },
+  "goalie_gaa_away": {
+   "tooltip": "What: Away team\u2019s expected-starter rolling goals-against average\nDefinition: season-to-date (rolling-30-start EWM) GAA of the away team\u2019s expected starting goalie (away side of goalie_gaa_diff)\nSource: official NHL API boxscores (goalie goals against + TOI)\nWindow: decaying (halflife=3 starts) over the season\u2019s starts \u00b7 Built as: per-goalie EWM of the per-start goals-against rate (per 60 min)\nPoint-in-time rule: each goalie\u2019s strictly-prior starts only; starter vote uses team/season workload, prior observed team changes and fresh roster captures strictly before exact puck drop; quality uses only earlier game dates\nMissing values: NaN when no goalie has a prior start; never fabricated\nAvailable to: [\u2019tree\u2019]",
+   "summary": "Away team's expected-starter rolling goals-against average",
+   "description": "Away team's expected-starter rolling goals-against average",
+   "definition": "season-to-date (rolling-30-start EWM) GAA of the away team's expected starting goalie (away side of goalie_gaa_diff)",
+   "source": "official NHL API boxscores (goalie goals against + TOI)",
+   "lookback": "decaying (halflife=3 starts) over the season's starts"
+  },
+  "goalie_starts_home": {
+   "tooltip": "What: Home team\u2019s expected-starter season starts\nDefinition: season-to-date starts of the home team\u2019s expected starting goalie (home side of goalie_starts_diff) -- a workload/experience proxy for the SV%/GAA pair\nSource: official NHL API boxscores (goalie appearances)\nWindow: season to date \u00b7 Built as: per-goalie start count\nPoint-in-time rule: strictly-prior starts only; starter vote uses team/season workload, prior observed team changes and fresh roster captures strictly before exact puck drop; quality uses only earlier game dates\nMissing values: NaN when no goalie has a prior start; never fabricated\nAvailable to: [\u2019tree\u2019]",
+   "summary": "Home team's expected-starter season starts",
+   "description": "Home team's expected-starter season starts",
+   "definition": "season-to-date starts of the home team's expected starting goalie (home side of goalie_starts_diff) -- a workload/experience proxy for the SV%/GAA pair",
+   "source": "official NHL API boxscores (goalie appearances)",
+   "lookback": "season to date"
+  },
+  "goalie_starts_away": {
+   "tooltip": "What: Away team\u2019s expected-starter season starts\nDefinition: season-to-date starts of the away team\u2019s expected starting goalie (away side of goalie_starts_diff) -- a workload/experience proxy for the SV%/GAA pair\nSource: official NHL API boxscores (goalie appearances)\nWindow: season to date \u00b7 Built as: per-goalie start count\nPoint-in-time rule: strictly-prior starts only; starter vote uses team/season workload, prior observed team changes and fresh roster captures strictly before exact puck drop; quality uses only earlier game dates\nMissing values: NaN when no goalie has a prior start; never fabricated\nAvailable to: [\u2019tree\u2019]",
+   "summary": "Away team's expected-starter season starts",
+   "description": "Away team's expected-starter season starts",
+   "definition": "season-to-date starts of the away team's expected starting goalie (away side of goalie_starts_diff) -- a workload/experience proxy for the SV%/GAA pair",
+   "source": "official NHL API boxscores (goalie appearances)",
+   "lookback": "season to date"
+  },
+  "is_home": {
+   "tooltip": "What: Constant home anchor\nDefinition: 1.0 for every row \u2014 anchors the league home-ice advantage level\nSource: frame construction\nWindow: \u2014 \u00b7 Built as: constant\nPoint-in-time rule: static\nMissing values: never NaN\nAvailable to: [\u2019linear\u2019, \u2019tree\u2019]",
+   "summary": "Constant home anchor",
+   "description": "Constant home anchor",
+   "definition": "1.0 for every row \u2014 anchors the league home-ice advantage level",
+   "source": "frame construction",
+   "lookback": 0
+  },
+  "pl_xpm_away": {
+   "tooltip": "What: combined even-strength + power-play + penalty-kill + 4v4/3v3/extra attacker all-skater healthy-pool mean raw expected plus-minus per 60, away (C/L/R/D positions rolled up)\nDefinition: unweighted mean of the four position-level pool means (C, L, R, D) of raw_rate_per60 for 5on5+5on4+4on5+other, aggregated over the healthy pool -- the most recent trailing-30-game rating per player whose source game date is strictly earlier than the target date, gated at >=900s prior ice time, with any player on an Out/Injured Reserve/IR/Doubtful interval captured before puck drop REMOVED from the pool before the mean. EVO, PPO, PK and other on-ice xGF/xGA and icetime are summed inside each player-game before the rolling window, so this rate is the ice-weighted combined XPM; no shrinkage is applied. MLB\u2019s _LINEUP_AGG_ROSTER shape. No top-N cut: all 18 dressed skaters contribute in hockey. The rating itself is never modified; the flag removes a row, it does not discount a value. diff = home - away.\nSource: MoneyPuck regular-season skater game-by-game archives (on-ice xGoals pair + icetime) + ESPN timestamped injury status snapshots\nWindow: trailing 30 played games per player (combined situations) (game grain); source games within injury_stints.POOL_LOOKBACK_DAYS = 45 of the target date -- a slate whose team ratings all trail that gate (the season opener after the offseason) serves the position prior, matching MLB\u2019s LINEUP_POOL_LOOKBACK_DAYS = 10 geometry \u00b7 Built as: opportunity-weighted mean of surviving player-level raw rates (NFL snap-share parity): each candidate\u2019s weight is his own served prior icetime, applied AFTER the injury exclusion so an absent star\u2019s ice leaves the blend with him; sides with zero served weight fall back to the plain mean (counted in the pool audit)\nPoint-in-time rule: a candidate rating enters a target game\u2019s pool only when its source game date is STRICTLY earlier than the target date (date-grain source feeds cannot prove within-day publish ordering), so a target game\u2019s own row can never enter its own pool; the injury interval opens only on a captured snapshot timestamp strictly before exact puck drop (Out / Injured Reserve / IR / Doubtful -- never a provider filing or projected return date), and the exclusion is evaluated at the game date, per game.\nMissing values: mean of the four position priors (this run\u2019s measured all-teams position means) when a side has no pool row; never NaN, never 0 -- 0 would read as deliberately inert\nAvailable to: [\u2019tree\u2019]",
+   "summary": "combined even-strength + power-play + penalty-kill + 4v4/3v3/extra attacker all-skater healthy-pool mean raw expected plus-minus per 60, away (C/L/R/D positions rolled up)",
+   "description": "combined even-strength + power-play + penalty-kill + 4v4/3v3/extra attacker all-skater healthy-pool mean raw expected plus-minus per 60, away (C/L/R/D positions rolled up)",
+   "definition": "unweighted mean of the four position-level pool means (C, L, R, D) of raw_rate_per60 for 5on5+5on4+4on5+other, aggregated over the healthy pool -- the most recent trailing-30-game rating per player whose source game date is strictly earlier than the target date, gated at >=900s prior ice time, with any player on an Out/Injured Reserve/IR/Doubtful interval captured before puck drop REMOVED from the pool before the mean. EVO, PPO, PK and other on-ice xGF/xGA and icetime are summed inside each player-game before the rolling window, so this rate is the ice-weighted combined XPM; no shrinkage is applied. MLB's _LINEUP_AGG_ROSTER shape. No top-N cut: all 18 dressed skaters contribute in hockey. The rating itself is never modified; the flag removes a row, it does not discount a value. diff = home - away.",
+   "source": "MoneyPuck regular-season skater game-by-game archives (on-ice xGoals pair + icetime) + ESPN timestamped injury status snapshots",
+   "lookback": "trailing 30 played games per player (combined situations) (game grain); source games within injury_stints.POOL_LOOKBACK_DAYS = 45 of the target date -- a slate whose team ratings all trail that gate (the season opener after the offseason) serves the position prior, matching MLB's LINEUP_POOL_LOOKBACK_DAYS = 10 geometry"
+  },
+  "pl_xpm_home": {
+   "tooltip": "What: combined even-strength + power-play + penalty-kill + 4v4/3v3/extra attacker all-skater healthy-pool mean raw expected plus-minus per 60, home (C/L/R/D positions rolled up)\nDefinition: unweighted mean of the four position-level pool means (C, L, R, D) of raw_rate_per60 for 5on5+5on4+4on5+other, aggregated over the healthy pool -- the most recent trailing-30-game rating per player whose source game date is strictly earlier than the target date, gated at >=900s prior ice time, with any player on an Out/Injured Reserve/IR/Doubtful interval captured before puck drop REMOVED from the pool before the mean. EVO, PPO, PK and other on-ice xGF/xGA and icetime are summed inside each player-game before the rolling window, so this rate is the ice-weighted combined XPM; no shrinkage is applied. MLB\u2019s _LINEUP_AGG_ROSTER shape. No top-N cut: all 18 dressed skaters contribute in hockey. The rating itself is never modified; the flag removes a row, it does not discount a value. diff = home - away.\nSource: MoneyPuck regular-season skater game-by-game archives (on-ice xGoals pair + icetime) + ESPN timestamped injury status snapshots\nWindow: trailing 30 played games per player (combined situations) (game grain); source games within injury_stints.POOL_LOOKBACK_DAYS = 45 of the target date -- a slate whose team ratings all trail that gate (the season opener after the offseason) serves the position prior, matching MLB\u2019s LINEUP_POOL_LOOKBACK_DAYS = 10 geometry \u00b7 Built as: opportunity-weighted mean of surviving player-level raw rates (NFL snap-share parity): each candidate\u2019s weight is his own served prior icetime, applied AFTER the injury exclusion so an absent star\u2019s ice leaves the blend with him; sides with zero served weight fall back to the plain mean (counted in the pool audit)\nPoint-in-time rule: a candidate rating enters a target game\u2019s pool only when its source game date is STRICTLY earlier than the target date (date-grain source feeds cannot prove within-day publish ordering), so a target game\u2019s own row can never enter its own pool; the injury interval opens only on a captured snapshot timestamp strictly before exact puck drop (Out / Injured Reserve / IR / Doubtful -- never a provider filing or projected return date), and the exclusion is evaluated at the game date, per game.\nMissing values: mean of the four position priors (this run\u2019s measured all-teams position means) when a side has no pool row; never NaN, never 0 -- 0 would read as deliberately inert\nAvailable to: [\u2019tree\u2019]",
+   "summary": "combined even-strength + power-play + penalty-kill + 4v4/3v3/extra attacker all-skater healthy-pool mean raw expected plus-minus per 60, home (C/L/R/D positions rolled up)",
+   "description": "combined even-strength + power-play + penalty-kill + 4v4/3v3/extra attacker all-skater healthy-pool mean raw expected plus-minus per 60, home (C/L/R/D positions rolled up)",
+   "definition": "unweighted mean of the four position-level pool means (C, L, R, D) of raw_rate_per60 for 5on5+5on4+4on5+other, aggregated over the healthy pool -- the most recent trailing-30-game rating per player whose source game date is strictly earlier than the target date, gated at >=900s prior ice time, with any player on an Out/Injured Reserve/IR/Doubtful interval captured before puck drop REMOVED from the pool before the mean. EVO, PPO, PK and other on-ice xGF/xGA and icetime are summed inside each player-game before the rolling window, so this rate is the ice-weighted combined XPM; no shrinkage is applied. MLB's _LINEUP_AGG_ROSTER shape. No top-N cut: all 18 dressed skaters contribute in hockey. The rating itself is never modified; the flag removes a row, it does not discount a value. diff = home - away.",
+   "source": "MoneyPuck regular-season skater game-by-game archives (on-ice xGoals pair + icetime) + ESPN timestamped injury status snapshots",
+   "lookback": "trailing 30 played games per player (combined situations) (game grain); source games within injury_stints.POOL_LOOKBACK_DAYS = 45 of the target date -- a slate whose team ratings all trail that gate (the season opener after the offseason) serves the position prior, matching MLB's LINEUP_POOL_LOOKBACK_DAYS = 10 geometry"
+  },
+  "pl_xpm_diff": {
+   "tooltip": "What: combined even-strength + power-play + penalty-kill + 4v4/3v3/extra attacker all-skater healthy-pool mean raw expected plus-minus per 60, diff (C/L/R/D positions rolled up)\nDefinition: unweighted mean of the four position-level pool means (C, L, R, D) of raw_rate_per60 for 5on5+5on4+4on5+other, aggregated over the healthy pool -- the most recent trailing-30-game rating per player whose source game date is strictly earlier than the target date, gated at >=900s prior ice time, with any player on an Out/Injured Reserve/IR/Doubtful interval captured before puck drop REMOVED from the pool before the mean. EVO, PPO, PK and other on-ice xGF/xGA and icetime are summed inside each player-game before the rolling window, so this rate is the ice-weighted combined XPM; no shrinkage is applied. MLB\u2019s _LINEUP_AGG_ROSTER shape. No top-N cut: all 18 dressed skaters contribute in hockey. The rating itself is never modified; the flag removes a row, it does not discount a value. diff = home - away.\nSource: MoneyPuck regular-season skater game-by-game archives (on-ice xGoals pair + icetime) + ESPN timestamped injury status snapshots\nWindow: trailing 30 played games per player (combined situations) (game grain); source games within injury_stints.POOL_LOOKBACK_DAYS = 45 of the target date -- a slate whose team ratings all trail that gate (the season opener after the offseason) serves the position prior, matching MLB\u2019s LINEUP_POOL_LOOKBACK_DAYS = 10 geometry \u00b7 Built as: opportunity-weighted mean of surviving player-level raw rates (NFL snap-share parity): each candidate\u2019s weight is his own served prior icetime, applied AFTER the injury exclusion so an absent star\u2019s ice leaves the blend with him; sides with zero served weight fall back to the plain mean (counted in the pool audit)\nPoint-in-time rule: a candidate rating enters a target game\u2019s pool only when its source game date is STRICTLY earlier than the target date (date-grain source feeds cannot prove within-day publish ordering), so a target game\u2019s own row can never enter its own pool; the injury interval opens only on a captured snapshot timestamp strictly before exact puck drop (Out / Injured Reserve / IR / Doubtful -- never a provider filing or projected return date), and the exclusion is evaluated at the game date, per game.\nMissing values: mean of the four position priors (this run\u2019s measured all-teams position means) when a side has no pool row; never NaN, never 0 -- 0 would read as deliberately inert\nAvailable to: [\u2019linear\u2019, \u2019tree\u2019]",
+   "summary": "combined even-strength + power-play + penalty-kill + 4v4/3v3/extra attacker all-skater healthy-pool mean raw expected plus-minus per 60, diff (C/L/R/D positions rolled up)",
+   "description": "combined even-strength + power-play + penalty-kill + 4v4/3v3/extra attacker all-skater healthy-pool mean raw expected plus-minus per 60, diff (C/L/R/D positions rolled up)",
+   "definition": "unweighted mean of the four position-level pool means (C, L, R, D) of raw_rate_per60 for 5on5+5on4+4on5+other, aggregated over the healthy pool -- the most recent trailing-30-game rating per player whose source game date is strictly earlier than the target date, gated at >=900s prior ice time, with any player on an Out/Injured Reserve/IR/Doubtful interval captured before puck drop REMOVED from the pool before the mean. EVO, PPO, PK and other on-ice xGF/xGA and icetime are summed inside each player-game before the rolling window, so this rate is the ice-weighted combined XPM; no shrinkage is applied. MLB's _LINEUP_AGG_ROSTER shape. No top-N cut: all 18 dressed skaters contribute in hockey. The rating itself is never modified; the flag removes a row, it does not discount a value. diff = home - away.",
+   "source": "MoneyPuck regular-season skater game-by-game archives (on-ice xGoals pair + icetime) + ESPN timestamped injury status snapshots",
+   "lookback": "trailing 30 played games per player (combined situations) (game grain); source games within injury_stints.POOL_LOOKBACK_DAYS = 45 of the target date -- a slate whose team ratings all trail that gate (the season opener after the offseason) serves the position prior, matching MLB's LINEUP_POOL_LOOKBACK_DAYS = 10 geometry"
+  },
+  "pl_xg_away": {
+   "tooltip": "What: combined even-strength + power-play + penalty-kill + 4v4/3v3/extra attacker all-skater healthy-pool mean raw individual expected goals per 60, away (C/L/R/D positions rolled up)\nDefinition: unweighted mean of the four position-level pool means (C, L, R, D) of raw_rate_per60 for 5on5+5on4+4on5+other, aggregated over the healthy pool -- the most recent trailing-30-game rating per player whose source game date is strictly earlier than the target date, gated at >=900s prior ice time, with any player on an Out/Injured Reserve/IR/Doubtful interval captured before puck drop REMOVED from the pool before the mean. The rated value is individual I_F_xGoals; EVO, PPO, PK and other icetime are summed inside each player-game before the rolling window, so the rate is the ice-weighted combined individual-xG rate; no shrinkage is applied. No top-N cut: all 18 dressed skaters contribute. diff = home - away.\nSource: MoneyPuck regular-season skater game-by-game archives (individual xGoals + icetime) + ESPN timestamped injury status snapshots\nWindow: trailing 30 played games per player (combined situations) (game grain); source games within injury_stints.POOL_LOOKBACK_DAYS = 45 of the target date \u00b7 Built as: opportunity-weighted mean of surviving player-level raw rates: each candidate\u2019s weight is his own served prior icetime, applied AFTER the injury exclusion; sides with zero served weight fall back to the plain mean\nPoint-in-time rule: a candidate rating enters a target game\u2019s pool only when its source game date is STRICTLY earlier than the target date, so a target game\u2019s own row can never enter its own pool; the injury interval opens only on a captured snapshot timestamp strictly before exact puck drop\nMissing values: mean of the four position priors (this run\u2019s measured all-teams position means) when a side has no pool row; never NaN, never 0\nAvailable to: [\u2019tree\u2019]",
+   "summary": "combined even-strength + power-play + penalty-kill + 4v4/3v3/extra attacker all-skater healthy-pool mean raw individual expected goals per 60, away (C/L/R/D positions rolled up)",
+   "description": "combined even-strength + power-play + penalty-kill + 4v4/3v3/extra attacker all-skater healthy-pool mean raw individual expected goals per 60, away (C/L/R/D positions rolled up)",
+   "definition": "unweighted mean of the four position-level pool means (C, L, R, D) of raw_rate_per60 for 5on5+5on4+4on5+other, aggregated over the healthy pool -- the most recent trailing-30-game rating per player whose source game date is strictly earlier than the target date, gated at >=900s prior ice time, with any player on an Out/Injured Reserve/IR/Doubtful interval captured before puck drop REMOVED from the pool before the mean. The rated value is individual I_F_xGoals; EVO, PPO, PK and other icetime are summed inside each player-game before the rolling window, so the rate is the ice-weighted combined individual-xG rate; no shrinkage is applied. No top-N cut: all 18 dressed skaters contribute. diff = home - away.",
+   "source": "MoneyPuck regular-season skater game-by-game archives (individual xGoals + icetime) + ESPN timestamped injury status snapshots",
+   "lookback": "trailing 30 played games per player (combined situations) (game grain); source games within injury_stints.POOL_LOOKBACK_DAYS = 45 of the target date"
+  },
+  "pl_xg_home": {
+   "tooltip": "What: combined even-strength + power-play + penalty-kill + 4v4/3v3/extra attacker all-skater healthy-pool mean raw individual expected goals per 60, home (C/L/R/D positions rolled up)\nDefinition: unweighted mean of the four position-level pool means (C, L, R, D) of raw_rate_per60 for 5on5+5on4+4on5+other, aggregated over the healthy pool -- the most recent trailing-30-game rating per player whose source game date is strictly earlier than the target date, gated at >=900s prior ice time, with any player on an Out/Injured Reserve/IR/Doubtful interval captured before puck drop REMOVED from the pool before the mean. The rated value is individual I_F_xGoals; EVO, PPO, PK and other icetime are summed inside each player-game before the rolling window, so the rate is the ice-weighted combined individual-xG rate; no shrinkage is applied. No top-N cut: all 18 dressed skaters contribute. diff = home - away.\nSource: MoneyPuck regular-season skater game-by-game archives (individual xGoals + icetime) + ESPN timestamped injury status snapshots\nWindow: trailing 30 played games per player (combined situations) (game grain); source games within injury_stints.POOL_LOOKBACK_DAYS = 45 of the target date \u00b7 Built as: opportunity-weighted mean of surviving player-level raw rates: each candidate\u2019s weight is his own served prior icetime, applied AFTER the injury exclusion; sides with zero served weight fall back to the plain mean\nPoint-in-time rule: a candidate rating enters a target game\u2019s pool only when its source game date is STRICTLY earlier than the target date, so a target game\u2019s own row can never enter its own pool; the injury interval opens only on a captured snapshot timestamp strictly before exact puck drop\nMissing values: mean of the four position priors (this run\u2019s measured all-teams position means) when a side has no pool row; never NaN, never 0\nAvailable to: [\u2019tree\u2019]",
+   "summary": "combined even-strength + power-play + penalty-kill + 4v4/3v3/extra attacker all-skater healthy-pool mean raw individual expected goals per 60, home (C/L/R/D positions rolled up)",
+   "description": "combined even-strength + power-play + penalty-kill + 4v4/3v3/extra attacker all-skater healthy-pool mean raw individual expected goals per 60, home (C/L/R/D positions rolled up)",
+   "definition": "unweighted mean of the four position-level pool means (C, L, R, D) of raw_rate_per60 for 5on5+5on4+4on5+other, aggregated over the healthy pool -- the most recent trailing-30-game rating per player whose source game date is strictly earlier than the target date, gated at >=900s prior ice time, with any player on an Out/Injured Reserve/IR/Doubtful interval captured before puck drop REMOVED from the pool before the mean. The rated value is individual I_F_xGoals; EVO, PPO, PK and other icetime are summed inside each player-game before the rolling window, so the rate is the ice-weighted combined individual-xG rate; no shrinkage is applied. No top-N cut: all 18 dressed skaters contribute. diff = home - away.",
+   "source": "MoneyPuck regular-season skater game-by-game archives (individual xGoals + icetime) + ESPN timestamped injury status snapshots",
+   "lookback": "trailing 30 played games per player (combined situations) (game grain); source games within injury_stints.POOL_LOOKBACK_DAYS = 45 of the target date"
+  },
+  "pl_xg_diff": {
+   "tooltip": "What: combined even-strength + power-play + penalty-kill + 4v4/3v3/extra attacker all-skater healthy-pool mean raw individual expected goals per 60, diff (C/L/R/D positions rolled up)\nDefinition: unweighted mean of the four position-level pool means (C, L, R, D) of raw_rate_per60 for 5on5+5on4+4on5+other, aggregated over the healthy pool -- the most recent trailing-30-game rating per player whose source game date is strictly earlier than the target date, gated at >=900s prior ice time, with any player on an Out/Injured Reserve/IR/Doubtful interval captured before puck drop REMOVED from the pool before the mean. The rated value is individual I_F_xGoals; EVO, PPO, PK and other icetime are summed inside each player-game before the rolling window, so the rate is the ice-weighted combined individual-xG rate; no shrinkage is applied. No top-N cut: all 18 dressed skaters contribute. diff = home - away.\nSource: MoneyPuck regular-season skater game-by-game archives (individual xGoals + icetime) + ESPN timestamped injury status snapshots\nWindow: trailing 30 played games per player (combined situations) (game grain); source games within injury_stints.POOL_LOOKBACK_DAYS = 45 of the target date \u00b7 Built as: opportunity-weighted mean of surviving player-level raw rates: each candidate\u2019s weight is his own served prior icetime, applied AFTER the injury exclusion; sides with zero served weight fall back to the plain mean\nPoint-in-time rule: a candidate rating enters a target game\u2019s pool only when its source game date is STRICTLY earlier than the target date, so a target game\u2019s own row can never enter its own pool; the injury interval opens only on a captured snapshot timestamp strictly before exact puck drop\nMissing values: mean of the four position priors (this run\u2019s measured all-teams position means) when a side has no pool row; never NaN, never 0\nAvailable to: [\u2019linear\u2019, \u2019tree\u2019]",
+   "summary": "combined even-strength + power-play + penalty-kill + 4v4/3v3/extra attacker all-skater healthy-pool mean raw individual expected goals per 60, diff (C/L/R/D positions rolled up)",
+   "description": "combined even-strength + power-play + penalty-kill + 4v4/3v3/extra attacker all-skater healthy-pool mean raw individual expected goals per 60, diff (C/L/R/D positions rolled up)",
+   "definition": "unweighted mean of the four position-level pool means (C, L, R, D) of raw_rate_per60 for 5on5+5on4+4on5+other, aggregated over the healthy pool -- the most recent trailing-30-game rating per player whose source game date is strictly earlier than the target date, gated at >=900s prior ice time, with any player on an Out/Injured Reserve/IR/Doubtful interval captured before puck drop REMOVED from the pool before the mean. The rated value is individual I_F_xGoals; EVO, PPO, PK and other icetime are summed inside each player-game before the rolling window, so the rate is the ice-weighted combined individual-xG rate; no shrinkage is applied. No top-N cut: all 18 dressed skaters contribute. diff = home - away.",
+   "source": "MoneyPuck regular-season skater game-by-game archives (individual xGoals + icetime) + ESPN timestamped injury status snapshots",
+   "lookback": "trailing 30 played games per player (combined situations) (game grain); source games within injury_stints.POOL_LOOKBACK_DAYS = 45 of the target date"
+  }
+ },
+ "feature_coverage": [
+  {
+   "feature": "off_rating_diff",
+   "window": "baseline",
+   "n_games": 250,
+   "n_nonnull": 250,
+   "pct_nonnull": 100.0,
+   "n_measured": 250,
+   "pct_measured": 100.0,
+   "n_default_zero": 0,
+   "status": "OK"
+  },
+  {
+   "feature": "def_rating_diff",
+   "window": "baseline",
+   "n_games": 250,
+   "n_nonnull": 250,
+   "pct_nonnull": 100.0,
+   "n_measured": 250,
+   "pct_measured": 100.0,
+   "n_default_zero": 0,
+   "status": "OK"
+  },
+  {
+   "feature": "net_rating_diff",
+   "window": "baseline",
+   "n_games": 250,
+   "n_nonnull": 250,
+   "pct_nonnull": 100.0,
+   "n_measured": 250,
+   "pct_measured": 100.0,
+   "n_default_zero": 0,
+   "status": "OK"
+  },
+  {
+   "feature": "rest_days_diff",
+   "window": "baseline",
+   "n_games": 250,
+   "n_nonnull": 250,
+   "pct_nonnull": 100.0,
+   "n_measured": 250,
+   "pct_measured": 100.0,
+   "n_default_zero": 0,
+   "status": "OK"
+  },
+  {
+   "feature": "ewm_net_goals_diff",
+   "window": "baseline",
+   "n_games": 250,
+   "n_nonnull": 250,
+   "pct_nonnull": 100.0,
+   "n_measured": 250,
+   "pct_measured": 100.0,
+   "n_default_zero": 0,
+   "status": "OK"
+  },
+  {
+   "feature": "ewm_goal_share_diff",
+   "window": "baseline",
+   "n_games": 250,
+   "n_nonnull": 250,
+   "pct_nonnull": 100.0,
+   "n_measured": 250,
+   "pct_measured": 100.0,
+   "n_default_zero": 0,
+   "status": "OK"
+  },
+  {
+   "feature": "ga_per_game_diff",
+   "window": "baseline",
+   "n_games": 250,
+   "n_nonnull": 250,
+   "pct_nonnull": 100.0,
+   "n_measured": 250,
+   "pct_measured": 100.0,
+   "n_default_zero": 0,
+   "status": "OK"
+  },
+  {
+   "feature": "shots_for_per_game_diff",
+   "window": "baseline",
+   "n_games": 250,
+   "n_nonnull": 250,
+   "pct_nonnull": 100.0,
+   "n_measured": 250,
+   "pct_measured": 100.0,
+   "n_default_zero": 0,
+   "status": "OK"
+  },
+  {
+   "feature": "shots_against_per_game_diff",
+   "window": "baseline",
+   "n_games": 250,
+   "n_nonnull": 250,
+   "pct_nonnull": 100.0,
+   "n_measured": 250,
+   "pct_measured": 100.0,
+   "n_default_zero": 0,
+   "status": "OK"
+  },
+  {
+   "feature": "pp_success_diff",
+   "window": "baseline",
+   "n_games": 250,
+   "n_nonnull": 250,
+   "pct_nonnull": 100.0,
+   "n_measured": 250,
+   "pct_measured": 100.0,
+   "n_default_zero": 0,
+   "status": "OK"
+  },
+  {
+   "feature": "faceoff_win_diff",
+   "window": "baseline",
+   "n_games": 250,
+   "n_nonnull": 250,
+   "pct_nonnull": 100.0,
+   "n_measured": 250,
+   "pct_measured": 100.0,
+   "n_default_zero": 0,
+   "status": "OK"
+  },
+  {
+   "feature": "back_to_back_diff",
+   "window": "baseline",
+   "n_games": 250,
+   "n_nonnull": 250,
+   "pct_nonnull": 100.0,
+   "n_measured": 250,
+   "pct_measured": 100.0,
+   "n_default_zero": 0,
+   "status": "OK"
+  },
+  {
+   "feature": "nhl_giveaways_pg_ewm_diff",
+   "window": "baseline",
+   "n_games": 250,
+   "n_nonnull": 250,
+   "pct_nonnull": 100.0,
+   "n_measured": 250,
+   "pct_measured": 100.0,
+   "n_default_zero": 0,
+   "status": "OK"
+  },
+  {
+   "feature": "nhl_takeaways_pg_ewm_diff",
+   "window": "baseline",
+   "n_games": 250,
+   "n_nonnull": 250,
+   "pct_nonnull": 100.0,
+   "n_measured": 250,
+   "pct_measured": 100.0,
+   "n_default_zero": 0,
+   "status": "OK"
+  },
+  {
+   "feature": "goalie_sv_pct_diff",
+   "window": "baseline",
+   "n_games": 250,
+   "n_nonnull": 250,
+   "pct_nonnull": 100.0,
+   "n_measured": 250,
+   "pct_measured": 100.0,
+   "n_default_zero": 0,
+   "status": "OK"
+  },
+  {
+   "feature": "goalie_gaa_diff",
+   "window": "baseline",
+   "n_games": 250,
+   "n_nonnull": 250,
+   "pct_nonnull": 100.0,
+   "n_measured": 250,
+   "pct_measured": 100.0,
+   "n_default_zero": 0,
+   "status": "OK"
+  },
+  {
+   "feature": "goalie_starts_diff",
+   "window": "baseline",
+   "n_games": 250,
+   "n_nonnull": 250,
+   "pct_nonnull": 100.0,
+   "n_measured": 250,
+   "pct_measured": 100.0,
+   "n_default_zero": 0,
+   "status": "OK"
+  },
+  {
+   "feature": "is_playoffs",
+   "window": "baseline",
+   "n_games": 250,
+   "n_nonnull": 250,
+   "pct_nonnull": 100.0,
+   "n_measured": 250,
+   "pct_measured": 100.0,
+   "n_default_zero": 0,
+   "status": "OK"
+  },
+  {
+   "feature": "net_rating_sum",
+   "window": "baseline",
+   "n_games": 250,
+   "n_nonnull": 250,
+   "pct_nonnull": 100.0,
+   "n_measured": 250,
+   "pct_measured": 100.0,
+   "n_default_zero": 0,
+   "status": "OK"
+  },
+  {
+   "feature": "ewm_net_goals_home",
+   "window": "baseline",
+   "n_games": 250,
+   "n_nonnull": 250,
+   "pct_nonnull": 100.0,
+   "n_measured": 250,
+   "pct_measured": 100.0,
+   "n_default_zero": 0,
+   "status": "OK"
+  },
+  {
+   "feature": "ewm_net_goals_away",
+   "window": "baseline",
+   "n_games": 250,
+   "n_nonnull": 250,
+   "pct_nonnull": 100.0,
+   "n_measured": 250,
+   "pct_measured": 100.0,
+   "n_default_zero": 0,
+   "status": "OK"
+  },
+  {
+   "feature": "ewm_goal_share_home",
+   "window": "baseline",
+   "n_games": 250,
+   "n_nonnull": 250,
+   "pct_nonnull": 100.0,
+   "n_measured": 250,
+   "pct_measured": 100.0,
+   "n_default_zero": 0,
+   "status": "OK"
+  },
+  {
+   "feature": "ewm_goal_share_away",
+   "window": "baseline",
+   "n_games": 250,
+   "n_nonnull": 250,
+   "pct_nonnull": 100.0,
+   "n_measured": 250,
+   "pct_measured": 100.0,
+   "n_default_zero": 0,
+   "status": "OK"
+  },
+  {
+   "feature": "rest_days_home",
+   "window": "baseline",
+   "n_games": 250,
+   "n_nonnull": 250,
+   "pct_nonnull": 100.0,
+   "n_measured": 250,
+   "pct_measured": 100.0,
+   "n_default_zero": 0,
+   "status": "OK"
+  },
+  {
+   "feature": "rest_days_away",
+   "window": "baseline",
+   "n_games": 250,
+   "n_nonnull": 250,
+   "pct_nonnull": 100.0,
+   "n_measured": 250,
+   "pct_measured": 100.0,
+   "n_default_zero": 0,
+   "status": "OK"
+  },
+  {
+   "feature": "ga_per_game_home",
+   "window": "baseline",
+   "n_games": 250,
+   "n_nonnull": 250,
+   "pct_nonnull": 100.0,
+   "n_measured": 250,
+   "pct_measured": 100.0,
+   "n_default_zero": 0,
+   "status": "OK"
+  },
+  {
+   "feature": "ga_per_game_away",
+   "window": "baseline",
+   "n_games": 250,
+   "n_nonnull": 250,
+   "pct_nonnull": 100.0,
+   "n_measured": 250,
+   "pct_measured": 100.0,
+   "n_default_zero": 0,
+   "status": "OK"
+  },
+  {
+   "feature": "shots_for_per_game_home",
+   "window": "baseline",
+   "n_games": 250,
+   "n_nonnull": 250,
+   "pct_nonnull": 100.0,
+   "n_measured": 250,
+   "pct_measured": 100.0,
+   "n_default_zero": 0,
+   "status": "OK"
+  },
+  {
+   "feature": "shots_for_per_game_away",
+   "window": "baseline",
+   "n_games": 250,
+   "n_nonnull": 250,
+   "pct_nonnull": 100.0,
+   "n_measured": 250,
+   "pct_measured": 100.0,
+   "n_default_zero": 0,
+   "status": "OK"
+  },
+  {
+   "feature": "shots_against_per_game_home",
+   "window": "baseline",
+   "n_games": 250,
+   "n_nonnull": 250,
+   "pct_nonnull": 100.0,
+   "n_measured": 250,
+   "pct_measured": 100.0,
+   "n_default_zero": 0,
+   "status": "OK"
+  },
+  {
+   "feature": "shots_against_per_game_away",
+   "window": "baseline",
+   "n_games": 250,
+   "n_nonnull": 250,
+   "pct_nonnull": 100.0,
+   "n_measured": 250,
+   "pct_measured": 100.0,
+   "n_default_zero": 0,
+   "status": "OK"
+  },
+  {
+   "feature": "pp_success_home",
+   "window": "baseline",
+   "n_games": 250,
+   "n_nonnull": 250,
+   "pct_nonnull": 100.0,
+   "n_measured": 250,
+   "pct_measured": 100.0,
+   "n_default_zero": 0,
+   "status": "OK"
+  },
+  {
+   "feature": "pp_success_away",
+   "window": "baseline",
+   "n_games": 250,
+   "n_nonnull": 250,
+   "pct_nonnull": 100.0,
+   "n_measured": 250,
+   "pct_measured": 100.0,
+   "n_default_zero": 0,
+   "status": "OK"
+  },
+  {
+   "feature": "faceoff_win_home",
+   "window": "baseline",
+   "n_games": 250,
+   "n_nonnull": 250,
+   "pct_nonnull": 100.0,
+   "n_measured": 250,
+   "pct_measured": 100.0,
+   "n_default_zero": 0,
+   "status": "OK"
+  },
+  {
+   "feature": "faceoff_win_away",
+   "window": "baseline",
+   "n_games": 250,
+   "n_nonnull": 250,
+   "pct_nonnull": 100.0,
+   "n_measured": 250,
+   "pct_measured": 100.0,
+   "n_default_zero": 0,
+   "status": "OK"
+  },
+  {
+   "feature": "back_to_back_home",
+   "window": "baseline",
+   "n_games": 250,
+   "n_nonnull": 250,
+   "pct_nonnull": 100.0,
+   "n_measured": 250,
+   "pct_measured": 100.0,
+   "n_default_zero": 0,
+   "status": "OK"
+  },
+  {
+   "feature": "back_to_back_away",
+   "window": "baseline",
+   "n_games": 250,
+   "n_nonnull": 250,
+   "pct_nonnull": 100.0,
+   "n_measured": 250,
+   "pct_measured": 100.0,
+   "n_default_zero": 0,
+   "status": "OK"
+  },
+  {
+   "feature": "nhl_giveaways_pg_ewm_home",
+   "window": "baseline",
+   "n_games": 250,
+   "n_nonnull": 250,
+   "pct_nonnull": 100.0,
+   "n_measured": 250,
+   "pct_measured": 100.0,
+   "n_default_zero": 0,
+   "status": "OK"
+  },
+  {
+   "feature": "nhl_giveaways_pg_ewm_away",
+   "window": "baseline",
+   "n_games": 250,
+   "n_nonnull": 250,
+   "pct_nonnull": 100.0,
+   "n_measured": 250,
+   "pct_measured": 100.0,
+   "n_default_zero": 0,
+   "status": "OK"
+  },
+  {
+   "feature": "nhl_takeaways_pg_ewm_home",
+   "window": "baseline",
+   "n_games": 250,
+   "n_nonnull": 250,
+   "pct_nonnull": 100.0,
+   "n_measured": 250,
+   "pct_measured": 100.0,
+   "n_default_zero": 0,
+   "status": "OK"
+  },
+  {
+   "feature": "nhl_takeaways_pg_ewm_away",
+   "window": "baseline",
+   "n_games": 250,
+   "n_nonnull": 250,
+   "pct_nonnull": 100.0,
+   "n_measured": 250,
+   "pct_measured": 100.0,
+   "n_default_zero": 0,
+   "status": "OK"
+  },
+  {
+   "feature": "goalie_sv_pct_home",
+   "window": "baseline",
+   "n_games": 250,
+   "n_nonnull": 250,
+   "pct_nonnull": 100.0,
+   "n_measured": 250,
+   "pct_measured": 100.0,
+   "n_default_zero": 0,
+   "status": "OK"
+  },
+  {
+   "feature": "goalie_sv_pct_away",
+   "window": "baseline",
+   "n_games": 250,
+   "n_nonnull": 250,
+   "pct_nonnull": 100.0,
+   "n_measured": 250,
+   "pct_measured": 100.0,
+   "n_default_zero": 0,
+   "status": "OK"
+  },
+  {
+   "feature": "goalie_gaa_home",
+   "window": "baseline",
+   "n_games": 250,
+   "n_nonnull": 250,
+   "pct_nonnull": 100.0,
+   "n_measured": 250,
+   "pct_measured": 100.0,
+   "n_default_zero": 0,
+   "status": "OK"
+  },
+  {
+   "feature": "goalie_gaa_away",
+   "window": "baseline",
+   "n_games": 250,
+   "n_nonnull": 250,
+   "pct_nonnull": 100.0,
+   "n_measured": 250,
+   "pct_measured": 100.0,
+   "n_default_zero": 0,
+   "status": "OK"
+  },
+  {
+   "feature": "goalie_starts_home",
+   "window": "baseline",
+   "n_games": 250,
+   "n_nonnull": 250,
+   "pct_nonnull": 100.0,
+   "n_measured": 250,
+   "pct_measured": 100.0,
+   "n_default_zero": 0,
+   "status": "OK"
+  },
+  {
+   "feature": "goalie_starts_away",
+   "window": "baseline",
+   "n_games": 250,
+   "n_nonnull": 250,
+   "pct_nonnull": 100.0,
+   "n_measured": 250,
+   "pct_measured": 100.0,
+   "n_default_zero": 0,
+   "status": "OK"
+  },
+  {
+   "feature": "is_home",
+   "window": "baseline",
+   "n_games": 250,
+   "n_nonnull": 250,
+   "pct_nonnull": 100.0,
+   "n_measured": 250,
+   "pct_measured": 100.0,
+   "n_default_zero": 0,
+   "status": "OK"
+  },
+  {
+   "feature": "pl_xpm_away",
+   "window": "baseline",
+   "n_games": 250,
+   "n_nonnull": 250,
+   "pct_nonnull": 100.0,
+   "n_measured": 243,
+   "pct_measured": 97.2,
+   "n_default_zero": 7,
+   "status": "OK"
+  },
+  {
+   "feature": "pl_xpm_home",
+   "window": "baseline",
+   "n_games": 250,
+   "n_nonnull": 250,
+   "pct_nonnull": 100.0,
+   "n_measured": 243,
+   "pct_measured": 97.2,
+   "n_default_zero": 7,
+   "status": "OK"
+  },
+  {
+   "feature": "pl_xpm_diff",
+   "window": "baseline",
+   "n_games": 250,
+   "n_nonnull": 250,
+   "pct_nonnull": 100.0,
+   "n_measured": 236,
+   "pct_measured": 94.4,
+   "n_default_zero": 14,
+   "status": "OK"
+  },
+  {
+   "feature": "pl_xg_away",
+   "window": "baseline",
+   "n_games": 250,
+   "n_nonnull": 250,
+   "pct_nonnull": 100.0,
+   "n_measured": 250,
+   "pct_measured": 100.0,
+   "n_default_zero": 0,
+   "status": "OK"
+  },
+  {
+   "feature": "pl_xg_home",
+   "window": "baseline",
+   "n_games": 250,
+   "n_nonnull": 250,
+   "pct_nonnull": 100.0,
+   "n_measured": 250,
+   "pct_measured": 100.0,
+   "n_default_zero": 0,
+   "status": "OK"
+  },
+  {
+   "feature": "pl_xg_diff",
+   "window": "baseline",
+   "n_games": 250,
+   "n_nonnull": 250,
+   "pct_nonnull": 100.0,
+   "n_measured": 250,
+   "pct_measured": 100.0,
+   "n_default_zero": 0,
+   "status": "OK"
+  },
+  {
+   "feature": "off_rating_diff",
+   "window": "current",
+   "n_games": 60,
+   "n_nonnull": 60,
+   "pct_nonnull": 100.0,
+   "n_measured": 60,
+   "pct_measured": 100.0,
+   "n_default_zero": 0,
+   "status": "OK"
+  },
+  {
+   "feature": "def_rating_diff",
+   "window": "current",
+   "n_games": 60,
+   "n_nonnull": 60,
+   "pct_nonnull": 100.0,
+   "n_measured": 60,
+   "pct_measured": 100.0,
+   "n_default_zero": 0,
+   "status": "OK"
+  },
+  {
+   "feature": "net_rating_diff",
+   "window": "current",
+   "n_games": 60,
+   "n_nonnull": 60,
+   "pct_nonnull": 100.0,
+   "n_measured": 60,
+   "pct_measured": 100.0,
+   "n_default_zero": 0,
+   "status": "OK"
+  },
+  {
+   "feature": "rest_days_diff",
+   "window": "current",
+   "n_games": 60,
+   "n_nonnull": 60,
+   "pct_nonnull": 100.0,
+   "n_measured": 60,
+   "pct_measured": 100.0,
+   "n_default_zero": 0,
+   "status": "OK"
+  },
+  {
+   "feature": "ewm_net_goals_diff",
+   "window": "current",
+   "n_games": 60,
+   "n_nonnull": 60,
+   "pct_nonnull": 100.0,
+   "n_measured": 60,
+   "pct_measured": 100.0,
+   "n_default_zero": 0,
+   "status": "OK"
+  },
+  {
+   "feature": "ewm_goal_share_diff",
+   "window": "current",
+   "n_games": 60,
+   "n_nonnull": 60,
+   "pct_nonnull": 100.0,
+   "n_measured": 60,
+   "pct_measured": 100.0,
+   "n_default_zero": 0,
+   "status": "OK"
+  },
+  {
+   "feature": "ga_per_game_diff",
+   "window": "current",
+   "n_games": 60,
+   "n_nonnull": 60,
+   "pct_nonnull": 100.0,
+   "n_measured": 60,
+   "pct_measured": 100.0,
+   "n_default_zero": 0,
+   "status": "OK"
+  },
+  {
+   "feature": "shots_for_per_game_diff",
+   "window": "current",
+   "n_games": 60,
+   "n_nonnull": 60,
+   "pct_nonnull": 100.0,
+   "n_measured": 60,
+   "pct_measured": 100.0,
+   "n_default_zero": 0,
+   "status": "OK"
+  },
+  {
+   "feature": "shots_against_per_game_diff",
+   "window": "current",
+   "n_games": 60,
+   "n_nonnull": 60,
+   "pct_nonnull": 100.0,
+   "n_measured": 60,
+   "pct_measured": 100.0,
+   "n_default_zero": 0,
+   "status": "OK"
+  },
+  {
+   "feature": "pp_success_diff",
+   "window": "current",
+   "n_games": 60,
+   "n_nonnull": 60,
+   "pct_nonnull": 100.0,
+   "n_measured": 60,
+   "pct_measured": 100.0,
+   "n_default_zero": 0,
+   "status": "OK"
+  },
+  {
+   "feature": "faceoff_win_diff",
+   "window": "current",
+   "n_games": 60,
+   "n_nonnull": 60,
+   "pct_nonnull": 100.0,
+   "n_measured": 60,
+   "pct_measured": 100.0,
+   "n_default_zero": 0,
+   "status": "OK"
+  },
+  {
+   "feature": "back_to_back_diff",
+   "window": "current",
+   "n_games": 60,
+   "n_nonnull": 60,
+   "pct_nonnull": 100.0,
+   "n_measured": 60,
+   "pct_measured": 100.0,
+   "n_default_zero": 0,
+   "status": "OK"
+  },
+  {
+   "feature": "nhl_giveaways_pg_ewm_diff",
+   "window": "current",
+   "n_games": 60,
+   "n_nonnull": 60,
+   "pct_nonnull": 100.0,
+   "n_measured": 60,
+   "pct_measured": 100.0,
+   "n_default_zero": 0,
+   "status": "OK"
+  },
+  {
+   "feature": "nhl_takeaways_pg_ewm_diff",
+   "window": "current",
+   "n_games": 60,
+   "n_nonnull": 60,
+   "pct_nonnull": 100.0,
+   "n_measured": 60,
+   "pct_measured": 100.0,
+   "n_default_zero": 0,
+   "status": "OK"
+  },
+  {
+   "feature": "goalie_sv_pct_diff",
+   "window": "current",
+   "n_games": 60,
+   "n_nonnull": 60,
+   "pct_nonnull": 100.0,
+   "n_measured": 60,
+   "pct_measured": 100.0,
+   "n_default_zero": 0,
+   "status": "OK"
+  },
+  {
+   "feature": "goalie_gaa_diff",
+   "window": "current",
+   "n_games": 60,
+   "n_nonnull": 60,
+   "pct_nonnull": 100.0,
+   "n_measured": 60,
+   "pct_measured": 100.0,
+   "n_default_zero": 0,
+   "status": "OK"
+  },
+  {
+   "feature": "goalie_starts_diff",
+   "window": "current",
+   "n_games": 60,
+   "n_nonnull": 60,
+   "pct_nonnull": 100.0,
+   "n_measured": 60,
+   "pct_measured": 100.0,
+   "n_default_zero": 0,
+   "status": "OK"
+  },
+  {
+   "feature": "is_playoffs",
+   "window": "current",
+   "n_games": 60,
+   "n_nonnull": 60,
+   "pct_nonnull": 100.0,
+   "n_measured": 60,
+   "pct_measured": 100.0,
+   "n_default_zero": 0,
+   "status": "OK"
+  },
+  {
+   "feature": "net_rating_sum",
+   "window": "current",
+   "n_games": 60,
+   "n_nonnull": 60,
+   "pct_nonnull": 100.0,
+   "n_measured": 60,
+   "pct_measured": 100.0,
+   "n_default_zero": 0,
+   "status": "OK"
+  },
+  {
+   "feature": "ewm_net_goals_home",
+   "window": "current",
+   "n_games": 60,
+   "n_nonnull": 60,
+   "pct_nonnull": 100.0,
+   "n_measured": 60,
+   "pct_measured": 100.0,
+   "n_default_zero": 0,
+   "status": "OK"
+  },
+  {
+   "feature": "ewm_net_goals_away",
+   "window": "current",
+   "n_games": 60,
+   "n_nonnull": 60,
+   "pct_nonnull": 100.0,
+   "n_measured": 60,
+   "pct_measured": 100.0,
+   "n_default_zero": 0,
+   "status": "OK"
+  },
+  {
+   "feature": "ewm_goal_share_home",
+   "window": "current",
+   "n_games": 60,
+   "n_nonnull": 60,
+   "pct_nonnull": 100.0,
+   "n_measured": 60,
+   "pct_measured": 100.0,
+   "n_default_zero": 0,
+   "status": "OK"
+  },
+  {
+   "feature": "ewm_goal_share_away",
+   "window": "current",
+   "n_games": 60,
+   "n_nonnull": 60,
+   "pct_nonnull": 100.0,
+   "n_measured": 60,
+   "pct_measured": 100.0,
+   "n_default_zero": 0,
+   "status": "OK"
+  },
+  {
+   "feature": "rest_days_home",
+   "window": "current",
+   "n_games": 60,
+   "n_nonnull": 60,
+   "pct_nonnull": 100.0,
+   "n_measured": 60,
+   "pct_measured": 100.0,
+   "n_default_zero": 0,
+   "status": "OK"
+  },
+  {
+   "feature": "rest_days_away",
+   "window": "current",
+   "n_games": 60,
+   "n_nonnull": 60,
+   "pct_nonnull": 100.0,
+   "n_measured": 60,
+   "pct_measured": 100.0,
+   "n_default_zero": 0,
+   "status": "OK"
+  },
+  {
+   "feature": "ga_per_game_home",
+   "window": "current",
+   "n_games": 60,
+   "n_nonnull": 60,
+   "pct_nonnull": 100.0,
+   "n_measured": 60,
+   "pct_measured": 100.0,
+   "n_default_zero": 0,
+   "status": "OK"
+  },
+  {
+   "feature": "ga_per_game_away",
+   "window": "current",
+   "n_games": 60,
+   "n_nonnull": 60,
+   "pct_nonnull": 100.0,
+   "n_measured": 60,
+   "pct_measured": 100.0,
+   "n_default_zero": 0,
+   "status": "OK"
+  },
+  {
+   "feature": "shots_for_per_game_home",
+   "window": "current",
+   "n_games": 60,
+   "n_nonnull": 60,
+   "pct_nonnull": 100.0,
+   "n_measured": 60,
+   "pct_measured": 100.0,
+   "n_default_zero": 0,
+   "status": "OK"
+  },
+  {
+   "feature": "shots_for_per_game_away",
+   "window": "current",
+   "n_games": 60,
+   "n_nonnull": 60,
+   "pct_nonnull": 100.0,
+   "n_measured": 60,
+   "pct_measured": 100.0,
+   "n_default_zero": 0,
+   "status": "OK"
+  },
+  {
+   "feature": "shots_against_per_game_home",
+   "window": "current",
+   "n_games": 60,
+   "n_nonnull": 60,
+   "pct_nonnull": 100.0,
+   "n_measured": 60,
+   "pct_measured": 100.0,
+   "n_default_zero": 0,
+   "status": "OK"
+  },
+  {
+   "feature": "shots_against_per_game_away",
+   "window": "current",
+   "n_games": 60,
+   "n_nonnull": 60,
+   "pct_nonnull": 100.0,
+   "n_measured": 60,
+   "pct_measured": 100.0,
+   "n_default_zero": 0,
+   "status": "OK"
+  },
+  {
+   "feature": "pp_success_home",
+   "window": "current",
+   "n_games": 60,
+   "n_nonnull": 60,
+   "pct_nonnull": 100.0,
+   "n_measured": 60,
+   "pct_measured": 100.0,
+   "n_default_zero": 0,
+   "status": "OK"
+  },
+  {
+   "feature": "pp_success_away",
+   "window": "current",
+   "n_games": 60,
+   "n_nonnull": 60,
+   "pct_nonnull": 100.0,
+   "n_measured": 60,
+   "pct_measured": 100.0,
+   "n_default_zero": 0,
+   "status": "OK"
+  },
+  {
+   "feature": "faceoff_win_home",
+   "window": "current",
+   "n_games": 60,
+   "n_nonnull": 60,
+   "pct_nonnull": 100.0,
+   "n_measured": 60,
+   "pct_measured": 100.0,
+   "n_default_zero": 0,
+   "status": "OK"
+  },
+  {
+   "feature": "faceoff_win_away",
+   "window": "current",
+   "n_games": 60,
+   "n_nonnull": 60,
+   "pct_nonnull": 100.0,
+   "n_measured": 60,
+   "pct_measured": 100.0,
+   "n_default_zero": 0,
+   "status": "OK"
+  },
+  {
+   "feature": "back_to_back_home",
+   "window": "current",
+   "n_games": 60,
+   "n_nonnull": 60,
+   "pct_nonnull": 100.0,
+   "n_measured": 60,
+   "pct_measured": 100.0,
+   "n_default_zero": 0,
+   "status": "OK"
+  },
+  {
+   "feature": "back_to_back_away",
+   "window": "current",
+   "n_games": 60,
+   "n_nonnull": 60,
+   "pct_nonnull": 100.0,
+   "n_measured": 60,
+   "pct_measured": 100.0,
+   "n_default_zero": 0,
+   "status": "OK"
+  },
+  {
+   "feature": "nhl_giveaways_pg_ewm_home",
+   "window": "current",
+   "n_games": 60,
+   "n_nonnull": 60,
+   "pct_nonnull": 100.0,
+   "n_measured": 60,
+   "pct_measured": 100.0,
+   "n_default_zero": 0,
+   "status": "OK"
+  },
+  {
+   "feature": "nhl_giveaways_pg_ewm_away",
+   "window": "current",
+   "n_games": 60,
+   "n_nonnull": 60,
+   "pct_nonnull": 100.0,
+   "n_measured": 60,
+   "pct_measured": 100.0,
+   "n_default_zero": 0,
+   "status": "OK"
+  },
+  {
+   "feature": "nhl_takeaways_pg_ewm_home",
+   "window": "current",
+   "n_games": 60,
+   "n_nonnull": 60,
+   "pct_nonnull": 100.0,
+   "n_measured": 60,
+   "pct_measured": 100.0,
+   "n_default_zero": 0,
+   "status": "OK"
+  },
+  {
+   "feature": "nhl_takeaways_pg_ewm_away",
+   "window": "current",
+   "n_games": 60,
+   "n_nonnull": 60,
+   "pct_nonnull": 100.0,
+   "n_measured": 60,
+   "pct_measured": 100.0,
+   "n_default_zero": 0,
+   "status": "OK"
+  },
+  {
+   "feature": "goalie_sv_pct_home",
+   "window": "current",
+   "n_games": 60,
+   "n_nonnull": 60,
+   "pct_nonnull": 100.0,
+   "n_measured": 60,
+   "pct_measured": 100.0,
+   "n_default_zero": 0,
+   "status": "OK"
+  },
+  {
+   "feature": "goalie_sv_pct_away",
+   "window": "current",
+   "n_games": 60,
+   "n_nonnull": 60,
+   "pct_nonnull": 100.0,
+   "n_measured": 60,
+   "pct_measured": 100.0,
+   "n_default_zero": 0,
+   "status": "OK"
+  },
+  {
+   "feature": "goalie_gaa_home",
+   "window": "current",
+   "n_games": 60,
+   "n_nonnull": 60,
+   "pct_nonnull": 100.0,
+   "n_measured": 60,
+   "pct_measured": 100.0,
+   "n_default_zero": 0,
+   "status": "OK"
+  },
+  {
+   "feature": "goalie_gaa_away",
+   "window": "current",
+   "n_games": 60,
+   "n_nonnull": 60,
+   "pct_nonnull": 100.0,
+   "n_measured": 60,
+   "pct_measured": 100.0,
+   "n_default_zero": 0,
+   "status": "OK"
+  },
+  {
+   "feature": "goalie_starts_home",
+   "window": "current",
+   "n_games": 60,
+   "n_nonnull": 60,
+   "pct_nonnull": 100.0,
+   "n_measured": 60,
+   "pct_measured": 100.0,
+   "n_default_zero": 0,
+   "status": "OK"
+  },
+  {
+   "feature": "goalie_starts_away",
+   "window": "current",
+   "n_games": 60,
+   "n_nonnull": 60,
+   "pct_nonnull": 100.0,
+   "n_measured": 60,
+   "pct_measured": 100.0,
+   "n_default_zero": 0,
+   "status": "OK"
+  },
+  {
+   "feature": "is_home",
+   "window": "current",
+   "n_games": 60,
+   "n_nonnull": 60,
+   "pct_nonnull": 100.0,
+   "n_measured": 60,
+   "pct_measured": 100.0,
+   "n_default_zero": 0,
+   "status": "OK"
+  },
+  {
+   "feature": "pl_xpm_away",
+   "window": "current",
+   "n_games": 60,
+   "n_nonnull": 60,
+   "pct_nonnull": 100.0,
+   "n_measured": 58,
+   "pct_measured": 96.67,
+   "n_default_zero": 2,
+   "status": "OK"
+  },
+  {
+   "feature": "pl_xpm_home",
+   "window": "current",
+   "n_games": 60,
+   "n_nonnull": 60,
+   "pct_nonnull": 100.0,
+   "n_measured": 53,
+   "pct_measured": 88.33,
+   "n_default_zero": 7,
+   "status": "OK"
+  },
+  {
+   "feature": "pl_xpm_diff",
+   "window": "current",
+   "n_games": 60,
+   "n_nonnull": 60,
+   "pct_nonnull": 100.0,
+   "n_measured": 51,
+   "pct_measured": 85.0,
+   "n_default_zero": 9,
+   "status": "OK"
+  },
+  {
+   "feature": "pl_xg_away",
+   "window": "current",
+   "n_games": 60,
+   "n_nonnull": 60,
+   "pct_nonnull": 100.0,
+   "n_measured": 60,
+   "pct_measured": 100.0,
+   "n_default_zero": 0,
+   "status": "OK"
+  },
+  {
+   "feature": "pl_xg_home",
+   "window": "current",
+   "n_games": 60,
+   "n_nonnull": 60,
+   "pct_nonnull": 100.0,
+   "n_measured": 60,
+   "pct_measured": 100.0,
+   "n_default_zero": 0,
+   "status": "OK"
+  },
+  {
+   "feature": "pl_xg_diff",
+   "window": "current",
+   "n_games": 60,
+   "n_nonnull": 60,
+   "pct_nonnull": 100.0,
+   "n_measured": 60,
+   "pct_measured": 100.0,
+   "n_default_zero": 0,
+   "status": "OK"
+  }
+ ],
+ "ensemble": [
+  {
+   "name": "xgboost",
+   "weight": 0.0,
+   "auc": 0.6081844699627073,
+   "brier": 0.23933727187974296,
+   "logloss": 0.6712894599255241,
+   "n_eval": 4045
+  },
+  {
+   "name": "lightgbm",
+   "weight": 0.3097,
+   "auc": 0.6097172888281702,
+   "brier": 0.2388211726131634,
+   "logloss": 0.6701249622929208,
+   "n_eval": 4045
+  },
+  {
+   "name": "elasticnet",
+   "weight": 0.6903,
+   "auc": 0.6183042252827727,
+   "brier": 0.23775390244366187,
+   "logloss": 0.6678990218772314,
+   "n_eval": 4045
+  }
+ ],
+ "rolling_brier": [
+  {
+   "date": "2023-11-09",
+   "brier": 0.2595396116379535,
+   "games": 11
+  },
+  {
+   "date": "2023-11-10",
+   "brier": 0.2537713084017304,
+   "games": 6
+  },
+  {
+   "date": "2023-11-11",
+   "brier": 0.2536258389882408,
+   "games": 12
+  },
+  {
+   "date": "2023-11-12",
+   "brier": 0.22768723280312225,
+   "games": 5
+  },
+  {
+   "date": "2023-11-13",
+   "brier": 0.22442273603944535,
+   "games": 2
+  },
+  {
+   "date": "2023-11-14",
+   "brier": 0.2505956484159675,
+   "games": 9
+  },
+  {
+   "date": "2023-11-15",
+   "brier": 0.2248512178652955,
+   "games": 4
+  },
+  {
+   "date": "2023-11-16",
+   "brier": 0.24031208597344397,
+   "games": 9
+  },
+  {
+   "date": "2023-11-17",
+   "brier": 0.23827282424842533,
+   "games": 3
+  },
+  {
+   "date": "2023-11-18",
+   "brier": 0.22656856341642773,
+   "games": 13
+  },
+  {
+   "date": "2023-11-19",
+   "brier": 0.2554960978104823,
+   "games": 5
+  },
+  {
+   "date": "2023-11-20",
+   "brier": 0.23748648775823625,
+   "games": 7
+  },
+  {
+   "date": "2023-11-22",
+   "brier": 0.23943038953437432,
+   "games": 14
+  },
+  {
+   "date": "2023-11-24",
+   "brier": 0.2685164062412472,
+   "games": 15
+  },
+  {
+   "date": "2023-11-25",
+   "brier": 0.23314386040245683,
+   "games": 8
+  },
+  {
+   "date": "2023-11-26",
+   "brier": 0.21739877107069677,
+   "games": 5
+  },
+  {
+   "date": "2023-11-27",
+   "brier": 0.25499292645286187,
+   "games": 6
+  },
+  {
+   "date": "2023-11-28",
+   "brier": 0.22733800794691367,
+   "games": 10
+  },
+  {
+   "date": "2023-11-29",
+   "brier": 0.31110388982060216,
+   "games": 3
+  },
+  {
+   "date": "2023-11-30",
+   "brier": 0.2620169688270913,
+   "games": 14
+  },
+  {
+   "date": "2023-12-01",
+   "brier": 0.3261622778876939,
+   "games": 2
+  },
+  {
+   "date": "2023-12-02",
+   "brier": 0.24044520932260077,
+   "games": 13
+  },
+  {
+   "date": "2023-12-03",
+   "brier": 0.19697806519110062,
+   "games": 5
+  },
+  {
+   "date": "2023-12-04",
+   "brier": 0.2591584352108002,
+   "games": 6
+  },
+  {
+   "date": "2023-12-05",
+   "brier": 0.25419915404827087,
+   "games": 8
+  },
+  {
+   "date": "2023-12-06",
+   "brier": 0.2245032483900961,
+   "games": 4
+  },
+  {
+   "date": "2023-12-07",
+   "brier": 0.2556450478687299,
+   "games": 13
+  },
+  {
+   "date": "2023-12-08",
+   "brier": 0.20919488998009803,
+   "games": 3
+  },
+  {
+   "date": "2023-12-09",
+   "brier": 0.275817885917741,
+   "games": 12
+  },
+  {
+   "date": "2023-12-10",
+   "brier": 0.23363944289147492,
+   "games": 8
+  },
+  {
+   "date": "2023-12-11",
+   "brier": 0.23140731954354735,
+   "games": 4
+  },
+  {
+   "date": "2023-12-12",
+   "brier": 0.2391735363192092,
+   "games": 10
+  },
+  {
+   "date": "2023-12-13",
+   "brier": 0.24561584568790443,
+   "games": 5
+  },
+  {
+   "date": "2023-12-14",
+   "brier": 0.23523820880874177,
+   "games": 8
+  },
+  {
+   "date": "2023-12-15",
+   "brier": 0.23990366552740036,
+   "games": 6
+  },
+  {
+   "date": "2023-12-16",
+   "brier": 0.2292480781797357,
+   "games": 13
+  },
+  {
+   "date": "2023-12-17",
+   "brier": 0.26249791741538064,
+   "games": 5
+  },
+  {
+   "date": "2023-12-18",
+   "brier": 0.27092071544449736,
+   "games": 5
+  },
+  {
+   "date": "2023-12-19",
+   "brier": 0.2739789450152823,
+   "games": 11
+  },
+  {
+   "date": "2023-12-20",
+   "brier": 0.24801143283758065,
+   "games": 3
+  },
+  {
+   "date": "2023-12-21",
+   "brier": 0.24814266740566757,
+   "games": 12
+  },
+  {
+   "date": "2023-12-22",
+   "brier": 0.2451538896005982,
+   "games": 4
+  },
+  {
+   "date": "2023-12-23",
+   "brier": 0.22351627092114715,
+   "games": 14
+  },
+  {
+   "date": "2023-12-27",
+   "brier": 0.23262107012724093,
+   "games": 14
+  },
+  {
+   "date": "2023-12-28",
+   "brier": 0.24532756215866824,
+   "games": 4
+  },
+  {
+   "date": "2023-12-29",
+   "brier": 0.2253107453042511,
+   "games": 9
+  },
+  {
+   "date": "2023-12-30",
+   "brier": 0.23419435247429288,
+   "games": 9
+  },
+  {
+   "date": "2023-12-31",
+   "brier": 0.19329150954816862,
+   "games": 9
+  },
+  {
+   "date": "2024-01-01",
+   "brier": 0.2307643161926594,
+   "games": 1
+  },
+  {
+   "date": "2024-01-02",
+   "brier": 0.23541015558218528,
+   "games": 13
+  },
+  {
+   "date": "2024-01-03",
+   "brier": 0.23324097266318597,
+   "games": 2
+  },
+  {
+   "date": "2024-01-04",
+   "brier": 0.2776068875664197,
+   "games": 13
+  },
+  {
+   "date": "2024-01-05",
+   "brier": 0.16797323733366107,
+   "games": 3
+  },
+  {
+   "date": "2024-01-06",
+   "brier": 0.24890905404460928,
+   "games": 12
+  },
+  {
+   "date": "2024-01-07",
+   "brier": 0.2953582971418678,
+   "games": 4
+  },
+  {
+   "date": "2024-01-08",
+   "brier": 0.2322886344320078,
+   "games": 4
+  },
+  {
+   "date": "2024-01-09",
+   "brier": 0.2156866707338055,
+   "games": 10
+  },
+  {
+   "date": "2024-01-10",
+   "brier": 0.18882219959673496,
+   "games": 3
+  },
+  {
+   "date": "2024-01-11",
+   "brier": 0.2382369182016855,
+   "games": 13
+  },
+  {
+   "date": "2024-01-12",
+   "brier": 0.34435273721341164,
+   "games": 2
+  },
+  {
+   "date": "2024-01-13",
+   "brier": 0.23509063254500212,
+   "games": 16
+  },
+  {
+   "date": "2024-01-14",
+   "brier": 0.2612979194349284,
+   "games": 2
+  },
+  {
+   "date": "2024-01-15",
+   "brier": 0.2632450301913241,
+   "games": 10
+  },
+  {
+   "date": "2024-01-16",
+   "brier": 0.18366313269179993,
+   "games": 8
+  },
+  {
+   "date": "2024-01-17",
+   "brier": 0.38689999729860985,
+   "games": 2
+  },
+  {
+   "date": "2024-01-18",
+   "brier": 0.20276053226708585,
+   "games": 11
+  },
+  {
+   "date": "2024-01-19",
+   "brier": 0.23404885324734348,
+   "games": 4
+  },
+  {
+   "date": "2024-01-20",
+   "brier": 0.22527327755167637,
+   "games": 12
+  },
+  {
+   "date": "2024-01-21",
+   "brier": 0.27865466692175567,
+   "games": 6
+  },
+  {
+   "date": "2024-01-22",
+   "brier": 0.25371329023856404,
+   "games": 6
+  },
+  {
+   "date": "2024-01-23",
+   "brier": 0.25569000598938285,
+   "games": 9
+  },
+  {
+   "date": "2024-01-24",
+   "brier": 0.22662336377502404,
+   "games": 7
+  },
+  {
+   "date": "2024-01-25",
+   "brier": 0.2121238088149952,
+   "games": 9
+  },
+  {
+   "date": "2024-01-26",
+   "brier": 0.29831557746207527,
+   "games": 4
+  },
+  {
+   "date": "2024-01-27",
+   "brier": 0.2039718286590757,
+   "games": 14
+  },
+  {
+   "date": "2024-01-28",
+   "brier": 0.21381344972948282,
+   "games": 2
+  },
+  {
+   "date": "2024-01-29",
+   "brier": 0.22650600680409097,
+   "games": 1
+  },
+  {
+   "date": "2024-01-30",
+   "brier": 0.3464686388474614,
+   "games": 2
+  },
+  {
+   "date": "2024-01-31",
+   "brier": 0.18804726529440388,
+   "games": 3
+  },
+  {
+   "date": "2024-02-05",
+   "brier": 0.32762968988601543,
+   "games": 2
+  },
+  {
+   "date": "2024-02-06",
+   "brier": 0.30410420978363695,
+   "games": 8
+  },
+  {
+   "date": "2024-02-07",
+   "brier": 0.22572341443319174,
+   "games": 3
+  },
+  {
+   "date": "2024-02-08",
+   "brier": 0.23977262361638876,
+   "games": 7
+  },
+  {
+   "date": "2024-02-09",
+   "brier": 0.20453451148073162,
+   "games": 3
+  },
+  {
+   "date": "2024-02-10",
+   "brier": 0.25634574112535763,
+   "games": 13
+  },
+  {
+   "date": "2024-02-11",
+   "brier": 0.25346052634648836,
+   "games": 2
+  },
+  {
+   "date": "2024-02-12",
+   "brier": 0.2051948317077647,
+   "games": 4
+  },
+  {
+   "date": "2024-02-13",
+   "brier": 0.2304811274197904,
+   "games": 11
+  },
+  {
+   "date": "2024-02-14",
+   "brier": 0.16402237417895021,
+   "games": 3
+  },
+  {
+   "date": "2024-02-15",
+   "brier": 0.25161093193236045,
+   "games": 12
+  },
+  {
+   "date": "2024-02-16",
+   "brier": 0.1613540889487115,
+   "games": 1
+  },
+  {
+   "date": "2024-02-17",
+   "brier": 0.25405681293959137,
+   "games": 13
+  },
+  {
+   "date": "2024-02-18",
+   "brier": 0.2222854225756243,
+   "games": 3
+  },
+  {
+   "date": "2024-02-19",
+   "brier": 0.22322240778627336,
+   "games": 10
+  },
+  {
+   "date": "2024-02-20",
+   "brier": 0.2469199034808805,
+   "games": 8
+  },
+  {
+   "date": "2024-02-21",
+   "brier": 0.24441692429572198,
+   "games": 5
+  },
+  {
+   "date": "2024-02-22",
+   "brier": 0.25977488958798695,
+   "games": 11
+  },
+  {
+   "date": "2024-02-23",
+   "brier": 0.21435246061082722,
+   "games": 3
+  },
+  {
+   "date": "2024-02-24",
+   "brier": 0.23336810958878845,
+   "games": 13
+  },
+  {
+   "date": "2024-02-25",
+   "brier": 0.22344263482336316,
+   "games": 7
+  },
+  {
+   "date": "2024-02-26",
+   "brier": 0.2825002346795992,
+   "games": 4
+  },
+  {
+   "date": "2024-02-27",
+   "brier": 0.24118075933897523,
+   "games": 12
+  },
+  {
+   "date": "2024-02-28",
+   "brier": 0.16667587619646385,
+   "games": 2
+  },
+  {
+   "date": "2024-02-29",
+   "brier": 0.22564676905063732,
+   "games": 12
+  },
+  {
+   "date": "2024-03-01",
+   "brier": 0.30145687359456574,
+   "games": 3
+  },
+  {
+   "date": "2024-03-02",
+   "brier": 0.21049391248290153,
+   "games": 13
+  },
+  {
+   "date": "2024-03-03",
+   "brier": 0.2055262237612829,
+   "games": 6
+  },
+  {
+   "date": "2024-03-04",
+   "brier": 0.23534047463563604,
+   "games": 6
+  },
+  {
+   "date": "2024-03-05",
+   "brier": 0.24296351064691615,
+   "games": 9
+  },
+  {
+   "date": "2024-03-06",
+   "brier": 0.2225125356513865,
+   "games": 3
+  },
+  {
+   "date": "2024-03-07",
+   "brier": 0.23428338237395005,
+   "games": 12
+  },
+  {
+   "date": "2024-03-08",
+   "brier": 0.17896672276837733,
+   "games": 4
+  },
+  {
+   "date": "2024-03-09",
+   "brier": 0.20481117777746574,
+   "games": 13
+  },
+  {
+   "date": "2024-03-10",
+   "brier": 0.2673558628582438,
+   "games": 5
+  },
+  {
+   "date": "2024-03-11",
+   "brier": 0.31136474231110944,
+   "games": 4
+  },
+  {
+   "date": "2024-03-12",
+   "brier": 0.22489585759223935,
+   "games": 10
+  },
+  {
+   "date": "2024-03-13",
+   "brier": 0.2893816874131878,
+   "games": 4
+  },
+  {
+   "date": "2024-03-14",
+   "brier": 0.24535444783443117,
+   "games": 12
+  },
+  {
+   "date": "2024-03-15",
+   "brier": 0.07346324924944372,
+   "games": 2
+  },
+  {
+   "date": "2024-03-16",
+   "brier": 0.24767516661608308,
+   "games": 14
+  },
+  {
+   "date": "2024-03-17",
+   "brier": 0.1740979611955353,
+   "games": 7
+  },
+  {
+   "date": "2024-03-18",
+   "brier": 0.2710040800317475,
+   "games": 2
+  },
+  {
+   "date": "2024-03-19",
+   "brier": 0.18814659721702268,
+   "games": 13
+  },
+  {
+   "date": "2024-03-20",
+   "brier": 0.204559783151542,
+   "games": 3
+  },
+  {
+   "date": "2024-03-21",
+   "brier": 0.23168595860425636,
+   "games": 11
+  },
+  {
+   "date": "2024-03-22",
+   "brier": 0.2133093636000754,
+   "games": 4
+  },
+  {
+   "date": "2024-03-23",
+   "brier": 0.2610086282319727,
+   "games": 11
+  },
+  {
+   "date": "2024-03-24",
+   "brier": 0.21441706016948872,
+   "games": 10
+  },
+  {
+   "date": "2024-03-25",
+   "brier": 0.24628592720486858,
+   "games": 2
+  },
+  {
+   "date": "2024-03-26",
+   "brier": 0.2373162366440427,
+   "games": 12
+  },
+  {
+   "date": "2024-03-27",
+   "brier": 0.22587349824614947,
+   "games": 2
+  },
+  {
+   "date": "2024-03-28",
+   "brier": 0.20744383420098775,
+   "games": 14
+  },
+  {
+   "date": "2024-03-29",
+   "brier": 0.29197949314233346,
+   "games": 1
+  },
+  {
+   "date": "2024-03-30",
+   "brier": 0.23732952597522058,
+   "games": 15
+  },
+  {
+   "date": "2024-03-31",
+   "brier": 0.00934490961589425,
+   "games": 1
+  },
+  {
+   "date": "2024-04-01",
+   "brier": 0.403464920399744,
+   "games": 8
+  },
+  {
+   "date": "2024-04-02",
+   "brier": 0.3040214824389721,
+   "games": 8
+  },
+  {
+   "date": "2024-04-03",
+   "brier": 0.19340883073039877,
+   "games": 5
+  },
+  {
+   "date": "2024-04-04",
+   "brier": 0.1877762051757451,
+   "games": 9
+  },
+  {
+   "date": "2024-04-05",
+   "brier": 0.17283392361893027,
+   "games": 6
+  },
+  {
+   "date": "2024-04-06",
+   "brier": 0.29914270645466223,
+   "games": 11
+  },
+  {
+   "date": "2024-04-07",
+   "brier": 0.16654455822119724,
+   "games": 9
+  },
+  {
+   "date": "2024-04-08",
+   "brier": 0.14262116053552668,
+   "games": 2
+  },
+  {
+   "date": "2024-04-09",
+   "brier": 0.2254799971750603,
+   "games": 13
+  },
+  {
+   "date": "2024-04-10",
+   "brier": 0.2021003560401082,
+   "games": 3
+  },
+  {
+   "date": "2024-04-11",
+   "brier": 0.2797586898653828,
+   "games": 10
+  },
+  {
+   "date": "2024-04-12",
+   "brier": 0.2311629044264994,
+   "games": 5
+  },
+  {
+   "date": "2024-04-13",
+   "brier": 0.20497161235706562,
+   "games": 13
+  },
+  {
+   "date": "2024-04-14",
+   "brier": 0.183994480896303,
+   "games": 4
+  },
+  {
+   "date": "2024-04-15",
+   "brier": 0.22994953376576183,
+   "games": 8
+  },
+  {
+   "date": "2024-04-16",
+   "brier": 0.2541049936797035,
+   "games": 8
+  },
+  {
+   "date": "2024-04-17",
+   "brier": 0.21988208582664967,
+   "games": 4
+  },
+  {
+   "date": "2024-04-18",
+   "brier": 0.25494012174142416,
+   "games": 6
+  },
+  {
+   "date": "2024-04-20",
+   "brier": 0.17605937983982095,
+   "games": 2
+  },
+  {
+   "date": "2024-04-21",
+   "brier": 0.1434208875808863,
+   "games": 4
+  },
+  {
+   "date": "2024-04-22",
+   "brier": 0.23887182177040236,
+   "games": 4
+  },
+  {
+   "date": "2024-04-23",
+   "brier": 0.22309053929170186,
+   "games": 4
+  },
+  {
+   "date": "2024-04-24",
+   "brier": 0.3973248056060403,
+   "games": 3
+  },
+  {
+   "date": "2024-04-25",
+   "brier": 0.18770550389929178,
+   "games": 2
+  },
+  {
+   "date": "2024-04-26",
+   "brier": 0.2409258317745928,
+   "games": 4
+  },
+  {
+   "date": "2024-04-27",
+   "brier": 0.3020005062948494,
+   "games": 4
+  },
+  {
+   "date": "2024-04-28",
+   "brier": 0.21286951019210237,
+   "games": 4
+  },
+  {
+   "date": "2024-04-29",
+   "brier": 0.1405073927475191,
+   "games": 2
+  },
+  {
+   "date": "2024-04-30",
+   "brier": 0.20488311870674553,
+   "games": 4
+  },
+  {
+   "date": "2024-05-01",
+   "brier": 0.16285935117142858,
+   "games": 2
+  },
+  {
+   "date": "2024-05-02",
+   "brier": 0.18109105857422012,
+   "games": 1
+  },
+  {
+   "date": "2024-05-03",
+   "brier": 0.34368326542890854,
+   "games": 2
+  },
+  {
+   "date": "2024-05-04",
+   "brier": 0.275407486917005,
+   "games": 1
+  },
+  {
+   "date": "2024-05-05",
+   "brier": 0.2102524014547866,
+   "games": 2
+  },
+  {
+   "date": "2024-05-06",
+   "brier": 0.3850877810388542,
+   "games": 1
+  },
+  {
+   "date": "2024-05-07",
+   "brier": 0.26664928629188456,
+   "games": 2
+  },
+  {
+   "date": "2024-05-08",
+   "brier": 0.20014481811270887,
+   "games": 2
+  },
+  {
+   "date": "2024-05-09",
+   "brier": 0.2659025587633886,
+   "games": 2
+  },
+  {
+   "date": "2024-05-10",
+   "brier": 0.21060364574487933,
+   "games": 2
+  },
+  {
+   "date": "2024-05-11",
+   "brier": 0.19387172857680235,
+   "games": 2
+  },
+  {
+   "date": "2024-05-12",
+   "brier": 0.2443367769633743,
+   "games": 2
+  },
+  {
+   "date": "2024-05-13",
+   "brier": 0.20625225547045567,
+   "games": 2
+  },
+  {
+   "date": "2024-05-14",
+   "brier": 0.30810170786329905,
+   "games": 2
+  },
+  {
+   "date": "2024-05-15",
+   "brier": 0.3316726885404089,
+   "games": 1
+  },
+  {
+   "date": "2024-05-16",
+   "brier": 0.3569933397951035,
+   "games": 2
+  },
+  {
+   "date": "2024-05-17",
+   "brier": 0.17525070901046305,
+   "games": 2
+  },
+  {
+   "date": "2024-05-18",
+   "brier": 0.15564253038416487,
+   "games": 1
+  },
+  {
+   "date": "2024-05-20",
+   "brier": 0.1858507322191565,
+   "games": 1
+  },
+  {
+   "date": "2024-05-22",
+   "brier": 0.1629338030055488,
+   "games": 1
+  },
+  {
+   "date": "2024-05-23",
+   "brier": 0.23673942375988447,
+   "games": 1
+  },
+  {
+   "date": "2024-05-24",
+   "brier": 0.3229602022088611,
+   "games": 1
+  },
+  {
+   "date": "2024-05-25",
+   "brier": 0.25997018802349914,
+   "games": 1
+  },
+  {
+   "date": "2024-05-26",
+   "brier": 0.3152578969771723,
+   "games": 1
+  },
+  {
+   "date": "2024-05-27",
+   "brier": 0.2508834078402311,
+   "games": 1
+  },
+  {
+   "date": "2024-05-28",
+   "brier": 0.20300359552165673,
+   "games": 1
+  },
+  {
+   "date": "2024-05-29",
+   "brier": 0.24770032437467981,
+   "games": 1
+  },
+  {
+   "date": "2024-05-30",
+   "brier": 0.1598586709860578,
+   "games": 1
+  },
+  {
+   "date": "2024-05-31",
+   "brier": 0.21279684705184018,
+   "games": 1
+  },
+  {
+   "date": "2024-06-01",
+   "brier": 0.19086914335841076,
+   "games": 1
+  },
+  {
+   "date": "2024-06-02",
+   "brier": 0.17413582665810948,
+   "games": 1
+  },
+  {
+   "date": "2024-06-08",
+   "brier": 0.22628124935436011,
+   "games": 1
+  },
+  {
+   "date": "2024-06-10",
+   "brier": 0.20642682917567468,
+   "games": 1
+  },
+  {
+   "date": "2024-06-13",
+   "brier": 0.27924631168530933,
+   "games": 1
+  },
+  {
+   "date": "2024-06-15",
+   "brier": 0.19901617967716811,
+   "games": 1
+  },
+  {
+   "date": "2024-06-18",
+   "brier": 0.294286352498437,
+   "games": 1
+  },
+  {
+   "date": "2024-06-21",
+   "brier": 0.20342845723057726,
+   "games": 1
+  },
+  {
+   "date": "2024-06-24",
+   "brier": 0.21313644760812356,
+   "games": 1
+  },
+  {
+   "date": "2024-10-04",
+   "brier": 0.3132307133406662,
+   "games": 1
+  },
+  {
+   "date": "2024-10-05",
+   "brier": 0.2374999720007258,
+   "games": 1
+  },
+  {
+   "date": "2024-10-08",
+   "brier": 0.22969869955923686,
+   "games": 3
+  },
+  {
+   "date": "2024-10-09",
+   "brier": 0.27993958332675273,
+   "games": 5
+  },
+  {
+   "date": "2024-10-10",
+   "brier": 0.35254845587320416,
+   "games": 9
+  },
+  {
+   "date": "2024-10-11",
+   "brier": 0.13895259316187342,
+   "games": 4
+  },
+  {
+   "date": "2024-10-12",
+   "brier": 0.32191897432079447,
+   "games": 13
+  },
+  {
+   "date": "2024-10-13",
+   "brier": 0.2281976007733182,
+   "games": 4
+  },
+  {
+   "date": "2024-10-14",
+   "brier": 0.2415998705439102,
+   "games": 6
+  },
+  {
+   "date": "2024-10-15",
+   "brier": 0.19721712226435528,
+   "games": 9
+  },
+  {
+   "date": "2024-10-16",
+   "brier": 0.26393899641099017,
+   "games": 4
+  },
+  {
+   "date": "2024-10-17",
+   "brier": 0.2237053537619513,
+   "games": 11
+  },
+  {
+   "date": "2024-10-18",
+   "brier": 0.10333402334819124,
+   "games": 3
+  },
+  {
+   "date": "2024-10-19",
+   "brier": 0.2530075819860983,
+   "games": 13
+  },
+  {
+   "date": "2024-10-20",
+   "brier": 0.1351228244343339,
+   "games": 3
+  },
+  {
+   "date": "2024-10-21",
+   "brier": 0.21326596067532286,
+   "games": 1
+  },
+  {
+   "date": "2024-10-22",
+   "brier": 0.24271851965482388,
+   "games": 16
+  },
+  {
+   "date": "2024-10-23",
+   "brier": 0.16340186694444092,
+   "games": 1
+  },
+  {
+   "date": "2024-10-24",
+   "brier": 0.23223658083437076,
+   "games": 9
+  },
+  {
+   "date": "2024-10-25",
+   "brier": 0.17290227873081454,
+   "games": 4
+  },
+  {
+   "date": "2024-10-26",
+   "brier": 0.1801322832244761,
+   "games": 14
+  },
+  {
+   "date": "2024-10-27",
+   "brier": 0.19507306120532575,
+   "games": 4
+  },
+  {
+   "date": "2024-10-28",
+   "brier": 0.30485538654678257,
+   "games": 8
+  },
+  {
+   "date": "2024-10-29",
+   "brier": 0.30244424600048914,
+   "games": 7
+  },
+  {
+   "date": "2024-10-30",
+   "brier": 0.2365901889646053,
+   "games": 6
+  },
+  {
+   "date": "2024-10-31",
+   "brier": 0.16468669146510956,
+   "games": 7
+  },
+  {
+   "date": "2024-11-01",
+   "brier": 0.21860075664699874,
+   "games": 6
+  },
+  {
+   "date": "2024-11-02",
+   "brier": 0.22699194958067428,
+   "games": 11
+  },
+  {
+   "date": "2024-11-03",
+   "brier": 0.19186346575117447,
+   "games": 7
+  },
+  {
+   "date": "2024-11-04",
+   "brier": 0.2701130466653243,
+   "games": 2
+  },
+  {
+   "date": "2024-11-05",
+   "brier": 0.18446637370494445,
+   "games": 11
+  },
+  {
+   "date": "2024-11-06",
+   "brier": 0.2883364473846743,
+   "games": 3
+  },
+  {
+   "date": "2024-11-07",
+   "brier": 0.21831599456905892,
+   "games": 12
+  },
+  {
+   "date": "2024-11-08",
+   "brier": 0.2271802634040935,
+   "games": 4
+  },
+  {
+   "date": "2024-11-09",
+   "brier": 0.20989599675191536,
+   "games": 12
+  },
+  {
+   "date": "2024-11-10",
+   "brier": 0.3837861518958748,
+   "games": 3
+  },
+  {
+   "date": "2024-11-11",
+   "brier": 0.2186239379183069,
+   "games": 6
+  },
+  {
+   "date": "2024-11-12",
+   "brier": 0.1850552162221291,
+   "games": 7
+  },
+  {
+   "date": "2024-11-13",
+   "brier": 0.2871775509751166,
+   "games": 5
+  },
+  {
+   "date": "2024-11-14",
+   "brier": 0.20675934332120685,
+   "games": 10
+  },
+  {
+   "date": "2024-11-15",
+   "brier": 0.28376101463244435,
+   "games": 5
+  },
+  {
+   "date": "2024-11-16",
+   "brier": 0.1863468091999929,
+   "games": 12
+  },
+  {
+   "date": "2024-11-17",
+   "brier": 0.17720370036376235,
+   "games": 4
+  },
+  {
+   "date": "2024-11-18",
+   "brier": 0.39820854252495447,
+   "games": 6
+  },
+  {
+   "date": "2024-11-19",
+   "brier": 0.22710761101118138,
+   "games": 7
+  },
+  {
+   "date": "2024-11-20",
+   "brier": 0.18113442496945817,
+   "games": 5
+  },
+  {
+   "date": "2024-11-21",
+   "brier": 0.28306522209808715,
+   "games": 10
+  },
+  {
+   "date": "2024-11-22",
+   "brier": 0.1688181893189762,
+   "games": 2
+  },
+  {
+   "date": "2024-11-23",
+   "brier": 0.2502483928294446,
+   "games": 15
+  },
+  {
+   "date": "2024-11-24",
+   "brier": 0.06490260386535866,
+   "games": 1
+  },
+  {
+   "date": "2024-11-25",
+   "brier": 0.276269296404574,
+   "games": 11
+  },
+  {
+   "date": "2024-11-26",
+   "brier": 0.25979293542187537,
+   "games": 2
+  },
+  {
+   "date": "2024-11-27",
+   "brier": 0.2893149399733937,
+   "games": 15
+  },
+  {
+   "date": "2024-11-29",
+   "brier": 0.23190583325040878,
+   "games": 14
+  },
+  {
+   "date": "2024-11-30",
+   "brier": 0.2827101269618132,
+   "games": 12
+  },
+  {
+   "date": "2024-12-01",
+   "brier": 0.19963069113117515,
+   "games": 5
+  },
+  {
+   "date": "2024-12-02",
+   "brier": 0.1569476077859234,
+   "games": 3
+  },
+  {
+   "date": "2024-12-03",
+   "brier": 0.2913521767477718,
+   "games": 10
+  },
+  {
+   "date": "2024-12-04",
+   "brier": 0.21295669519933919,
+   "games": 4
+  },
+  {
+   "date": "2024-12-05",
+   "brier": 0.21247303660433797,
+   "games": 9
+  },
+  {
+   "date": "2024-12-06",
+   "brier": 0.1776376216969021,
+   "games": 6
+  },
+  {
+   "date": "2024-12-07",
+   "brier": 0.2091781932248204,
+   "games": 11
+  },
+  {
+   "date": "2024-12-08",
+   "brier": 0.2829963207884564,
+   "games": 7
+  },
+  {
+   "date": "2024-12-09",
+   "brier": 0.35285064804272853,
+   "games": 3
+  },
+  {
+   "date": "2024-12-10",
+   "brier": 0.21849910002809061,
+   "games": 11
+  },
+  {
+   "date": "2024-12-11",
+   "brier": 0.1513590502135152,
+   "games": 2
+  },
+  {
+   "date": "2024-12-12",
+   "brier": 0.26168223978408767,
+   "games": 14
+  },
+  {
+   "date": "2024-12-13",
+   "brier": 0.4163304673714517,
+   "games": 1
+  },
+  {
+   "date": "2024-12-14",
+   "brier": 0.19428691191701283,
+   "games": 15
+  },
+  {
+   "date": "2024-12-15",
+   "brier": 0.22447231906880347,
+   "games": 5
+  },
+  {
+   "date": "2024-12-16",
+   "brier": 0.24489785226619074,
+   "games": 3
+  },
+  {
+   "date": "2024-12-17",
+   "brier": 0.2093125273233268,
+   "games": 10
+  },
+  {
+   "date": "2024-12-18",
+   "brier": 0.27078162453507026,
+   "games": 5
+  },
+  {
+   "date": "2024-12-19",
+   "brier": 0.2215062403987114,
+   "games": 9
+  },
+  {
+   "date": "2024-12-20",
+   "brier": 0.26665231559924846,
+   "games": 7
+  },
+  {
+   "date": "2024-12-21",
+   "brier": 0.1878475828704164,
+   "games": 11
+  },
+  {
+   "date": "2024-12-22",
+   "brier": 0.20757867577894498,
+   "games": 6
+  },
+  {
+   "date": "2024-12-23",
+   "brier": 0.2095002268507023,
+   "games": 13
+  },
+  {
+   "date": "2024-12-27",
+   "brier": 0.250373716105855,
+   "games": 8
+  },
+  {
+   "date": "2024-12-28",
+   "brier": 0.22981609596229455,
+   "games": 11
+  },
+  {
+   "date": "2024-12-29",
+   "brier": 0.25086194216306196,
+   "games": 9
+  },
+  {
+   "date": "2024-12-30",
+   "brier": 0.1945002718829617,
+   "games": 3
+  },
+  {
+   "date": "2024-12-31",
+   "brier": 0.24458910295649955,
+   "games": 13
+  },
+  {
+   "date": "2025-01-01",
+   "brier": 0.24383352133859038,
+   "games": 1
+  },
+  {
+   "date": "2025-01-02",
+   "brier": 0.2742062655886835,
+   "games": 12
+  },
+  {
+   "date": "2025-01-03",
+   "brier": 0.18108466570326304,
+   "games": 5
+  },
+  {
+   "date": "2025-01-04",
+   "brier": 0.28425549310763976,
+   "games": 12
+  },
+  {
+   "date": "2025-01-05",
+   "brier": 0.23671909359467413,
+   "games": 5
+  },
+  {
+   "date": "2025-01-06",
+   "brier": 0.21862851041905845,
+   "games": 4
+  },
+  {
+   "date": "2025-01-07",
+   "brier": 0.21460733962402276,
+   "games": 10
+  },
+  {
+   "date": "2025-01-08",
+   "brier": 0.2942435923283328,
+   "games": 3
+  },
+  {
+   "date": "2025-01-09",
+   "brier": 0.24386590295876315,
+   "games": 10
+  },
+  {
+   "date": "2025-01-10",
+   "brier": 0.1978104540515903,
+   "games": 5
+  },
+  {
+   "date": "2025-01-11",
+   "brier": 0.24848600499209447,
+   "games": 15
+  },
+  {
+   "date": "2025-01-12",
+   "brier": 0.2749290192970154,
+   "games": 5
+  },
+  {
+   "date": "2025-01-13",
+   "brier": 0.20273689853500998,
+   "games": 3
+  },
+  {
+   "date": "2025-01-14",
+   "brier": 0.2577971985568308,
+   "games": 13
+  },
+  {
+   "date": "2025-01-15",
+   "brier": 0.26172361487825135,
+   "games": 2
+  },
+  {
+   "date": "2025-01-16",
+   "brier": 0.21932836453987645,
+   "games": 13
+  },
+  {
+   "date": "2025-01-17",
+   "brier": 0.23627179298324258,
+   "games": 2
+  },
+  {
+   "date": "2025-01-18",
+   "brier": 0.2366961111839853,
+   "games": 15
+  },
+  {
+   "date": "2025-01-19",
+   "brier": 0.221431688221011,
+   "games": 3
+  },
+  {
+   "date": "2025-01-20",
+   "brier": 0.282528014965228,
+   "games": 9
+  },
+  {
+   "date": "2025-01-21",
+   "brier": 0.22549092386245204,
+   "games": 8
+  },
+  {
+   "date": "2025-01-22",
+   "brier": 0.23643418010746467,
+   "games": 4
+  },
+  {
+   "date": "2025-01-23",
+   "brier": 0.2013640134074051,
+   "games": 11
+  },
+  {
+   "date": "2025-01-24",
+   "brier": 0.15029689153580672,
+   "games": 4
+  },
+  {
+   "date": "2025-01-25",
+   "brier": 0.25022690720709284,
+   "games": 13
+  },
+  {
+   "date": "2025-01-26",
+   "brier": 0.21662147683919358,
+   "games": 5
+  },
+  {
+   "date": "2025-01-27",
+   "brier": 0.23346453264647654,
+   "games": 5
+  },
+  {
+   "date": "2025-01-28",
+   "brier": 0.27922140505840276,
+   "games": 8
+  },
+  {
+   "date": "2025-01-29",
+   "brier": 0.28188101030251694,
+   "games": 5
+  },
+  {
+   "date": "2025-01-30",
+   "brier": 0.21234077089242648,
+   "games": 10
+  },
+  {
+   "date": "2025-01-31",
+   "brier": 0.25687546549249207,
+   "games": 4
+  },
+  {
+   "date": "2025-02-01",
+   "brier": 0.2721473846086465,
+   "games": 9
+  },
+  {
+   "date": "2025-02-02",
+   "brier": 0.24100776545878183,
+   "games": 9
+  },
+  {
+   "date": "2025-02-03",
+   "brier": 0.2925892302716862,
+   "games": 1
+  },
+  {
+   "date": "2025-02-04",
+   "brier": 0.2307205431311005,
+   "games": 14
+  },
+  {
+   "date": "2025-02-05",
+   "brier": 0.11121802417414367,
+   "games": 3
+  },
+  {
+   "date": "2025-02-06",
+   "brier": 0.21050740186450093,
+   "games": 9
+  },
+  {
+   "date": "2025-02-07",
+   "brier": 0.31076163079686975,
+   "games": 5
+  },
+  {
+   "date": "2025-02-08",
+   "brier": 0.22075268735838788,
+   "games": 14
+  },
+  {
+   "date": "2025-02-09",
+   "brier": 0.24206775165111993,
+   "games": 2
+  },
+  {
+   "date": "2025-02-22",
+   "brier": 0.28206775974369475,
+   "games": 14
+  },
+  {
+   "date": "2025-02-23",
+   "brier": 0.20256963571982842,
+   "games": 10
+  },
+  {
+   "date": "2025-02-24",
+   "brier": 0.17522394600075292,
+   "games": 2
+  },
+  {
+   "date": "2025-02-25",
+   "brier": 0.22939804924629895,
+   "games": 12
+  },
+  {
+   "date": "2025-02-26",
+   "brier": 0.23101515992291935,
+   "games": 3
+  },
+  {
+   "date": "2025-02-27",
+   "brier": 0.22252025015633445,
+   "games": 12
+  },
+  {
+   "date": "2025-02-28",
+   "brier": 0.1810523081707337,
+   "games": 3
+  },
+  {
+   "date": "2025-03-01",
+   "brier": 0.26668643363225863,
+   "games": 13
+  },
+  {
+   "date": "2025-03-02",
+   "brier": 0.14535085948111595,
+   "games": 6
+  },
+  {
+   "date": "2025-03-03",
+   "brier": 0.25145536902206406,
+   "games": 6
+  },
+  {
+   "date": "2025-03-04",
+   "brier": 0.287936332645086,
+   "games": 10
+  },
+  {
+   "date": "2025-03-05",
+   "brier": 0.20837216529740865,
+   "games": 5
+  },
+  {
+   "date": "2025-03-06",
+   "brier": 0.13775986870765664,
+   "games": 9
+  },
+  {
+   "date": "2025-03-07",
+   "brier": 0.19901860313570544,
+   "games": 6
+  },
+  {
+   "date": "2025-03-08",
+   "brier": 0.2158437214106224,
+   "games": 10
+  },
+  {
+   "date": "2025-03-09",
+   "brier": 0.25820485844285834,
+   "games": 8
+  },
+  {
+   "date": "2025-03-10",
+   "brier": 0.2262250612479886,
+   "games": 4
+  },
+  {
+   "date": "2025-03-11",
+   "brier": 0.24109141929014158,
+   "games": 11
+  },
+  {
+   "date": "2025-03-12",
+   "brier": 0.15897260659447426,
+   "games": 4
+  },
+  {
+   "date": "2025-03-13",
+   "brier": 0.22391917029228545,
+   "games": 9
+  },
+  {
+   "date": "2025-03-14",
+   "brier": 0.23113587979521819,
+   "games": 6
+  },
+  {
+   "date": "2025-03-15",
+   "brier": 0.245542111352448,
+   "games": 11
+  },
+  {
+   "date": "2025-03-16",
+   "brier": 0.20266211828087627,
+   "games": 7
+  },
+  {
+   "date": "2025-03-17",
+   "brier": 0.20869616004932415,
+   "games": 5
+  },
+  {
+   "date": "2025-03-18",
+   "brier": 0.25386923847618015,
+   "games": 9
+  },
+  {
+   "date": "2025-03-19",
+   "brier": 0.22681943995380655,
+   "games": 2
+  },
+  {
+   "date": "2025-03-20",
+   "brier": 0.23199895561915598,
+   "games": 14
+  },
+  {
+   "date": "2025-03-21",
+   "brier": 0.2273123749973163,
+   "games": 1
+  },
+  {
+   "date": "2025-03-22",
+   "brier": 0.206554686256221,
+   "games": 14
+  },
+  {
+   "date": "2025-03-23",
+   "brier": 0.23000396881990154,
+   "games": 7
+  },
+  {
+   "date": "2025-03-24",
+   "brier": 0.23037744077861172,
+   "games": 4
+  },
+  {
+   "date": "2025-03-25",
+   "brier": 0.1716399510460212,
+   "games": 10
+  },
+  {
+   "date": "2025-03-26",
+   "brier": 0.25439831361133763,
+   "games": 4
+  },
+  {
+   "date": "2025-03-27",
+   "brier": 0.23412881422309578,
+   "games": 10
+  },
+  {
+   "date": "2025-03-28",
+   "brier": 0.15031652697135617,
+   "games": 6
+  },
+  {
+   "date": "2025-03-29",
+   "brier": 0.2340023472031426,
+   "games": 11
+  },
+  {
+   "date": "2025-03-30",
+   "brier": 0.24331350935376944,
+   "games": 8
+  },
+  {
+   "date": "2025-03-31",
+   "brier": 0.27751559832962386,
+   "games": 4
+  },
+  {
+   "date": "2025-04-01",
+   "brier": 0.23235234373291447,
+   "games": 10
+  },
+  {
+   "date": "2025-04-02",
+   "brier": 0.21384387019658896,
+   "games": 5
+  },
+  {
+   "date": "2025-04-03",
+   "brier": 0.19848857206017428,
+   "games": 9
+  },
+  {
+   "date": "2025-04-04",
+   "brier": 0.1984242757756387,
+   "games": 3
+  },
+  {
+   "date": "2025-04-05",
+   "brier": 0.25364636776174687,
+   "games": 13
+  },
+  {
+   "date": "2025-04-06",
+   "brier": 0.23482983092105358,
+   "games": 8
+  },
+  {
+   "date": "2025-04-07",
+   "brier": 0.26019535816358863,
+   "games": 5
+  },
+  {
+   "date": "2025-04-08",
+   "brier": 0.2320030400920098,
+   "games": 10
+  },
+  {
+   "date": "2025-04-09",
+   "brier": 0.2711757812483869,
+   "games": 5
+  },
+  {
+   "date": "2025-04-10",
+   "brier": 0.22613092028078013,
+   "games": 10
+  },
+  {
+   "date": "2025-04-11",
+   "brier": 0.2575391980552785,
+   "games": 5
+  },
+  {
+   "date": "2025-04-12",
+   "brier": 0.2001836848341174,
+   "games": 11
+  },
+  {
+   "date": "2025-04-13",
+   "brier": 0.2683019606863364,
+   "games": 9
+  },
+  {
+   "date": "2025-04-14",
+   "brier": 0.2637529616134708,
+   "games": 6
+  },
+  {
+   "date": "2025-04-15",
+   "brier": 0.2662134362133942,
+   "games": 10
+  },
+  {
+   "date": "2025-04-16",
+   "brier": 0.20685698510735107,
+   "games": 6
+  },
+  {
+   "date": "2025-04-17",
+   "brier": 0.24236524590568348,
+   "games": 7
+  },
+  {
+   "date": "2025-04-19",
+   "brier": 0.18749593250582808,
+   "games": 2
+  },
+  {
+   "date": "2025-04-20",
+   "brier": 0.1750476085454189,
+   "games": 3
+  },
+  {
+   "date": "2025-04-21",
+   "brier": 0.20805281268157957,
+   "games": 4
+  },
+  {
+   "date": "2025-04-22",
+   "brier": 0.26180350421108695,
+   "games": 4
+  },
+  {
+   "date": "2025-04-23",
+   "brier": 0.2331451522477677,
+   "games": 3
+  },
+  {
+   "date": "2025-04-24",
+   "brier": 0.31986227596973965,
+   "games": 4
+  },
+  {
+   "date": "2025-04-25",
+   "brier": 0.29029276594144643,
+   "games": 3
+  },
+  {
+   "date": "2025-04-26",
+   "brier": 0.19650769440159943,
+   "games": 4
+  },
+  {
+   "date": "2025-04-27",
+   "brier": 0.2195386512490432,
+   "games": 4
+  },
+  {
+   "date": "2025-04-28",
+   "brier": 0.24408186785031438,
+   "games": 2
+  },
+  {
+   "date": "2025-04-29",
+   "brier": 0.20491962922151657,
+   "games": 4
+  },
+  {
+   "date": "2025-04-30",
+   "brier": 0.20259428517256187,
+   "games": 3
+  },
+  {
+   "date": "2025-05-01",
+   "brier": 0.17452686729930766,
+   "games": 4
+  },
+  {
+   "date": "2025-05-02",
+   "brier": 0.2551877352431697,
+   "games": 1
+  },
+  {
+   "date": "2025-05-03",
+   "brier": 0.29702452463188556,
+   "games": 1
+  },
+  {
+   "date": "2025-05-04",
+   "brier": 0.14489754253689222,
+   "games": 1
+  },
+  {
+   "date": "2025-05-05",
+   "brier": 0.23732451063717452,
+   "games": 1
+  },
+  {
+   "date": "2025-05-06",
+   "brier": 0.29089276568056477,
+   "games": 2
+  },
+  {
+   "date": "2025-05-07",
+   "brier": 0.32973057817139656,
+   "games": 2
+  },
+  {
+   "date": "2025-05-08",
+   "brier": 0.2802652316614175,
+   "games": 2
+  },
+  {
+   "date": "2025-05-09",
+   "brier": 0.1452822375717719,
+   "games": 2
+  },
+  {
+   "date": "2025-05-10",
+   "brier": 0.22766126548925888,
+   "games": 2
+  },
+  {
+   "date": "2025-05-11",
+   "brier": 0.23257448986265594,
+   "games": 2
+  },
+  {
+   "date": "2025-05-12",
+   "brier": 0.158199221233334,
+   "games": 2
+  },
+  {
+   "date": "2025-05-13",
+   "brier": 0.28386472629330123,
+   "games": 1
+  },
+  {
+   "date": "2025-05-14",
+   "brier": 0.2470127718982309,
+   "games": 2
+  },
+  {
+   "date": "2025-05-15",
+   "brier": 0.16539842079267247,
+   "games": 2
+  },
+  {
+   "date": "2025-05-16",
+   "brier": 0.3854661971077426,
+   "games": 1
+  },
+  {
+   "date": "2025-05-17",
+   "brier": 0.26959637147815224,
+   "games": 1
+  },
+  {
+   "date": "2025-05-18",
+   "brier": 0.21568659583282865,
+   "games": 1
+  },
+  {
+   "date": "2025-05-20",
+   "brier": 0.35978912828552784,
+   "games": 1
+  },
+  {
+   "date": "2025-05-21",
+   "brier": 0.2571104478078613,
+   "games": 1
+  },
+  {
+   "date": "2025-05-22",
+   "brier": 0.345556192733276,
+   "games": 1
+  },
+  {
+   "date": "2025-05-23",
+   "brier": 0.27264892638875077,
+   "games": 1
+  },
+  {
+   "date": "2025-05-24",
+   "brier": 0.2328814474232696,
+   "games": 1
+  },
+  {
+   "date": "2025-05-25",
+   "brier": 0.16844698561146276,
+   "games": 1
+  },
+  {
+   "date": "2025-05-26",
+   "brier": 0.2801857371448055,
+   "games": 1
+  },
+  {
+   "date": "2025-05-27",
+   "brier": 0.20338745666809185,
+   "games": 1
+  },
+  {
+   "date": "2025-05-28",
+   "brier": 0.29796916472641805,
+   "games": 1
+  },
+  {
+   "date": "2025-05-29",
+   "brier": 0.30910517087117073,
+   "games": 1
+  },
+  {
+   "date": "2025-06-04",
+   "brier": 0.19976511235605993,
+   "games": 1
+  },
+  {
+   "date": "2025-06-06",
+   "brier": 0.33170567537259454,
+   "games": 1
+  },
+  {
+   "date": "2025-06-09",
+   "brier": 0.2340575763830827,
+   "games": 1
+  },
+  {
+   "date": "2025-06-12",
+   "brier": 0.23971362157297796,
+   "games": 1
+  },
+  {
+   "date": "2025-06-14",
+   "brier": 0.32894416134308374,
+   "games": 1
+  },
+  {
+   "date": "2025-06-17",
+   "brier": 0.22979524939082574,
+   "games": 1
+  },
+  {
+   "date": "2025-10-07",
+   "brier": 0.19116862558169034,
+   "games": 3
+  },
+  {
+   "date": "2025-10-08",
+   "brier": 0.3305404937560707,
+   "games": 4
+  },
+  {
+   "date": "2025-10-09",
+   "brier": 0.22682965370183036,
+   "games": 14
+  },
+  {
+   "date": "2025-10-11",
+   "brier": 0.22481465401131154,
+   "games": 16
+  },
+  {
+   "date": "2025-10-12",
+   "brier": 0.2767866378730291,
+   "games": 1
+  },
+  {
+   "date": "2025-10-13",
+   "brier": 0.2849638367110835,
+   "games": 10
+  },
+  {
+   "date": "2025-10-14",
+   "brier": 0.16359021024770537,
+   "games": 8
+  },
+  {
+   "date": "2025-10-15",
+   "brier": 0.29728865235499286,
+   "games": 4
+  },
+  {
+   "date": "2025-10-16",
+   "brier": 0.2379963798668282,
+   "games": 11
+  },
+  {
+   "date": "2025-10-17",
+   "brier": 0.18043851824665288,
+   "games": 4
+  },
+  {
+   "date": "2025-10-18",
+   "brier": 0.23278642551399686,
+   "games": 13
+  },
+  {
+   "date": "2025-10-19",
+   "brier": 0.25327781344942835,
+   "games": 4
+  },
+  {
+   "date": "2025-10-20",
+   "brier": 0.24274409952791967,
+   "games": 5
+  },
+  {
+   "date": "2025-10-21",
+   "brier": 0.24985721663034516,
+   "games": 10
+  },
+  {
+   "date": "2025-10-22",
+   "brier": 0.23922001423378556,
+   "games": 3
+  },
+  {
+   "date": "2025-10-23",
+   "brier": 0.29752644778614373,
+   "games": 12
+  },
+  {
+   "date": "2025-10-24",
+   "brier": 0.18851074231267811,
+   "games": 4
+  },
+  {
+   "date": "2025-10-25",
+   "brier": 0.24042755782163733,
+   "games": 13
+  },
+  {
+   "date": "2025-10-26",
+   "brier": 0.26837043225995816,
+   "games": 8
+  },
+  {
+   "date": "2025-10-27",
+   "brier": 0.21047101445091726,
+   "games": 2
+  },
+  {
+   "date": "2025-10-28",
+   "brier": 0.23717610624341415,
+   "games": 16
+  },
+  {
+   "date": "2025-10-29",
+   "brier": 0.22569868586387024,
+   "games": 1
+  },
+  {
+   "date": "2025-10-30",
+   "brier": 0.24122455189704442,
+   "games": 11
+  },
+  {
+   "date": "2025-10-31",
+   "brier": 0.3054662112594427,
+   "games": 3
+  },
+  {
+   "date": "2025-11-01",
+   "brier": 0.21823018426935128,
+   "games": 13
+  },
+  {
+   "date": "2025-11-02",
+   "brier": 0.21543094735562202,
+   "games": 5
+  },
+  {
+   "date": "2025-11-03",
+   "brier": 0.18965189287606798,
+   "games": 4
+  },
+  {
+   "date": "2025-11-04",
+   "brier": 0.2564362117204183,
+   "games": 10
+  },
+  {
+   "date": "2025-11-05",
+   "brier": 0.2533773377509133,
+   "games": 5
+  },
+  {
+   "date": "2025-11-06",
+   "brier": 0.2568758756182422,
+   "games": 9
+  },
+  {
+   "date": "2025-11-07",
+   "brier": 0.34147383914361595,
+   "games": 4
+  },
+  {
+   "date": "2025-11-08",
+   "brier": 0.2871104393280002,
+   "games": 13
+  },
+  {
+   "date": "2025-11-09",
+   "brier": 0.2525491837325664,
+   "games": 8
+  },
+  {
+   "date": "2025-11-10",
+   "brier": 0.2238131936163003,
+   "games": 4
+  },
+  {
+   "date": "2025-11-11",
+   "brier": 0.26682830934912194,
+   "games": 9
+  },
+  {
+   "date": "2025-11-12",
+   "brier": 0.24227936701501784,
+   "games": 4
+  },
+  {
+   "date": "2025-11-13",
+   "brier": 0.19920183506207942,
+   "games": 10
+  },
+  {
+   "date": "2025-11-14",
+   "brier": 0.2720893763829809,
+   "games": 4
+  },
+  {
+   "date": "2025-11-15",
+   "brier": 0.2695273024862169,
+   "games": 13
+  },
+  {
+   "date": "2025-11-16",
+   "brier": 0.23098758182227716,
+   "games": 5
+  },
+  {
+   "date": "2025-11-17",
+   "brier": 0.21363949884015188,
+   "games": 6
+  },
+  {
+   "date": "2025-11-18",
+   "brier": 0.23644781712763027,
+   "games": 8
+  },
+  {
+   "date": "2025-11-19",
+   "brier": 0.25898249400361456,
+   "games": 4
+  },
+  {
+   "date": "2025-11-20",
+   "brier": 0.24265031890032365,
+   "games": 12
+  },
+  {
+   "date": "2025-11-21",
+   "brier": 0.25729433897576304,
+   "games": 4
+  },
+  {
+   "date": "2025-11-22",
+   "brier": 0.23018702312898862,
+   "games": 12
+  },
+  {
+   "date": "2025-11-23",
+   "brier": 0.28289662836238055,
+   "games": 6
+  },
+  {
+   "date": "2025-11-24",
+   "brier": 0.1960758504659455,
+   "games": 7
+  },
+  {
+   "date": "2025-11-25",
+   "brier": 0.26999064714012083,
+   "games": 1
+  },
+  {
+   "date": "2025-11-26",
+   "brier": 0.2718396797795219,
+   "games": 15
+  },
+  {
+   "date": "2025-11-28",
+   "brier": 0.28545958933339494,
+   "games": 15
+  },
+  {
+   "date": "2025-11-29",
+   "brier": 0.2225208624882268,
+   "games": 11
+  },
+  {
+   "date": "2025-11-30",
+   "brier": 0.18911568026836933,
+   "games": 4
+  },
+  {
+   "date": "2025-12-01",
+   "brier": 0.28282297688241154,
+   "games": 5
+  },
+  {
+   "date": "2025-12-02",
+   "brier": 0.21635709743206205,
+   "games": 10
+  },
+  {
+   "date": "2025-12-03",
+   "brier": 0.2618612452240234,
+   "games": 5
+  },
+  {
+   "date": "2025-12-04",
+   "brier": 0.3133862598251039,
+   "games": 10
+  },
+  {
+   "date": "2025-12-05",
+   "brier": 0.20464190213244526,
+   "games": 5
+  },
+  {
+   "date": "2025-12-06",
+   "brier": 0.21699742395180055,
+   "games": 12
+  },
+  {
+   "date": "2025-12-07",
+   "brier": 0.20746379568190523,
+   "games": 8
+  },
+  {
+   "date": "2025-12-08",
+   "brier": 0.28187013223858676,
+   "games": 5
+  },
+  {
+   "date": "2025-12-09",
+   "brier": 0.2730258935704951,
+   "games": 10
+  },
+  {
+   "date": "2025-12-10",
+   "brier": 0.2596212743474099,
+   "games": 4
+  },
+  {
+   "date": "2025-12-11",
+   "brier": 0.24302116328304313,
+   "games": 13
+  },
+  {
+   "date": "2025-12-12",
+   "brier": 0.21323813388807286,
+   "games": 2
+  },
+  {
+   "date": "2025-12-13",
+   "brier": 0.24482283007441147,
+   "games": 13
+  },
+  {
+   "date": "2025-12-14",
+   "brier": 0.21374059412670443,
+   "games": 6
+  },
+  {
+   "date": "2025-12-15",
+   "brier": 0.26960274869410894,
+   "games": 5
+  },
+  {
+   "date": "2025-12-16",
+   "brier": 0.20568454288622834,
+   "games": 10
+  },
+  {
+   "date": "2025-12-17",
+   "brier": 0.2551475727443952,
+   "games": 5
+  },
+  {
+   "date": "2025-12-18",
+   "brier": 0.22661280232515857,
+   "games": 10
+  },
+  {
+   "date": "2025-12-19",
+   "brier": 0.2462229631718043,
+   "games": 5
+  },
+  {
+   "date": "2025-12-20",
+   "brier": 0.23519255538100908,
+   "games": 13
+  },
+  {
+   "date": "2025-12-21",
+   "brier": 0.21566146799191144,
+   "games": 9
+  },
+  {
+   "date": "2025-12-22",
+   "brier": 0.25135044158620984,
+   "games": 4
+  },
+  {
+   "date": "2025-12-23",
+   "brier": 0.26508484893675593,
+   "games": 13
+  },
+  {
+   "date": "2025-12-27",
+   "brier": 0.2647166868984776,
+   "games": 13
+  },
+  {
+   "date": "2025-12-28",
+   "brier": 0.2077820181103988,
+   "games": 5
+  },
+  {
+   "date": "2025-12-29",
+   "brier": 0.25002169061514096,
+   "games": 11
+  },
+  {
+   "date": "2025-12-30",
+   "brier": 0.22341760726097828,
+   "games": 5
+  },
+  {
+   "date": "2025-12-31",
+   "brier": 0.2561471557944814,
+   "games": 10
+  },
+  {
+   "date": "2026-01-01",
+   "brier": 0.2480368220809935,
+   "games": 8
+  },
+  {
+   "date": "2026-01-02",
+   "brier": 0.3546730712970514,
+   "games": 4
+  },
+  {
+   "date": "2026-01-03",
+   "brier": 0.2588717404370536,
+   "games": 13
+  },
+  {
+   "date": "2026-01-04",
+   "brier": 0.3060934916035526,
+   "games": 5
+  },
+  {
+   "date": "2026-01-05",
+   "brier": 0.2506448073022611,
+   "games": 5
+  },
+  {
+   "date": "2026-01-06",
+   "brier": 0.23582621817107552,
+   "games": 10
+  },
+  {
+   "date": "2026-01-07",
+   "brier": 0.27019219183824567,
+   "games": 5
+  },
+  {
+   "date": "2026-01-08",
+   "brier": 0.20521421355640593,
+   "games": 12
+  },
+  {
+   "date": "2026-01-09",
+   "brier": 0.21967098446543923,
+   "games": 3
+  },
+  {
+   "date": "2026-01-10",
+   "brier": 0.24396588525276555,
+   "games": 14
+  },
+  {
+   "date": "2026-01-11",
+   "brier": 0.269894862995375,
+   "games": 5
+  },
+  {
+   "date": "2026-01-12",
+   "brier": 0.2758560644311573,
+   "games": 9
+  },
+  {
+   "date": "2026-01-13",
+   "brier": 0.21253613477838193,
+   "games": 10
+  },
+  {
+   "date": "2026-01-14",
+   "brier": 0.2104769653649712,
+   "games": 4
+  },
+  {
+   "date": "2026-01-15",
+   "brier": 0.26188398034553,
+   "games": 10
+  },
+  {
+   "date": "2026-01-16",
+   "brier": 0.32577007848864303,
+   "games": 5
+  },
+  {
+   "date": "2026-01-17",
+   "brier": 0.24812407005233825,
+   "games": 13
+  },
+  {
+   "date": "2026-01-18",
+   "brier": 0.20202773677537664,
+   "games": 3
+  },
+  {
+   "date": "2026-01-19",
+   "brier": 0.23726593141070595,
+   "games": 10
+  },
+  {
+   "date": "2026-01-20",
+   "brier": 0.21096214494716567,
+   "games": 8
+  },
+  {
+   "date": "2026-01-21",
+   "brier": 0.26501346224573546,
+   "games": 6
+  },
+  {
+   "date": "2026-01-22",
+   "brier": 0.32551937764314787,
+   "games": 8
+  },
+  {
+   "date": "2026-01-23",
+   "brier": 0.22000756854067705,
+   "games": 8
+  },
+  {
+   "date": "2026-01-24",
+   "brier": 0.2281443610283539,
+   "games": 9
+  },
+  {
+   "date": "2026-01-25",
+   "brier": 0.21088819181239601,
+   "games": 6
+  },
+  {
+   "date": "2026-01-26",
+   "brier": 0.19143446991388102,
+   "games": 4
+  },
+  {
+   "date": "2026-01-27",
+   "brier": 0.25962140855277316,
+   "games": 10
+  },
+  {
+   "date": "2026-01-28",
+   "brier": 0.2332762606020221,
+   "games": 3
+  },
+  {
+   "date": "2026-01-29",
+   "brier": 0.19795030927221638,
+   "games": 15
+  },
+  {
+   "date": "2026-01-30",
+   "brier": 0.16281459511291177,
+   "games": 1
+  },
+  {
+   "date": "2026-01-31",
+   "brier": 0.2714314087328055,
+   "games": 14
+  },
+  {
+   "date": "2026-02-01",
+   "brier": 0.15220907172421197,
+   "games": 3
+  },
+  {
+   "date": "2026-02-02",
+   "brier": 0.23944624507685566,
+   "games": 10
+  },
+  {
+   "date": "2026-02-03",
+   "brier": 0.23073983898714343,
+   "games": 7
+  },
+  {
+   "date": "2026-02-04",
+   "brier": 0.19843046901797273,
+   "games": 10
+  },
+  {
+   "date": "2026-02-05",
+   "brier": 0.17557270147844134,
+   "games": 7
+  },
+  {
+   "date": "2026-02-25",
+   "brier": 0.2185385367759998,
+   "games": 8
+  },
+  {
+   "date": "2026-02-26",
+   "brier": 0.22761308428812418,
+   "games": 12
+  },
+  {
+   "date": "2026-02-27",
+   "brier": 0.24129450519413537,
+   "games": 4
+  },
+  {
+   "date": "2026-02-28",
+   "brier": 0.2443556091514928,
+   "games": 13
+  },
+  {
+   "date": "2026-03-01",
+   "brier": 0.3377006030023391,
+   "games": 6
+  },
+  {
+   "date": "2026-03-02",
+   "brier": 0.22052196068592403,
+   "games": 6
+  },
+  {
+   "date": "2026-03-03",
+   "brier": 0.2385604217213178,
+   "games": 11
+  },
+  {
+   "date": "2026-03-04",
+   "brier": 0.23536113448340718,
+   "games": 5
+  },
+  {
+   "date": "2026-03-05",
+   "brier": 0.2098410830906647,
+   "games": 8
+  },
+  {
+   "date": "2026-03-06",
+   "brier": 0.2952720128604645,
+   "games": 7
+  },
+  {
+   "date": "2026-03-07",
+   "brier": 0.23808987149966343,
+   "games": 11
+  },
+  {
+   "date": "2026-03-08",
+   "brier": 0.1992127504701137,
+   "games": 7
+  },
+  {
+   "date": "2026-03-09",
+   "brier": 0.2669901568726613,
+   "games": 5
+  },
+  {
+   "date": "2026-03-10",
+   "brier": 0.2223657511463412,
+   "games": 13
+  },
+  {
+   "date": "2026-03-11",
+   "brier": 0.37331452070806476,
+   "games": 2
+  },
+  {
+   "date": "2026-03-12",
+   "brier": 0.3199616732150264,
+   "games": 14
+  },
+  {
+   "date": "2026-03-13",
+   "brier": 0.3425693963718699,
+   "games": 2
+  },
+  {
+   "date": "2026-03-14",
+   "brier": 0.22641036165209538,
+   "games": 14
+  },
+  {
+   "date": "2026-03-15",
+   "brier": 0.24139099096157898,
+   "games": 6
+  },
+  {
+   "date": "2026-03-16",
+   "brier": 0.25211613266299293,
+   "games": 5
+  },
+  {
+   "date": "2026-03-17",
+   "brier": 0.21827034037651416,
+   "games": 9
+  },
+  {
+   "date": "2026-03-18",
+   "brier": 0.24611711820824853,
+   "games": 6
+  },
+  {
+   "date": "2026-03-19",
+   "brier": 0.2548367351328345,
+   "games": 11
+  },
+  {
+   "date": "2026-03-20",
+   "brier": 0.17672882354680725,
+   "games": 5
+  },
+  {
+   "date": "2026-03-21",
+   "brier": 0.23820031477013973,
+   "games": 11
+  },
+  {
+   "date": "2026-03-22",
+   "brier": 0.23301135561991687,
+   "games": 9
+  },
+  {
+   "date": "2026-03-23",
+   "brier": 0.07506849416155605,
+   "games": 1
+  },
+  {
+   "date": "2026-03-24",
+   "brier": 0.2542743222856575,
+   "games": 15
+  },
+  {
+   "date": "2026-03-25",
+   "brier": 0.3723855160156346,
+   "games": 2
+  },
+  {
+   "date": "2026-03-26",
+   "brier": 0.2610162458006057,
+   "games": 13
+  },
+  {
+   "date": "2026-03-27",
+   "brier": 0.1800777601104989,
+   "games": 2
+  },
+  {
+   "date": "2026-03-28",
+   "brier": 0.25501049903103673,
+   "games": 15
+  },
+  {
+   "date": "2026-03-29",
+   "brier": 0.2538450340320547,
+   "games": 6
+  },
+  {
+   "date": "2026-03-30",
+   "brier": 0.22720422744441948,
+   "games": 5
+  },
+  {
+   "date": "2026-03-31",
+   "brier": 0.24442486905500488,
+   "games": 10
+  },
+  {
+   "date": "2026-04-01",
+   "brier": 0.3273635445649021,
+   "games": 3
+  },
+  {
+   "date": "2026-04-02",
+   "brier": 0.16956710931168842,
+   "games": 14
+  },
+  {
+   "date": "2026-04-03",
+   "brier": 0.31124737365886734,
+   "games": 2
+  },
+  {
+   "date": "2026-04-04",
+   "brier": 0.2562544796244274,
+   "games": 15
+  },
+  {
+   "date": "2026-04-05",
+   "brier": 0.25937220983060866,
+   "games": 7
+  },
+  {
+   "date": "2026-04-06",
+   "brier": 0.17388629858056412,
+   "games": 4
+  },
+  {
+   "date": "2026-04-07",
+   "brier": 0.204499826657546,
+   "games": 11
+  },
+  {
+   "date": "2026-04-08",
+   "brier": 0.26594340323506277,
+   "games": 3
+  },
+  {
+   "date": "2026-04-09",
+   "brier": 0.17525249456007888,
+   "games": 14
+  },
+  {
+   "date": "2026-04-11",
+   "brier": 0.26552321284717534,
+   "games": 15
+  },
+  {
+   "date": "2026-04-12",
+   "brier": 0.34228058381294885,
+   "games": 6
+  },
+  {
+   "date": "2026-04-13",
+   "brier": 0.23334575056346787,
+   "games": 10
+  },
+  {
+   "date": "2026-04-14",
+   "brier": 0.2625338375468982,
+   "games": 9
+  },
+  {
+   "date": "2026-04-15",
+   "brier": 0.20907620336530583,
+   "games": 6
+  },
+  {
+   "date": "2026-04-16",
+   "brier": 0.24497107767469206,
+   "games": 6
+  },
+  {
+   "date": "2026-04-18",
+   "brier": 0.24437152393673336,
+   "games": 3
+  },
+  {
+   "date": "2026-04-19",
+   "brier": 0.2118157559156002,
+   "games": 4
+  },
+  {
+   "date": "2026-04-20",
+   "brier": 0.21741168154505885,
+   "games": 4
+  },
+  {
+   "date": "2026-04-21",
+   "brier": 0.24176003255552514,
+   "games": 4
+  },
+  {
+   "date": "2026-04-22",
+   "brier": 0.25891789219993294,
+   "games": 3
+  },
+  {
+   "date": "2026-04-23",
+   "brier": 0.21896827387209025,
+   "games": 3
+  },
+  {
+   "date": "2026-04-24",
+   "brier": 0.2414573903066445,
+   "games": 3
+  },
+  {
+   "date": "2026-04-25",
+   "brier": 0.2612707785496466,
+   "games": 3
+  },
+  {
+   "date": "2026-04-26",
+   "brier": 0.21702368977329559,
+   "games": 4
+  },
+  {
+   "date": "2026-04-27",
+   "brier": 0.2502391071341523,
+   "games": 2
+  },
+  {
+   "date": "2026-04-28",
+   "brier": 0.3086478320749761,
+   "games": 3
+  },
+  {
+   "date": "2026-04-29",
+   "brier": 0.2410295303034116,
+   "games": 3
+  },
+  {
+   "date": "2026-04-30",
+   "brier": 0.19854045702216802,
+   "games": 2
+  },
+  {
+   "date": "2026-05-01",
+   "brier": 0.24664426175566426,
+   "games": 3
+  },
+  {
+   "date": "2026-05-02",
+   "brier": 0.12512215144948294,
+   "games": 1
+  },
+  {
+   "date": "2026-05-03",
+   "brier": 0.2510441468099168,
+   "games": 2
+  },
+  {
+   "date": "2026-05-04",
+   "brier": 0.17807988286305354,
+   "games": 2
+  },
+  {
+   "date": "2026-05-05",
+   "brier": 0.14487982752800893,
+   "games": 1
+  },
+  {
+   "date": "2026-05-06",
+   "brier": 0.21680081264254217,
+   "games": 2
+  },
+  {
+   "date": "2026-05-07",
+   "brier": 0.16822083119941453,
+   "games": 1
+  },
+  {
+   "date": "2026-05-08",
+   "brier": 0.3414830953135755,
+   "games": 2
+  },
+  {
+   "date": "2026-05-09",
+   "brier": 0.21461499336480666,
+   "games": 2
+  },
+  {
+   "date": "2026-05-10",
+   "brier": 0.15955052639391032,
+   "games": 2
+  },
+  {
+   "date": "2026-05-11",
+   "brier": 0.21667999918064215,
+   "games": 1
+  },
+  {
+   "date": "2026-05-12",
+   "brier": 0.33197614902233824,
+   "games": 2
+  },
+  {
+   "date": "2026-05-13",
+   "brier": 0.13721104683207774,
+   "games": 1
+  },
+  {
+   "date": "2026-05-14",
+   "brier": 0.30579979768050986,
+   "games": 2
+  },
+  {
+   "date": "2026-05-16",
+   "brier": 0.39054918752538503,
+   "games": 1
+  },
+  {
+   "date": "2026-05-18",
+   "brier": 0.2815261392280342,
+   "games": 1
+  },
+  {
+   "date": "2026-05-20",
+   "brier": 0.4076090006326209,
+   "games": 1
+  },
+  {
+   "date": "2026-05-21",
+   "brier": 0.4422394996841129,
+   "games": 1
+  },
+  {
+   "date": "2026-05-22",
+   "brier": 0.42317968452882865,
+   "games": 1
+  },
+  {
+   "date": "2026-05-23",
+   "brier": 0.10515852826210671,
+   "games": 1
+  },
+  {
+   "date": "2026-05-24",
+   "brier": 0.3582422767099808,
+   "games": 1
+  },
+  {
+   "date": "2026-05-25",
+   "brier": 0.16191845236405472,
+   "games": 1
+  },
+  {
+   "date": "2026-05-26",
+   "brier": 0.36827774188070705,
+   "games": 1
+  },
+  {
+   "date": "2026-05-27",
+   "brier": 0.14782282853601003,
+   "games": 1
+  },
+  {
+   "date": "2026-05-29",
+   "brier": 0.08688902626022044,
+   "games": 1
+  },
+  {
+   "date": "2026-06-02",
+   "brier": 0.4247452664607833,
+   "games": 1
+  },
+  {
+   "date": "2026-06-04",
+   "brier": 0.11764113605240646,
+   "games": 1
+  },
+  {
+   "date": "2026-06-06",
+   "brier": 0.2975544795565693,
+   "games": 1
+  },
+  {
+   "date": "2026-06-09",
+   "brier": 0.2328935475280111,
+   "games": 1
+  },
+  {
+   "date": "2026-06-11",
+   "brier": 0.16843281988846023,
+   "games": 1
+  },
+  {
+   "date": "2026-06-14",
+   "brier": 0.2512946959636822,
+   "games": 1
+  },
+  {
+   "date": "2026-09-29",
+   "brier": 0.2789976767171523,
+   "games": 5
+  },
+  {
+   "date": "2026-09-30",
+   "brier": 0.19398292511744822,
+   "games": 3
+  },
+  {
+   "date": "2026-10-01",
+   "brier": 0.22801032220673878,
+   "games": 8
+  },
+  {
+   "date": "2026-10-02",
+   "brier": 0.32144365811010134,
+   "games": 5
+  },
+  {
+   "date": "2026-10-03",
+   "brier": 0.18595069933158126,
+   "games": 13
+  },
+  {
+   "date": "2026-10-04",
+   "brier": 0.18563324337247977,
+   "games": 5
+  },
+  {
+   "date": "2026-10-05",
+   "brier": 0.24102804641346948,
+   "games": 4
+  },
+  {
+   "date": "2026-10-06",
+   "brier": 0.20830526004796887,
+   "games": 9
+  },
+  {
+   "date": "2026-10-07",
+   "brier": 0.2915524151299856,
+   "games": 3
+  },
+  {
+   "date": "2026-10-08",
+   "brier": 0.1996598238491578,
+   "games": 10
+  },
+  {
+   "date": "2026-10-09",
+   "brier": 0.24408508161693265,
+   "games": 4
+  },
+  {
+   "date": "2026-10-10",
+   "brier": 0.20861443128965335,
+   "games": 14
+  },
+  {
+   "date": "2026-10-11",
+   "brier": 0.17168829011013556,
+   "games": 3
+  },
+  {
+   "date": "2026-10-12",
+   "brier": 0.2306138376857425,
+   "games": 3
+  },
+  {
+   "date": "2026-10-13",
+   "brier": 0.25334191620517404,
+   "games": 16
+  },
+  {
+   "date": "2026-10-14",
+   "brier": 0.28394181663339624,
+   "games": 2
+  },
+  {
+   "date": "2026-10-15",
+   "brier": 0.18580141384783266,
+   "games": 11
+  },
+  {
+   "date": "2026-10-16",
+   "brier": 0.24272406856248518,
+   "games": 2
+  },
+  {
+   "date": "2026-10-17",
+   "brier": 0.2046979171582244,
+   "games": 14
+  },
+  {
+   "date": "2026-10-18",
+   "brier": 0.28359514592104135,
+   "games": 2
+  },
+  {
+   "date": "2026-10-19",
+   "brier": 0.2675320114514695,
+   "games": 4
+  },
+  {
+   "date": "2026-10-20",
+   "brier": 0.2691331212932901,
+   "games": 11
+  },
+  {
+   "date": "2026-10-21",
+   "brier": 0.2815537757797012,
+   "games": 2
+  },
+  {
+   "date": "2026-10-22",
+   "brier": 0.26782971074073114,
+   "games": 12
+  },
+  {
+   "date": "2026-10-23",
+   "brier": 0.17715634777475087,
+   "games": 2
+  },
+  {
+   "date": "2026-10-24",
+   "brier": 0.21232493664483595,
+   "games": 12
+  },
+  {
+   "date": "2026-10-25",
+   "brier": 0.19974939850482498,
+   "games": 5
+  },
+  {
+   "date": "2026-10-26",
+   "brier": 0.3012151139217176,
+   "games": 3
+  },
+  {
+   "date": "2026-10-27",
+   "brier": 0.26431290567952054,
+   "games": 11
+  },
+  {
+   "date": "2026-10-28",
+   "brier": 0.17828826768640432,
+   "games": 4
+  },
+  {
+   "date": "2026-10-29",
+   "brier": 0.23738163297854767,
+   "games": 11
+  },
+  {
+   "date": "2026-10-30",
+   "brier": 0.2263975674052541,
+   "games": 3
+  },
+  {
+   "date": "2026-10-31",
+   "brier": 0.20091793626951704,
+   "games": 10
+  },
+  {
+   "date": "2026-11-01",
+   "brier": 0.21811020826945565,
+   "games": 5
+  },
+  {
+   "date": "2026-11-02",
+   "brier": 0.24069433231498033,
+   "games": 4
+  },
+  {
+   "date": "2026-11-03",
+   "brier": 0.2489093932104436,
+   "games": 11
+  },
+  {
+   "date": "2026-11-04",
+   "brier": 0.1690093093013731,
+   "games": 4
+  },
+  {
+   "date": "2026-11-05",
+   "brier": 0.22775252361924164,
+   "games": 11
+  },
+  {
+   "date": "2026-11-06",
+   "brier": 0.15673031429392717,
+   "games": 3
+  },
+  {
+   "date": "2026-11-07",
+   "brier": 0.1815597660075752,
+   "games": 12
+  },
+  {
+   "date": "2026-11-08",
+   "brier": 0.2167537498935943,
+   "games": 6
+  },
+  {
+   "date": "2026-11-09",
+   "brier": 0.22490324082412103,
+   "games": 3
+  },
+  {
+   "date": "2026-11-10",
+   "brier": 0.25504119001909464,
+   "games": 7
+  },
+  {
+   "date": "2026-11-11",
+   "brier": 0.2362302401904349,
+   "games": 6
+  },
+  {
+   "date": "2026-11-12",
+   "brier": 0.2577759722889095,
+   "games": 11
+  },
+  {
+   "date": "2026-11-13",
+   "brier": 0.28918177220285113,
+   "games": 2
+  },
+  {
+   "date": "2026-11-14",
+   "brier": 0.2791480625790437,
+   "games": 14
+  },
+  {
+   "date": "2026-11-15",
+   "brier": 0.26664870718487726,
+   "games": 5
+  },
+  {
+   "date": "2026-11-16",
+   "brier": 0.3989919787449909,
+   "games": 2
+  },
+  {
+   "date": "2026-11-17",
+   "brier": 0.266606605675128,
+   "games": 11
+  },
+  {
+   "date": "2026-11-18",
+   "brier": 0.26796568278899907,
+   "games": 3
+  },
+  {
+   "date": "2026-11-19",
+   "brier": 0.26374313084203854,
+   "games": 12
+  },
+  {
+   "date": "2026-11-21",
+   "brier": 0.2563524349493735,
+   "games": 14
+  },
+  {
+   "date": "2026-11-22",
+   "brier": 0.2492588484656469,
+   "games": 5
+  },
+  {
+   "date": "2026-11-23",
+   "brier": 0.23231690039804215,
+   "games": 7
+  },
+  {
+   "date": "2026-11-24",
+   "brier": 0.18338835470685233,
+   "games": 1
+  },
+  {
+   "date": "2026-11-25",
+   "brier": 0.23724486654594848,
+   "games": 14
+  }
+ ],
+ "brier_baseline": 0.46033189361218463,
+ "brier_baseline_label": "Constant home-edge",
+ "rolling_brier_meta": {
+  "window_days": 30,
+  "min_games_per_day": 1,
+  "excluded_sparse_days": 0,
+  "calibrator_is_identity": false,
+  "map_scope_note": "Points use the prequential per-fold calibration layer (fit on prior OOF folds only); the pooled all-OOF Platt map is the serving layer and is not in this series."
+ },
+ "metrics": {
+  "auc": 0.6183,
+  "brier": 0.2376,
+  "logloss": 0.6677,
+  "ece": 0.0093,
+  "ece_calibrated": 0.0092,
+  "auc_calibrated": 0.6183,
+  "brier_calibrated": 0.2377,
+  "logloss_calibrated": 0.6679,
+  "calibrator_gated_out": true
+ },
+ "version_history": [
+  {
+   "version": "v2026.11.07",
+   "date": "2026-11-07",
+   "weights": {
+    "xgboost": 0.0,
+    "lightgbm": 0.313,
+    "elasticnet": 0.687
+   },
+   "auc": 0.6122,
+   "brier": 0.2381,
+   "logloss": 0.6686,
+   "ece": 0.0048,
+   "brier_calibrated": 0.2384,
+   "logloss_calibrated": 0.6695,
+   "ece_calibrated": 0.0056
+  },
+  {
+   "version": "v2026.11.08",
+   "date": "2026-11-08",
+   "weights": {
+    "xgboost": 0.0,
+    "lightgbm": 0.3087,
+    "elasticnet": 0.6913
+   },
+   "auc": 0.6133,
+   "brier": 0.2379,
+   "logloss": 0.6682,
+   "ece": 0.0051,
+   "brier_calibrated": 0.2382,
+   "logloss_calibrated": 0.6691,
+   "ece_calibrated": 0.005
+  },
+  {
+   "version": "v2026.11.09",
+   "date": "2026-11-09",
+   "weights": {
+    "xgboost": 0.0,
+    "lightgbm": 0.3098,
+    "elasticnet": 0.6902
+   },
+   "auc": 0.6132,
+   "brier": 0.2379,
+   "logloss": 0.6682,
+   "ece": 0.005,
+   "brier_calibrated": 0.2382,
+   "logloss_calibrated": 0.6691,
+   "ece_calibrated": 0.0048
+  },
+  {
+   "version": "v2026.11.10",
+   "date": "2026-11-10",
+   "weights": {
+    "xgboost": 0.0,
+    "lightgbm": 0.3121,
+    "elasticnet": 0.6879
+   },
+   "auc": 0.6133,
+   "brier": 0.2379,
+   "logloss": 0.6682,
+   "ece": 0.0053,
+   "brier_calibrated": 0.2382,
+   "logloss_calibrated": 0.6691,
+   "ece_calibrated": 0.0052
+  },
+  {
+   "version": "v2026.11.11",
+   "date": "2026-11-11",
+   "weights": {
+    "xgboost": 0.0,
+    "lightgbm": 0.3118,
+    "elasticnet": 0.6882
+   },
+   "auc": 0.6132,
+   "brier": 0.2379,
+   "logloss": 0.6682,
+   "ece": 0.0053,
+   "brier_calibrated": 0.2382,
+   "logloss_calibrated": 0.6691,
+   "ece_calibrated": 0.0052
+  },
+  {
+   "version": "v2026.11.12",
+   "date": "2026-11-12",
+   "weights": {
+    "xgboost": 0.0,
+    "lightgbm": 0.3105,
+    "elasticnet": 0.6895
+   },
+   "auc": 0.6132,
+   "brier": 0.2379,
+   "logloss": 0.6682,
+   "ece": 0.0059,
+   "brier_calibrated": 0.2382,
+   "logloss_calibrated": 0.6691,
+   "ece_calibrated": 0.0058
+  },
+  {
+   "version": "v2026.11.13",
+   "date": "2026-11-13",
+   "weights": {
+    "xgboost": 0.0,
+    "lightgbm": 0.3273,
+    "elasticnet": 0.6727
+   },
+   "auc": 0.6134,
+   "brier": 0.2379,
+   "logloss": 0.6682,
+   "ece": 0.0067,
+   "brier_calibrated": 0.2381,
+   "logloss_calibrated": 0.669,
+   "ece_calibrated": 0.0067
+  },
+  {
+   "version": "v2026.11.14",
+   "date": "2026-11-14",
+   "weights": {
+    "xgboost": 0.0,
+    "lightgbm": 0.3118,
+    "elasticnet": 0.6882
+   },
+   "auc": 0.6132,
+   "brier": 0.2379,
+   "logloss": 0.6682,
+   "ece": 0.0053,
+   "brier_calibrated": 0.2382,
+   "logloss_calibrated": 0.6691,
+   "ece_calibrated": 0.0052
+  },
+  {
+   "version": "v2026.11.15",
+   "date": "2026-11-15",
+   "weights": {
+    "xgboost": 0.3799,
+    "lightgbm": 0.0838,
+    "elasticnet": 0.5363
+   },
+   "auc": 0.6306,
+   "brier": 0.2351,
+   "logloss": 0.6622,
+   "ece": 0.0092,
+   "brier_calibrated": 0.2351,
+   "logloss_calibrated": 0.6622,
+   "ece_calibrated": 0.0092
+  },
+  {
+   "version": "v2026.11.16",
+   "date": "2026-11-16",
+   "weights": {
+    "xgboost": 0.3682,
+    "lightgbm": 0.0856,
+    "elasticnet": 0.5462
+   },
+   "auc": 0.6303,
+   "brier": 0.2352,
+   "logloss": 0.6624,
+   "ece": 0.009,
+   "brier_calibrated": 0.2352,
+   "logloss_calibrated": 0.6624,
+   "ece_calibrated": 0.009
+  },
+  {
+   "version": "v2026.11.17",
+   "date": "2026-11-17",
+   "weights": {
+    "xgboost": 0.3578,
+    "lightgbm": 0.092,
+    "elasticnet": 0.5502
+   },
+   "auc": 0.6298,
+   "brier": 0.2353,
+   "logloss": 0.6626,
+   "ece": 0.009,
+   "brier_calibrated": 0.2353,
+   "logloss_calibrated": 0.6626,
+   "ece_calibrated": 0.009
+  },
+  {
+   "version": "v2026.11.18",
+   "date": "2026-11-18",
+   "weights": {
+    "xgboost": 0.358,
+    "lightgbm": 0.0919,
+    "elasticnet": 0.5501
+   },
+   "auc": 0.6298,
+   "brier": 0.2353,
+   "logloss": 0.6626,
+   "ece": 0.009,
+   "brier_calibrated": 0.2353,
+   "logloss_calibrated": 0.6626,
+   "ece_calibrated": 0.009
+  },
+  {
+   "version": "v2026.11.19",
+   "date": "2026-11-19",
+   "weights": {
+    "xgboost": 0.358,
+    "lightgbm": 0.0919,
+    "elasticnet": 0.5501
+   },
+   "auc": 0.6298,
+   "brier": 0.2353,
+   "logloss": 0.6626,
+   "ece": 0.009,
+   "brier_calibrated": 0.2353,
+   "logloss_calibrated": 0.6626,
+   "ece_calibrated": 0.009
+  },
+  {
+   "version": "v2026.11.20",
+   "date": "2026-11-20",
+   "weights": {
+    "xgboost": 0.358,
+    "lightgbm": 0.0919,
+    "elasticnet": 0.5501
+   },
+   "auc": 0.6298,
+   "brier": 0.2353,
+   "logloss": 0.6626,
+   "ece": 0.009,
+   "brier_calibrated": 0.2353,
+   "logloss_calibrated": 0.6626,
+   "ece_calibrated": 0.009
+  },
+  {
+   "version": "v2026.11.21",
+   "date": "2026-11-21",
+   "weights": {
+    "xgboost": 0.0,
+    "lightgbm": 0.4015,
+    "elasticnet": 0.5985
+   },
+   "auc": 0.6145,
+   "brier": 0.238,
+   "logloss": 0.6684,
+   "ece": 0.0087,
+   "brier_calibrated": 0.2381,
+   "logloss_calibrated": 0.6687,
+   "ece_calibrated": 0.0087
+  },
+  {
+   "version": "v2026.11.22",
+   "date": "2026-11-22",
+   "weights": {
+    "xgboost": 0.0,
+    "lightgbm": 0.3895,
+    "elasticnet": 0.6105
+   },
+   "auc": 0.6136,
+   "brier": 0.2382,
+   "logloss": 0.6689,
+   "ece": 0.0089,
+   "brier_calibrated": 0.2383,
+   "logloss_calibrated": 0.6691,
+   "ece_calibrated": 0.0089
+  },
+  {
+   "version": "v2026.11.23",
+   "date": "2026-11-23",
+   "weights": {
+    "xgboost": 0.0,
+    "lightgbm": 0.311,
+    "elasticnet": 0.689
+   },
+   "auc": 0.6183,
+   "brier": 0.2376,
+   "logloss": 0.6677,
+   "ece": 0.0092,
+   "brier_calibrated": 0.2377,
+   "logloss_calibrated": 0.6679,
+   "ece_calibrated": 0.0091
+  },
+  {
+   "version": "v2026.11.24",
+   "date": "2026-11-24",
+   "weights": {
+    "xgboost": 0.0,
+    "lightgbm": 0.3138,
+    "elasticnet": 0.6862
+   },
+   "auc": 0.6182,
+   "brier": 0.2377,
+   "logloss": 0.6677,
+   "ece": 0.0086,
+   "brier_calibrated": 0.2377,
+   "logloss_calibrated": 0.6679,
+   "ece_calibrated": 0.0088
+  },
+  {
+   "version": "v2026.11.25",
+   "date": "2026-11-25",
+   "weights": {
+    "xgboost": 0.0,
+    "lightgbm": 0.3116,
+    "elasticnet": 0.6884
+   },
+   "auc": 0.6184,
+   "brier": 0.2376,
+   "logloss": 0.6677,
+   "ece": 0.0087,
+   "brier_calibrated": 0.2377,
+   "logloss_calibrated": 0.6679,
+   "ece_calibrated": 0.0089
+  },
+  {
+   "version": "v2026.11.26",
+   "date": "2026-11-26",
+   "weights": {
+    "xgboost": 0.0,
+    "lightgbm": 0.3097,
+    "elasticnet": 0.6903
+   },
+   "auc": 0.6183,
+   "brier": 0.2376,
+   "logloss": 0.6677,
+   "ece": 0.0093,
+   "brier_calibrated": 0.2377,
+   "logloss_calibrated": 0.6679,
+   "ece_calibrated": 0.0092
+  }
+ ],
+ "fold_geometry": {
+  "n_folds": 100,
+  "first_val_start": "2023-11-09",
+  "last_val_end": "2026-11-25",
+  "min_train": 192,
+  "max_train": 4577,
+  "total_val_games": 4399,
+  "n_candidates": 100,
+  "dropped_windows": 0,
+  "dropped_games": 0,
+  "provisional_windows": 23,
+  "provisional_games": 345,
+  "postseason_windows": 22,
+  "min_val_fold_games": 40,
+  "oof_regular": {
+   "n": 4045,
+   "auc": 0.6183076714790335,
+   "logloss": 0.6679154068826437,
+   "brier": 0.2377224081403955,
+   "ece": 0.00923160791679836,
+   "sufficient": true
+  },
+  "oof_postseason": {
+   "n": 256,
+   "auc": 0.6280334983800967,
+   "logloss": 0.6695504968984419,
+   "brier": 0.23843731698138293,
+   "ece": 0.04724285317025274,
+   "sufficient": true
+  },
+  "oof_provisional": {
+   "n": 345,
+   "auc": 0.5957411020655319,
+   "logloss": 0.6889996868794743,
+   "brier": 0.24556652739870308,
+   "ece": 0.0335204940244947,
+   "sufficient": true
+  },
+  "oof_all": {
+   "n": 4399,
+   "auc": 0.6166603222149416,
+   "logloss": 0.669473025440669,
+   "brier": 0.238290540858287,
+   "ece": 0.010764360241217838,
+   "sufficient": true
+  }
+ },
+ "config": {
+  "feature_set_version": "nhl-prod-v1.6-goal-ratings",
+  "warmup_days": 30,
+  "first_season": 2023,
+  "oof_first_season": 2023,
+  "retrain_cadence_days": 7,
+  "min_val_fold_games": 40,
+  "game_types": [
+   2,
+   3
+  ],
+  "ensemble_members": [
+   "xgboost",
+   "lightgbm",
+   "elasticnet"
+  ],
+  "ensemble_blend": {
+   "method": "rolling_logloss_slsqp",
+   "space": "logit",
+   "prior": "fold0_static_thirds",
+   "reearn": "per_fold_pooled_oof_strictly_prior",
+   "gates": "none"
+  },
+  "library_stack": {
+   "scipy": "1.16.3",
+   "sklearn": "1.6.1",
+   "xgboost": "3.2.0",
+   "lightgbm": "4.6.0",
+   "pandas": "2.3.3",
+   "numpy": "2.0.2"
+  },
+  "run_line_model": {
+   "home_model": "lightgbm_poisson",
+   "away_model": "lightgbm_poisson",
+   "distribution": "two_sided_asymmetric_gaussian_split_skew",
+   "simulation": "monte_carlo",
+   "mc_draws": 50000,
+   "feature_contract": "binary_moneyline",
+   "feature_columns": [
+    "off_rating_diff",
+    "def_rating_diff",
+    "net_rating_diff",
+    "rest_days_diff",
+    "ewm_net_goals_diff",
+    "ewm_goal_share_diff",
+    "ga_per_game_diff",
+    "shots_for_per_game_diff",
+    "shots_against_per_game_diff",
+    "pp_success_diff",
+    "faceoff_win_diff",
+    "back_to_back_diff",
+    "nhl_giveaways_pg_ewm_diff",
+    "nhl_takeaways_pg_ewm_diff",
+    "goalie_sv_pct_diff",
+    "goalie_gaa_diff",
+    "goalie_starts_diff",
+    "is_playoffs",
+    "net_rating_sum",
+    "ewm_net_goals_home",
+    "ewm_net_goals_away",
+    "ewm_goal_share_home",
+    "ewm_goal_share_away",
+    "rest_days_home",
+    "rest_days_away",
+    "ga_per_game_home",
+    "ga_per_game_away",
+    "shots_for_per_game_home",
+    "shots_for_per_game_away",
+    "shots_against_per_game_home",
+    "shots_against_per_game_away",
+    "pp_success_home",
+    "pp_success_away",
+    "faceoff_win_home",
+    "faceoff_win_away",
+    "back_to_back_home",
+    "back_to_back_away",
+    "nhl_giveaways_pg_ewm_home",
+    "nhl_giveaways_pg_ewm_away",
+    "nhl_takeaways_pg_ewm_home",
+    "nhl_takeaways_pg_ewm_away",
+    "goalie_sv_pct_home",
+    "goalie_sv_pct_away",
+    "goalie_gaa_home",
+    "goalie_gaa_away",
+    "goalie_starts_home",
+    "goalie_starts_away",
+    "is_home",
+    "pl_xpm_away",
+    "pl_xpm_home",
+    "pl_xpm_diff",
+    "pl_xg_away",
+    "pl_xg_home",
+    "pl_xg_diff"
+   ]
+  },
+  "random_seed": 42,
+  "market_independence": true,
+  "moneyline_evaluation": {
+   "headline_view": "causal_rolling_blend",
+   "calibration_view": "gated_prequential_causal_blend",
+   "training_population": "grades_pooled",
+   "retrospective_column": "p_ensemble_retrospective",
+   "retrospective_is_oof": false,
+   "final_xgb_rounds": 140,
+   "xgb_best_rounds": [
+    83,
+    103,
+    1,
+    172,
+    12,
+    1,
+    256,
+    123,
+    123,
+    420,
+    157,
+    3,
+    223,
+    243,
+    203,
+    235,
+    228,
+    437,
+    152,
+    137,
+    105,
+    416,
+    675,
+    404,
+    481,
+    105,
+    135,
+    74,
+    54,
+    1,
+    588,
+    332,
+    116,
+    294,
+    171,
+    13,
+    14,
+    142,
+    201,
+    189,
+    50,
+    87,
+    275,
+    177,
+    233,
+    347,
+    337,
+    41,
+    456,
+    258,
+    286,
+    89,
+    85,
+    75,
+    251,
+    225,
+    112,
+    151,
+    9,
+    7,
+    368,
+    294,
+    51,
+    64,
+    14,
+    37,
+    101,
+    190,
+    49,
+    375,
+    427,
+    9,
+    2,
+    154,
+    52,
+    109,
+    341,
+    406,
+    25,
+    17,
+    301,
+    95,
+    160,
+    246,
+    99,
+    118,
+    116,
+    568,
+    12,
+    1,
+    237,
+    326,
+    330,
+    139,
+    17,
+    390,
+    457,
+    103,
+    50,
+    49
+   ],
+   "xgb_round_policy": "median_prior_probe_rounds"
+  }
+ }
+}
