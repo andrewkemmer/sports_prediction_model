@@ -1,0 +1,1476 @@
+{
+ "created_utc": "2026-11-27T15:49:49.865730+00:00",
+ "feature_set_version": "nhl-prod-v1.6-goal-ratings",
+ "manifest": {
+  "off_rating_diff": {
+   "description": "Home minus away fitted team offence rating",
+   "definition": "off_rating_home - off_rating_away, where off_rating_T is team T's coefficient in a weighted ridge fit of goals scored per team-game with team-offence and team-defence one-hots, the opposing goalie's SV%/GAA/starts, shrunk prior-season goals for/against (both clubs, 20-game prior), rest, back-to-back and playoff context; higher = stronger offence",
+   "source": "official NHL API scores + MoneyPuck goalie/skater archives (team goals, goalie form, prior-season goals)",
+   "lookback": "expanding settled history with a 240-day recency half-life; weekly refit at each 7th observed game date",
+   "aggregation": "weighted ridge (alpha 50), sample weight 0.5**(age_days/240); goals-per-game coefficient",
+   "point_in_time_rule": "each weekly fit uses only games strictly before its anchor; a game's rating enters puck drop and never sees its own result",
+   "missing_value_policy": "NaN until 200 settled training games and for teams with no prior season; in-model handling (median imputation)",
+   "representation": "difference (all model families)",
+   "model_family_availability": [
+    "linear",
+    "tree"
+   ],
+   "feature_version": 1
+  },
+  "def_rating_diff": {
+   "description": "Home minus away fitted team defence rating",
+   "definition": "def_rating_home - def_rating_away, where def_rating_T is MINUS team T's opponent-dummy coefficient from the same weighted ridge goal model; sign-flipped so higher = better defence (fewer goals conceded), net of the goalie faced and prior-season strength",
+   "source": "official NHL API scores + MoneyPuck goalie/skater archives (team goals, goalie form, prior-season goals)",
+   "lookback": "expanding settled history with a 240-day recency half-life; weekly refit at each 7th observed game date",
+   "aggregation": "weighted ridge (alpha 50), sample weight 0.5**(age_days/240); goals-per-game coefficient",
+   "point_in_time_rule": "each weekly fit uses only games strictly before its anchor; never sees the current game",
+   "missing_value_policy": "NaN until 200 settled training games and for teams with no prior season; in-model handling (median imputation)",
+   "representation": "difference (all model families)",
+   "model_family_availability": [
+    "linear",
+    "tree"
+   ],
+   "feature_version": 1
+  },
+  "net_rating_diff": {
+   "description": "Home minus away fitted net team rating",
+   "definition": "net_rating_home - net_rating_away, where net_rating_T = off_rating_T + def_rating_T; equal to off_rating_diff + def_rating_diff",
+   "source": "official NHL API scores + MoneyPuck goalie/skater archives (team goals, goalie form, prior-season goals)",
+   "lookback": "expanding settled history with a 240-day recency half-life; weekly refit at each 7th observed game date",
+   "aggregation": "sum of the offence and defence coefficients from one weighted ridge goal model (alpha 50)",
+   "point_in_time_rule": "each weekly fit uses only games strictly before its anchor; never sees the current game",
+   "missing_value_policy": "NaN until 200 settled training games and for teams with no prior season; in-model handling (median imputation)",
+   "representation": "difference (all model families)",
+   "model_family_availability": [
+    "linear",
+    "tree"
+   ],
+   "feature_version": 1
+  },
+  "net_rating_sum": {
+   "description": "Combined fitted net strength of both clubs",
+   "definition": "net_rating_home + net_rating_away, where net_rating_T = off_rating_T + def_rating_T; symmetric in the two sides and identical for both teams in a game",
+   "source": "official NHL API scores + MoneyPuck goalie/skater archives (team goals, goalie form, prior-season goals)",
+   "lookback": "expanding settled history with a 240-day recency half-life; weekly refit at each 7th observed game date",
+   "aggregation": "sum of both clubs' net coefficients from one weighted ridge goal model (alpha 50)",
+   "point_in_time_rule": "each weekly fit uses only games strictly before its anchor; never sees the current game",
+   "missing_value_policy": "NaN until 200 settled training games and for teams with no prior season; in-model handling (median imputation)",
+   "representation": "game-level sum (all model families)",
+   "model_family_availability": [
+    "linear",
+    "tree"
+   ],
+   "feature_version": 1
+  },
+  "rest_days_diff": {
+   "description": "Home minus away days since each team's previous game",
+   "definition": "(game_date_t - game_date_{t-1}).days per team",
+   "source": "official NHL API schedule",
+   "lookback": 1,
+   "aggregation": "date difference",
+   "point_in_time_rule": "days since the team's own strictly-prior game",
+   "missing_value_policy": "NaN for a team's first game of the window; in-model handling",
+   "representation": "difference (all model families)",
+   "model_family_availability": [
+    "linear",
+    "tree"
+   ],
+   "feature_version": 1
+  },
+  "ewm_net_goals_diff": {
+   "description": "Home minus away exponentially-weighted net goals per game",
+   "definition": "ewm(halflife=3).mean() of the team's net goals (for - against) over strictly-prior games",
+   "source": "decided game scores",
+   "lookback": "decaying (halflife=3 games)",
+   "aggregation": "per-team EWM",
+   "point_in_time_rule": "per-team ewm over prior games then shift(1)",
+   "missing_value_policy": "NaN when the team has no prior games",
+   "representation": "difference (all model families)",
+   "model_family_availability": [
+    "linear",
+    "tree"
+   ],
+   "feature_version": 1
+  },
+  "ewm_goal_share_diff": {
+   "description": "Home minus away exponentially-weighted goal share",
+   "definition": "ewm(halflife=3).mean() of goals_for / (goals_for + goals_against) over strictly-prior games \u2014 possession-neutral scoring strength in [0, 1]",
+   "source": "decided game scores",
+   "lookback": "decaying (halflife=3 games)",
+   "aggregation": "per-team EWM of the per-game goal share",
+   "point_in_time_rule": "per-team ewm over prior games then shift(1)",
+   "missing_value_policy": "NaN when the team has no prior games",
+   "representation": "difference (all model families)",
+   "model_family_availability": [
+    "linear",
+    "tree"
+   ],
+   "feature_version": 1
+  },
+  "ga_per_game_diff": {
+   "description": "Home minus away trailing goals allowed per game",
+   "definition": "rolling(5).mean() of goals against over strictly-prior games (lower = stingier defense; the diff is home \u2212 away)",
+   "source": "decided game scores",
+   "lookback": 5,
+   "aggregation": "trailing windowed mean",
+   "point_in_time_rule": "per-team rolling(5).mean().shift(1)",
+   "missing_value_policy": "NaN when the team has no prior games",
+   "representation": "difference (all model families)",
+   "model_family_availability": [
+    "linear",
+    "tree"
+   ],
+   "feature_version": 1
+  },
+  "shots_for_per_game_diff": {
+   "description": "Home minus away trailing shots on goal per game",
+   "definition": "rolling(5).mean() of team shots on goal over strictly-prior games",
+   "source": "official NHL API boxscores (team SOG), falling back to the settled score feed's identical team SOG when a boxscore row is missing",
+   "lookback": 5,
+   "aggregation": "trailing windowed mean",
+   "point_in_time_rule": "per-team rolling(5).mean().shift(1)",
+   "missing_value_policy": "NaN when the team has no prior games with SOG recorded",
+   "representation": "difference (all model families)",
+   "model_family_availability": [
+    "linear",
+    "tree"
+   ],
+   "feature_version": 1
+  },
+  "shots_against_per_game_diff": {
+   "description": "Home minus away trailing shots against per game",
+   "definition": "rolling(5).mean() of opponent shots on goal over strictly-prior games (lower = better defensive structure)",
+   "source": "official NHL API boxscores (team SOG), falling back to the settled score feed's identical team SOG when a boxscore row is missing",
+   "lookback": 5,
+   "aggregation": "trailing windowed mean",
+   "point_in_time_rule": "per-team rolling(5).mean().shift(1)",
+   "missing_value_policy": "NaN when the team has no prior games with SOG recorded",
+   "representation": "difference (all model families)",
+   "model_family_availability": [
+    "linear",
+    "tree"
+   ],
+   "feature_version": 1
+  },
+  "pp_success_diff": {
+   "description": "Home minus away trailing power-play success rate",
+   "definition": "pooled team power-play goals / opportunities over five prior games",
+   "source": "official NHL API right-rail teamGameStats (powerPlay)",
+   "lookback": 5,
+   "aggregation": "trailing pooled count ratio",
+   "point_in_time_rule": "per-team rolling(5) sums then shift(1)",
+   "missing_value_policy": "NaN without observed opportunities; zero chances contribute zero counts, missing games contribute neither count",
+   "representation": "difference (all model families)",
+   "model_family_availability": [
+    "linear",
+    "tree"
+   ],
+   "feature_version": 2
+  },
+  "faceoff_win_diff": {
+   "description": "Home minus away trailing faceoff win rate",
+   "definition": "pooled team faceoff wins / attempts over five strictly-prior games",
+   "source": "official NHL API right-rail teamGameStats (faceoffWins)",
+   "lookback": 5,
+   "aggregation": "trailing pooled count ratio",
+   "point_in_time_rule": "per-team rolling(5) sums then shift(1)",
+   "missing_value_policy": "NaN when the team has no prior games with faceoff data",
+   "representation": "difference (all model families)",
+   "model_family_availability": [
+    "linear",
+    "tree"
+   ],
+   "feature_version": 2
+  },
+  "back_to_back_diff": {
+   "description": "Home minus away back-to-back flag (rest < 1 day)",
+   "definition": "1.0 when the team played the previous calendar day else 0.0; home flag minus away flag",
+   "source": "official NHL API schedule",
+   "lookback": 1,
+   "aggregation": "thresholded date difference",
+   "point_in_time_rule": "function of the team's strictly-prior game date",
+   "missing_value_policy": "NaN when either team has no prior game",
+   "representation": "difference flag (all model families)",
+   "model_family_availability": [
+    "linear",
+    "tree"
+   ],
+   "feature_version": 1
+  },
+  "nhl_giveaways_pg_ewm_diff": {
+   "description": "Home minus away trailing giveaways per game (committed turnovers)",
+   "definition": "exponentially-weighted mean (halflife=3 games) of each team's per-game giveaways over strictly-prior games; home \u2212 away",
+   "source": "official NHL API boxscores (team giveaways)",
+   "lookback": "decaying (halflife=3 games)",
+   "aggregation": "per-team EWM of the per-game count",
+   "point_in_time_rule": "trailing EWM then shift(1) \u2014 strictly-prior games only",
+   "missing_value_policy": "NaN when the team has no prior games with boxscore data",
+   "representation": "difference (all model families)",
+   "model_family_availability": [
+    "linear",
+    "tree"
+   ],
+   "feature_version": 1
+  },
+  "nhl_takeaways_pg_ewm_diff": {
+   "description": "Home minus away trailing takeaways per game (forced turnovers)",
+   "definition": "exponentially-weighted mean (halflife=3 games) of each team's per-game takeaways over strictly-prior games; home \u2212 away",
+   "source": "official NHL API boxscores (team takeaways)",
+   "lookback": "decaying (halflife=3 games)",
+   "aggregation": "per-team EWM of the per-game count",
+   "point_in_time_rule": "trailing EWM then shift(1) \u2014 strictly-prior games only",
+   "missing_value_policy": "NaN when the team has no prior games with boxscore data",
+   "representation": "difference (all model families)",
+   "model_family_availability": [
+    "linear",
+    "tree"
+   ],
+   "feature_version": 1
+  },
+  "goalie_sv_pct_diff": {
+   "description": "Home minus away expected-starter rolling save percentage",
+   "definition": "season-to-date (rolling-30-start EWM) save percentage of each team's expected starting goalie; home \u2212 away. The NHL analog of MLB's SP ERA diff",
+   "source": "official NHL API boxscores (goalie TOI + decision + shots faced)",
+   "lookback": "decaying (halflife=3 starts) over the season's starts",
+   "aggregation": "per-goalie EWM of the per-start save fraction",
+   "point_in_time_rule": "each goalie's strictly-prior starts only; the expected starter is the highest SEASON-TO-DATE prior-workload AVAILABLE goalie (season-scoped, so a prior-season workhorse cannot be served as tonight's starter) \u2014 goalies known unavailable strictly before puck drop (Out/IR/Doubtful from the ESPN snapshot replay, or an announced non-medical leave from the versioned nhl_leave_events.json ledger, replayed as intervals) are removed from the workload vote before it runs, and the fallback follows the same opportunity order over the remaining goalies; every candidate excluded -> honest NaN; starter vote uses team/season workload, prior observed team changes and fresh roster captures strictly before exact puck drop; quality uses only earlier game dates",
+   "missing_value_policy": "NaN when the team has no goalie with a prior start this season (e.g. opening-night unknown starter); never fabricated",
+   "representation": "difference (all model families)",
+   "model_family_availability": [
+    "linear",
+    "tree"
+   ],
+   "feature_version": 2
+  },
+  "goalie_gaa_diff": {
+   "description": "Home minus away expected-starter rolling goals-against average",
+   "definition": "season-to-date (rolling-30-start EWM) GAA of each team's expected starting goalie; home \u2212 away. The NHL analog of MLB's SP K/9 diff",
+   "source": "official NHL API boxscores (goalie goals against + TOI)",
+   "lookback": "decaying (halflife=3 starts) over the season's starts",
+   "aggregation": "per-goalie EWM of the per-start goals-against rate (per 60 min)",
+   "point_in_time_rule": "each goalie's strictly-prior starts only; starter vote uses team/season workload, prior observed team changes and fresh roster captures strictly before exact puck drop; quality uses only earlier game dates",
+   "missing_value_policy": "NaN when no goalie has a prior start; never fabricated",
+   "representation": "difference (all model families)",
+   "model_family_availability": [
+    "linear",
+    "tree"
+   ],
+   "feature_version": 2
+  },
+  "goalie_starts_diff": {
+   "description": "Home minus away expected-starter season starts",
+   "definition": "season-to-date starts of each team's expected starting goalie \u2014 a workload/experience proxy for the SV%/GAA pair",
+   "source": "official NHL API boxscores (goalie appearances)",
+   "lookback": "season to date",
+   "aggregation": "per-goalie start count",
+   "point_in_time_rule": "strictly-prior starts only; the expected starter excludes goalies known unavailable strictly before puck drop (injury snapshots or announced non-medical leaves); starter vote uses team/season workload, prior observed team changes and fresh roster captures strictly before exact puck drop; quality uses only earlier game dates",
+   "missing_value_policy": "NaN when no goalie has a prior start",
+   "representation": "difference (all model families)",
+   "model_family_availability": [
+    "linear",
+    "tree"
+   ],
+   "feature_version": 2
+  },
+  "is_playoffs": {
+   "description": "Postseason game flag",
+   "definition": "1.0 when the game's gameType is 3 (playoffs) else 0.0",
+   "source": "official NHL API gameType",
+   "lookback": 0,
+   "aggregation": "static pre-game fact",
+   "point_in_time_rule": "known before puck drop",
+   "missing_value_policy": "0.0 when gameType is absent (defaults to regular season)",
+   "representation": "game-level flag (all model families)",
+   "model_family_availability": [
+    "linear",
+    "tree"
+   ],
+   "feature_version": 1
+  },
+  "is_home": {
+   "description": "Constant home anchor",
+   "definition": "1.0 for every row \u2014 anchors the league home-ice advantage level",
+   "source": "frame construction",
+   "lookback": 0,
+   "aggregation": "constant",
+   "point_in_time_rule": "static",
+   "missing_value_policy": "never NaN",
+   "representation": "constant anchor (all model families)",
+   "model_family_availability": [
+    "linear",
+    "tree"
+   ],
+   "feature_version": 1
+  },
+  "ewm_net_goals_home": {
+   "description": "Home team's exponentially-weighted net goals per game",
+   "definition": "ewm(halflife=3).mean() of the team's net goals (for - against) over strictly-prior games",
+   "source": "decided game scores",
+   "lookback": "decaying (halflife=3 games)",
+   "aggregation": "per-team EWM",
+   "point_in_time_rule": "per-team ewm over prior games then shift(1)",
+   "missing_value_policy": "NaN when the team has no prior games",
+   "representation": "raw home level (tree members)",
+   "model_family_availability": [
+    "tree"
+   ],
+   "feature_version": 1
+  },
+  "ewm_net_goals_away": {
+   "description": "Away team's exponentially-weighted net goals per game",
+   "definition": "ewm(halflife=3).mean() of the team's net goals (for - against) over strictly-prior games",
+   "source": "decided game scores",
+   "lookback": "decaying (halflife=3 games)",
+   "aggregation": "per-team EWM",
+   "point_in_time_rule": "per-team ewm over prior games then shift(1)",
+   "missing_value_policy": "NaN when the team has no prior games",
+   "representation": "raw away level (tree members)",
+   "model_family_availability": [
+    "tree"
+   ],
+   "feature_version": 1
+  },
+  "rest_days_home": {
+   "description": "Home team's days since its previous game",
+   "definition": "(game_date_t - game_date_{t-1}).days for the home team",
+   "source": "official NHL API schedule",
+   "lookback": 1,
+   "aggregation": "date difference",
+   "point_in_time_rule": "days since the team's own strictly-prior game",
+   "missing_value_policy": "NaN for a team's first game of the window; in-model handling",
+   "representation": "raw home level (tree members)",
+   "model_family_availability": [
+    "tree"
+   ],
+   "feature_version": 1
+  },
+  "rest_days_away": {
+   "description": "Away team's days since its previous game",
+   "definition": "(game_date_t - game_date_{t-1}).days for the away team",
+   "source": "official NHL API schedule",
+   "lookback": 1,
+   "aggregation": "date difference",
+   "point_in_time_rule": "days since the team's own strictly-prior game",
+   "missing_value_policy": "NaN for a team's first game of the window; in-model handling",
+   "representation": "raw away level (tree members)",
+   "model_family_availability": [
+    "tree"
+   ],
+   "feature_version": 1
+  },
+  "goalie_sv_pct_home": {
+   "description": "Home team's expected-starter rolling save percentage",
+   "definition": "season-to-date (rolling-30-start EWM) save percentage of the home team's expected starting goalie (home side of goalie_sv_pct_diff)",
+   "source": "official NHL API boxscores (goalie TOI + decision + shots faced)",
+   "lookback": "decaying (halflife=3 starts) over the season's starts",
+   "aggregation": "per-goalie EWM of the per-start save fraction",
+   "point_in_time_rule": "each goalie's strictly-prior starts only; starter vote uses team/season workload, prior observed team changes and fresh roster captures strictly before exact puck drop; quality uses only earlier game dates",
+   "missing_value_policy": "NaN when the team has no goalie with a prior start this season; never fabricated",
+   "representation": "raw home level (tree members)",
+   "model_family_availability": [
+    "tree"
+   ],
+   "feature_version": 2
+  },
+  "goalie_sv_pct_away": {
+   "description": "Away team's expected-starter rolling save percentage",
+   "definition": "season-to-date (rolling-30-start EWM) save percentage of the away team's expected starting goalie (away side of goalie_sv_pct_diff)",
+   "source": "official NHL API boxscores (goalie TOI + decision + shots faced)",
+   "lookback": "decaying (halflife=3 starts) over the season's starts",
+   "aggregation": "per-goalie EWM of the per-start save fraction",
+   "point_in_time_rule": "each goalie's strictly-prior starts only; starter vote uses team/season workload, prior observed team changes and fresh roster captures strictly before exact puck drop; quality uses only earlier game dates",
+   "missing_value_policy": "NaN when the team has no goalie with a prior start this season; never fabricated",
+   "representation": "raw away level (tree members)",
+   "model_family_availability": [
+    "tree"
+   ],
+   "feature_version": 2
+  },
+  "goalie_gaa_home": {
+   "description": "Home team's expected-starter rolling goals-against average",
+   "definition": "season-to-date (rolling-30-start EWM) GAA of the home team's expected starting goalie (home side of goalie_gaa_diff)",
+   "source": "official NHL API boxscores (goalie goals against + TOI)",
+   "lookback": "decaying (halflife=3 starts) over the season's starts",
+   "aggregation": "per-goalie EWM of the per-start goals-against rate (per 60 min)",
+   "point_in_time_rule": "each goalie's strictly-prior starts only; starter vote uses team/season workload, prior observed team changes and fresh roster captures strictly before exact puck drop; quality uses only earlier game dates",
+   "missing_value_policy": "NaN when no goalie has a prior start; never fabricated",
+   "representation": "raw home level (tree members)",
+   "model_family_availability": [
+    "tree"
+   ],
+   "feature_version": 2
+  },
+  "goalie_gaa_away": {
+   "description": "Away team's expected-starter rolling goals-against average",
+   "definition": "season-to-date (rolling-30-start EWM) GAA of the away team's expected starting goalie (away side of goalie_gaa_diff)",
+   "source": "official NHL API boxscores (goalie goals against + TOI)",
+   "lookback": "decaying (halflife=3 starts) over the season's starts",
+   "aggregation": "per-goalie EWM of the per-start goals-against rate (per 60 min)",
+   "point_in_time_rule": "each goalie's strictly-prior starts only; starter vote uses team/season workload, prior observed team changes and fresh roster captures strictly before exact puck drop; quality uses only earlier game dates",
+   "missing_value_policy": "NaN when no goalie has a prior start; never fabricated",
+   "representation": "raw away level (tree members)",
+   "model_family_availability": [
+    "tree"
+   ],
+   "feature_version": 2
+  },
+  "ewm_goal_share_home": {
+   "description": "Home team's exponentially-weighted goal share",
+   "definition": "ewm(halflife=3).mean() of goals_for / (goals_for + goals_against) over strictly-prior games -- home side of ewm_goal_share_diff",
+   "source": "decided game scores",
+   "lookback": "decaying (halflife=3 games)",
+   "aggregation": "per-team EWM of the per-game goal share",
+   "point_in_time_rule": "per-team ewm over prior games then shift(1)",
+   "missing_value_policy": "NaN when the team has no prior games",
+   "representation": "raw home level (tree members)",
+   "model_family_availability": [
+    "tree"
+   ],
+   "feature_version": 1
+  },
+  "ewm_goal_share_away": {
+   "description": "Away team's exponentially-weighted goal share",
+   "definition": "ewm(halflife=3).mean() of goals_for / (goals_for + goals_against) over strictly-prior games -- away side of ewm_goal_share_diff",
+   "source": "decided game scores",
+   "lookback": "decaying (halflife=3 games)",
+   "aggregation": "per-team EWM of the per-game goal share",
+   "point_in_time_rule": "per-team ewm over prior games then shift(1)",
+   "missing_value_policy": "NaN when the team has no prior games",
+   "representation": "raw away level (tree members)",
+   "model_family_availability": [
+    "tree"
+   ],
+   "feature_version": 1
+  },
+  "ga_per_game_home": {
+   "description": "Home team's trailing goals allowed per game",
+   "definition": "rolling(5).mean() of goals against over strictly-prior games (lower = stingier defense) -- home side of ga_per_game_diff",
+   "source": "decided game scores",
+   "lookback": 5,
+   "aggregation": "trailing windowed mean",
+   "point_in_time_rule": "per-team rolling(5).mean().shift(1)",
+   "missing_value_policy": "NaN when the team has no prior games",
+   "representation": "raw home level (tree members)",
+   "model_family_availability": [
+    "tree"
+   ],
+   "feature_version": 1
+  },
+  "ga_per_game_away": {
+   "description": "Away team's trailing goals allowed per game",
+   "definition": "rolling(5).mean() of goals against over strictly-prior games (lower = stingier defense) -- away side of ga_per_game_diff",
+   "source": "decided game scores",
+   "lookback": 5,
+   "aggregation": "trailing windowed mean",
+   "point_in_time_rule": "per-team rolling(5).mean().shift(1)",
+   "missing_value_policy": "NaN when the team has no prior games",
+   "representation": "raw away level (tree members)",
+   "model_family_availability": [
+    "tree"
+   ],
+   "feature_version": 1
+  },
+  "shots_for_per_game_home": {
+   "description": "Home team's trailing shots on goal per game",
+   "definition": "rolling(5).mean() of team shots on goal over strictly-prior games (home side of shots_for_per_game_diff)",
+   "source": "official NHL API boxscores (team SOG), falling back to the settled score feed's identical team SOG when a boxscore row is missing",
+   "lookback": 5,
+   "aggregation": "trailing windowed mean",
+   "point_in_time_rule": "per-team rolling(5).mean().shift(1)",
+   "missing_value_policy": "NaN when the team has no prior games with SOG recorded",
+   "representation": "raw home level (tree members)",
+   "model_family_availability": [
+    "tree"
+   ],
+   "feature_version": 1
+  },
+  "shots_for_per_game_away": {
+   "description": "Away team's trailing shots on goal per game",
+   "definition": "rolling(5).mean() of team shots on goal over strictly-prior games (away side of shots_for_per_game_diff)",
+   "source": "official NHL API boxscores (team SOG), falling back to the settled score feed's identical team SOG when a boxscore row is missing",
+   "lookback": 5,
+   "aggregation": "trailing windowed mean",
+   "point_in_time_rule": "per-team rolling(5).mean().shift(1)",
+   "missing_value_policy": "NaN when the team has no prior games with SOG recorded",
+   "representation": "raw away level (tree members)",
+   "model_family_availability": [
+    "tree"
+   ],
+   "feature_version": 1
+  },
+  "shots_against_per_game_home": {
+   "description": "Home team's trailing shots allowed per game",
+   "definition": "rolling(5).mean() of opponent shots on goal over strictly-prior games (lower = better defensive structure) -- home side of shots_against_per_game_diff",
+   "source": "official NHL API boxscores (team SOG), falling back to the settled score feed's identical team SOG when a boxscore row is missing",
+   "lookback": 5,
+   "aggregation": "trailing windowed mean",
+   "point_in_time_rule": "per-team rolling(5).mean().shift(1)",
+   "missing_value_policy": "NaN when the team has no prior games with SOG recorded",
+   "representation": "raw home level (tree members)",
+   "model_family_availability": [
+    "tree"
+   ],
+   "feature_version": 1
+  },
+  "shots_against_per_game_away": {
+   "description": "Away team's trailing shots allowed per game",
+   "definition": "rolling(5).mean() of opponent shots on goal over strictly-prior games (lower = better defensive structure) -- away side of shots_against_per_game_diff",
+   "source": "official NHL API boxscores (team SOG), falling back to the settled score feed's identical team SOG when a boxscore row is missing",
+   "lookback": 5,
+   "aggregation": "trailing windowed mean",
+   "point_in_time_rule": "per-team rolling(5).mean().shift(1)",
+   "missing_value_policy": "NaN when the team has no prior games with SOG recorded",
+   "representation": "raw away level (tree members)",
+   "model_family_availability": [
+    "tree"
+   ],
+   "feature_version": 1
+  },
+  "pp_success_home": {
+   "description": "Home team's trailing power-play success rate",
+   "definition": "pooled power-play goals / opportunities over the trailing window (volume-weighted) -- home side of pp_success_diff",
+   "source": "official NHL API right-rail teamGameStats (powerPlay)",
+   "lookback": 5,
+   "aggregation": "trailing pooled count ratio",
+   "point_in_time_rule": "per-team rolling(5) sums then shift(1)",
+   "missing_value_policy": "NaN when the team has no power-play opportunities in the window",
+   "representation": "raw home level (tree members)",
+   "model_family_availability": [
+    "tree"
+   ],
+   "feature_version": 2
+  },
+  "pp_success_away": {
+   "description": "Away team's trailing power-play success rate",
+   "definition": "pooled power-play goals / opportunities over the trailing window (volume-weighted) -- away side of pp_success_diff",
+   "source": "official NHL API right-rail teamGameStats (powerPlay)",
+   "lookback": 5,
+   "aggregation": "trailing pooled count ratio",
+   "point_in_time_rule": "per-team rolling(5) sums then shift(1)",
+   "missing_value_policy": "NaN when the team has no power-play opportunities in the window",
+   "representation": "raw away level (tree members)",
+   "model_family_availability": [
+    "tree"
+   ],
+   "feature_version": 2
+  },
+  "faceoff_win_home": {
+   "description": "Home team's trailing faceoff win rate",
+   "definition": "pooled team faceoff wins / attempts over five strictly-prior games (home side of faceoff_win_diff)",
+   "source": "official NHL API right-rail teamGameStats (faceoffWins)",
+   "lookback": 5,
+   "aggregation": "trailing pooled count ratio",
+   "point_in_time_rule": "per-team rolling(5) sums then shift(1)",
+   "missing_value_policy": "NaN when the team has no prior games with faceoff data",
+   "representation": "raw home level (tree members)",
+   "model_family_availability": [
+    "tree"
+   ],
+   "feature_version": 2
+  },
+  "faceoff_win_away": {
+   "description": "Away team's trailing faceoff win rate",
+   "definition": "pooled team faceoff wins / attempts over five strictly-prior games (away side of faceoff_win_diff)",
+   "source": "official NHL API right-rail teamGameStats (faceoffWins)",
+   "lookback": 5,
+   "aggregation": "trailing pooled count ratio",
+   "point_in_time_rule": "per-team rolling(5) sums then shift(1)",
+   "missing_value_policy": "NaN when the team has no prior games with faceoff data",
+   "representation": "raw away level (tree members)",
+   "model_family_availability": [
+    "tree"
+   ],
+   "feature_version": 2
+  },
+  "back_to_back_home": {
+   "description": "Home team's back-to-back flag (rest < 1 day)",
+   "definition": "1.0 when the team played the previous calendar day else 0.0 (home side of back_to_back_diff)",
+   "source": "official NHL API schedule",
+   "lookback": 1,
+   "aggregation": "thresholded date difference",
+   "point_in_time_rule": "function of the team's strictly-prior game date",
+   "missing_value_policy": "NaN for a team's first game of the window",
+   "representation": "raw home level (tree members)",
+   "model_family_availability": [
+    "tree"
+   ],
+   "feature_version": 1
+  },
+  "back_to_back_away": {
+   "description": "Away team's back-to-back flag (rest < 1 day)",
+   "definition": "1.0 when the team played the previous calendar day else 0.0 (away side of back_to_back_diff)",
+   "source": "official NHL API schedule",
+   "lookback": 1,
+   "aggregation": "thresholded date difference",
+   "point_in_time_rule": "function of the team's strictly-prior game date",
+   "missing_value_policy": "NaN for a team's first game of the window",
+   "representation": "raw away level (tree members)",
+   "model_family_availability": [
+    "tree"
+   ],
+   "feature_version": 1
+  },
+  "nhl_giveaways_pg_ewm_home": {
+   "description": "Home team's trailing giveaways per game",
+   "definition": "exponentially-weighted mean (halflife=3 games) of the home team's per-game giveaways over strictly-prior games (home side of nhl_giveaways_pg_ewm_diff)",
+   "source": "official NHL API boxscores (team giveaways)",
+   "lookback": "decaying (halflife=3 games)",
+   "aggregation": "per-team EWM of the per-game count",
+   "point_in_time_rule": "trailing EWM then shift(1) \u2014 strictly-prior games only",
+   "missing_value_policy": "NaN when the team has no prior games with boxscore data",
+   "representation": "raw home level (tree members)",
+   "model_family_availability": [
+    "tree"
+   ],
+   "feature_version": 1
+  },
+  "nhl_giveaways_pg_ewm_away": {
+   "description": "Away team's trailing giveaways per game",
+   "definition": "exponentially-weighted mean (halflife=3 games) of the away team's per-game giveaways over strictly-prior games (away side of nhl_giveaways_pg_ewm_diff)",
+   "source": "official NHL API boxscores (team giveaways)",
+   "lookback": "decaying (halflife=3 games)",
+   "aggregation": "per-team EWM of the per-game count",
+   "point_in_time_rule": "trailing EWM then shift(1) \u2014 strictly-prior games only",
+   "missing_value_policy": "NaN when the team has no prior games with boxscore data",
+   "representation": "raw away level (tree members)",
+   "model_family_availability": [
+    "tree"
+   ],
+   "feature_version": 1
+  },
+  "nhl_takeaways_pg_ewm_home": {
+   "description": "Home team's trailing takeaways per game",
+   "definition": "exponentially-weighted mean (halflife=3 games) of the home team's per-game takeaways over strictly-prior games (home side of nhl_takeaways_pg_ewm_diff)",
+   "source": "official NHL API boxscores (team takeaways)",
+   "lookback": "decaying (halflife=3 games)",
+   "aggregation": "per-team EWM of the per-game count",
+   "point_in_time_rule": "trailing EWM then shift(1) \u2014 strictly-prior games only",
+   "missing_value_policy": "NaN when the team has no prior games with boxscore data",
+   "representation": "raw home level (tree members)",
+   "model_family_availability": [
+    "tree"
+   ],
+   "feature_version": 1
+  },
+  "nhl_takeaways_pg_ewm_away": {
+   "description": "Away team's trailing takeaways per game",
+   "definition": "exponentially-weighted mean (halflife=3 games) of the away team's per-game takeaways over strictly-prior games (away side of nhl_takeaways_pg_ewm_diff)",
+   "source": "official NHL API boxscores (team takeaways)",
+   "lookback": "decaying (halflife=3 games)",
+   "aggregation": "per-team EWM of the per-game count",
+   "point_in_time_rule": "trailing EWM then shift(1) \u2014 strictly-prior games only",
+   "missing_value_policy": "NaN when the team has no prior games with boxscore data",
+   "representation": "raw away level (tree members)",
+   "model_family_availability": [
+    "tree"
+   ],
+   "feature_version": 1
+  },
+  "goalie_starts_home": {
+   "description": "Home team's expected-starter season starts",
+   "definition": "season-to-date starts of the home team's expected starting goalie (home side of goalie_starts_diff) -- a workload/experience proxy for the SV%/GAA pair",
+   "source": "official NHL API boxscores (goalie appearances)",
+   "lookback": "season to date",
+   "aggregation": "per-goalie start count",
+   "point_in_time_rule": "strictly-prior starts only; starter vote uses team/season workload, prior observed team changes and fresh roster captures strictly before exact puck drop; quality uses only earlier game dates",
+   "missing_value_policy": "NaN when no goalie has a prior start; never fabricated",
+   "representation": "raw home level (tree members)",
+   "model_family_availability": [
+    "tree"
+   ],
+   "feature_version": 2
+  },
+  "goalie_starts_away": {
+   "description": "Away team's expected-starter season starts",
+   "definition": "season-to-date starts of the away team's expected starting goalie (away side of goalie_starts_diff) -- a workload/experience proxy for the SV%/GAA pair",
+   "source": "official NHL API boxscores (goalie appearances)",
+   "lookback": "season to date",
+   "aggregation": "per-goalie start count",
+   "point_in_time_rule": "strictly-prior starts only; starter vote uses team/season workload, prior observed team changes and fresh roster captures strictly before exact puck drop; quality uses only earlier game dates",
+   "missing_value_policy": "NaN when no goalie has a prior start; never fabricated",
+   "representation": "raw away level (tree members)",
+   "model_family_availability": [
+    "tree"
+   ],
+   "feature_version": 2
+  },
+  "pl_xpm_away": {
+   "description": "combined even-strength + power-play + penalty-kill + 4v4/3v3/extra attacker all-skater healthy-pool mean raw expected plus-minus per 60, away (C/L/R/D positions rolled up)",
+   "definition": "unweighted mean of the four position-level pool means (C, L, R, D) of raw_rate_per60 for 5on5+5on4+4on5+other, aggregated over the healthy pool -- the most recent trailing-30-game rating per player whose source game date is strictly earlier than the target date, gated at >=900s prior ice time, with any player on an Out/Injured Reserve/IR/Doubtful interval captured before puck drop REMOVED from the pool before the mean. EVO, PPO, PK and other on-ice xGF/xGA and icetime are summed inside each player-game before the rolling window, so this rate is the ice-weighted combined XPM; no shrinkage is applied. MLB's _LINEUP_AGG_ROSTER shape. No top-N cut: all 18 dressed skaters contribute in hockey. The rating itself is never modified; the flag removes a row, it does not discount a value. diff = home - away.",
+   "source": "MoneyPuck regular-season skater game-by-game archives (on-ice xGoals pair + icetime) + ESPN timestamped injury status snapshots",
+   "lookback": "trailing 30 played games per player (combined situations) (game grain); source games within injury_stints.POOL_LOOKBACK_DAYS = 45 of the target date -- a slate whose team ratings all trail that gate (the season opener after the offseason) serves the position prior, matching MLB's LINEUP_POOL_LOOKBACK_DAYS = 10 geometry",
+   "aggregation": "opportunity-weighted mean of surviving player-level raw rates (NFL snap-share parity): each candidate's weight is his own served prior icetime, applied AFTER the injury exclusion so an absent star's ice leaves the blend with him; sides with zero served weight fall back to the plain mean (counted in the pool audit)",
+   "point_in_time_rule": "a candidate rating enters a target game's pool only when its source game date is STRICTLY earlier than the target date (date-grain source feeds cannot prove within-day publish ordering), so a target game's own row can never enter its own pool; the injury interval opens only on a captured snapshot timestamp strictly before exact puck drop (Out / Injured Reserve / IR / Doubtful -- never a provider filing or projected return date), and the exclusion is evaluated at the game date, per game.",
+   "missing_value_policy": "mean of the four position priors (this run's measured all-teams position means) when a side has no pool row; never NaN, never 0 -- 0 would read as deliberately inert",
+   "representation": "raw away level (tree members)",
+   "model_family_availability": [
+    "tree"
+   ],
+   "feature_version": 4
+  },
+  "pl_xpm_home": {
+   "description": "combined even-strength + power-play + penalty-kill + 4v4/3v3/extra attacker all-skater healthy-pool mean raw expected plus-minus per 60, home (C/L/R/D positions rolled up)",
+   "definition": "unweighted mean of the four position-level pool means (C, L, R, D) of raw_rate_per60 for 5on5+5on4+4on5+other, aggregated over the healthy pool -- the most recent trailing-30-game rating per player whose source game date is strictly earlier than the target date, gated at >=900s prior ice time, with any player on an Out/Injured Reserve/IR/Doubtful interval captured before puck drop REMOVED from the pool before the mean. EVO, PPO, PK and other on-ice xGF/xGA and icetime are summed inside each player-game before the rolling window, so this rate is the ice-weighted combined XPM; no shrinkage is applied. MLB's _LINEUP_AGG_ROSTER shape. No top-N cut: all 18 dressed skaters contribute in hockey. The rating itself is never modified; the flag removes a row, it does not discount a value. diff = home - away.",
+   "source": "MoneyPuck regular-season skater game-by-game archives (on-ice xGoals pair + icetime) + ESPN timestamped injury status snapshots",
+   "lookback": "trailing 30 played games per player (combined situations) (game grain); source games within injury_stints.POOL_LOOKBACK_DAYS = 45 of the target date -- a slate whose team ratings all trail that gate (the season opener after the offseason) serves the position prior, matching MLB's LINEUP_POOL_LOOKBACK_DAYS = 10 geometry",
+   "aggregation": "opportunity-weighted mean of surviving player-level raw rates (NFL snap-share parity): each candidate's weight is his own served prior icetime, applied AFTER the injury exclusion so an absent star's ice leaves the blend with him; sides with zero served weight fall back to the plain mean (counted in the pool audit)",
+   "point_in_time_rule": "a candidate rating enters a target game's pool only when its source game date is STRICTLY earlier than the target date (date-grain source feeds cannot prove within-day publish ordering), so a target game's own row can never enter its own pool; the injury interval opens only on a captured snapshot timestamp strictly before exact puck drop (Out / Injured Reserve / IR / Doubtful -- never a provider filing or projected return date), and the exclusion is evaluated at the game date, per game.",
+   "missing_value_policy": "mean of the four position priors (this run's measured all-teams position means) when a side has no pool row; never NaN, never 0 -- 0 would read as deliberately inert",
+   "representation": "raw home level (tree members)",
+   "model_family_availability": [
+    "tree"
+   ],
+   "feature_version": 4
+  },
+  "pl_xpm_diff": {
+   "description": "combined even-strength + power-play + penalty-kill + 4v4/3v3/extra attacker all-skater healthy-pool mean raw expected plus-minus per 60, diff (C/L/R/D positions rolled up)",
+   "definition": "unweighted mean of the four position-level pool means (C, L, R, D) of raw_rate_per60 for 5on5+5on4+4on5+other, aggregated over the healthy pool -- the most recent trailing-30-game rating per player whose source game date is strictly earlier than the target date, gated at >=900s prior ice time, with any player on an Out/Injured Reserve/IR/Doubtful interval captured before puck drop REMOVED from the pool before the mean. EVO, PPO, PK and other on-ice xGF/xGA and icetime are summed inside each player-game before the rolling window, so this rate is the ice-weighted combined XPM; no shrinkage is applied. MLB's _LINEUP_AGG_ROSTER shape. No top-N cut: all 18 dressed skaters contribute in hockey. The rating itself is never modified; the flag removes a row, it does not discount a value. diff = home - away.",
+   "source": "MoneyPuck regular-season skater game-by-game archives (on-ice xGoals pair + icetime) + ESPN timestamped injury status snapshots",
+   "lookback": "trailing 30 played games per player (combined situations) (game grain); source games within injury_stints.POOL_LOOKBACK_DAYS = 45 of the target date -- a slate whose team ratings all trail that gate (the season opener after the offseason) serves the position prior, matching MLB's LINEUP_POOL_LOOKBACK_DAYS = 10 geometry",
+   "aggregation": "opportunity-weighted mean of surviving player-level raw rates (NFL snap-share parity): each candidate's weight is his own served prior icetime, applied AFTER the injury exclusion so an absent star's ice leaves the blend with him; sides with zero served weight fall back to the plain mean (counted in the pool audit)",
+   "point_in_time_rule": "a candidate rating enters a target game's pool only when its source game date is STRICTLY earlier than the target date (date-grain source feeds cannot prove within-day publish ordering), so a target game's own row can never enter its own pool; the injury interval opens only on a captured snapshot timestamp strictly before exact puck drop (Out / Injured Reserve / IR / Doubtful -- never a provider filing or projected return date), and the exclusion is evaluated at the game date, per game.",
+   "missing_value_policy": "mean of the four position priors (this run's measured all-teams position means) when a side has no pool row; never NaN, never 0 -- 0 would read as deliberately inert",
+   "representation": "difference (all model families)",
+   "model_family_availability": [
+    "linear",
+    "tree"
+   ],
+   "feature_version": 4
+  },
+  "pl_xg_away": {
+   "description": "combined even-strength + power-play + penalty-kill + 4v4/3v3/extra attacker all-skater healthy-pool mean raw individual expected goals per 60, away (C/L/R/D positions rolled up)",
+   "definition": "unweighted mean of the four position-level pool means (C, L, R, D) of raw_rate_per60 for 5on5+5on4+4on5+other, aggregated over the healthy pool -- the most recent trailing-30-game rating per player whose source game date is strictly earlier than the target date, gated at >=900s prior ice time, with any player on an Out/Injured Reserve/IR/Doubtful interval captured before puck drop REMOVED from the pool before the mean. The rated value is individual I_F_xGoals; EVO, PPO, PK and other icetime are summed inside each player-game before the rolling window, so the rate is the ice-weighted combined individual-xG rate; no shrinkage is applied. No top-N cut: all 18 dressed skaters contribute. diff = home - away.",
+   "source": "MoneyPuck regular-season skater game-by-game archives (individual xGoals + icetime) + ESPN timestamped injury status snapshots",
+   "lookback": "trailing 30 played games per player (combined situations) (game grain); source games within injury_stints.POOL_LOOKBACK_DAYS = 45 of the target date",
+   "aggregation": "opportunity-weighted mean of surviving player-level raw rates: each candidate's weight is his own served prior icetime, applied AFTER the injury exclusion; sides with zero served weight fall back to the plain mean",
+   "point_in_time_rule": "a candidate rating enters a target game's pool only when its source game date is STRICTLY earlier than the target date, so a target game's own row can never enter its own pool; the injury interval opens only on a captured snapshot timestamp strictly before exact puck drop",
+   "missing_value_policy": "mean of the four position priors (this run's measured all-teams position means) when a side has no pool row; never NaN, never 0",
+   "representation": "raw away level (tree members)",
+   "model_family_availability": [
+    "tree"
+   ],
+   "feature_version": 4
+  },
+  "pl_xg_home": {
+   "description": "combined even-strength + power-play + penalty-kill + 4v4/3v3/extra attacker all-skater healthy-pool mean raw individual expected goals per 60, home (C/L/R/D positions rolled up)",
+   "definition": "unweighted mean of the four position-level pool means (C, L, R, D) of raw_rate_per60 for 5on5+5on4+4on5+other, aggregated over the healthy pool -- the most recent trailing-30-game rating per player whose source game date is strictly earlier than the target date, gated at >=900s prior ice time, with any player on an Out/Injured Reserve/IR/Doubtful interval captured before puck drop REMOVED from the pool before the mean. The rated value is individual I_F_xGoals; EVO, PPO, PK and other icetime are summed inside each player-game before the rolling window, so the rate is the ice-weighted combined individual-xG rate; no shrinkage is applied. No top-N cut: all 18 dressed skaters contribute. diff = home - away.",
+   "source": "MoneyPuck regular-season skater game-by-game archives (individual xGoals + icetime) + ESPN timestamped injury status snapshots",
+   "lookback": "trailing 30 played games per player (combined situations) (game grain); source games within injury_stints.POOL_LOOKBACK_DAYS = 45 of the target date",
+   "aggregation": "opportunity-weighted mean of surviving player-level raw rates: each candidate's weight is his own served prior icetime, applied AFTER the injury exclusion; sides with zero served weight fall back to the plain mean",
+   "point_in_time_rule": "a candidate rating enters a target game's pool only when its source game date is STRICTLY earlier than the target date, so a target game's own row can never enter its own pool; the injury interval opens only on a captured snapshot timestamp strictly before exact puck drop",
+   "missing_value_policy": "mean of the four position priors (this run's measured all-teams position means) when a side has no pool row; never NaN, never 0",
+   "representation": "raw home level (tree members)",
+   "model_family_availability": [
+    "tree"
+   ],
+   "feature_version": 4
+  },
+  "pl_xg_diff": {
+   "description": "combined even-strength + power-play + penalty-kill + 4v4/3v3/extra attacker all-skater healthy-pool mean raw individual expected goals per 60, diff (C/L/R/D positions rolled up)",
+   "definition": "unweighted mean of the four position-level pool means (C, L, R, D) of raw_rate_per60 for 5on5+5on4+4on5+other, aggregated over the healthy pool -- the most recent trailing-30-game rating per player whose source game date is strictly earlier than the target date, gated at >=900s prior ice time, with any player on an Out/Injured Reserve/IR/Doubtful interval captured before puck drop REMOVED from the pool before the mean. The rated value is individual I_F_xGoals; EVO, PPO, PK and other icetime are summed inside each player-game before the rolling window, so the rate is the ice-weighted combined individual-xG rate; no shrinkage is applied. No top-N cut: all 18 dressed skaters contribute. diff = home - away.",
+   "source": "MoneyPuck regular-season skater game-by-game archives (individual xGoals + icetime) + ESPN timestamped injury status snapshots",
+   "lookback": "trailing 30 played games per player (combined situations) (game grain); source games within injury_stints.POOL_LOOKBACK_DAYS = 45 of the target date",
+   "aggregation": "opportunity-weighted mean of surviving player-level raw rates: each candidate's weight is his own served prior icetime, applied AFTER the injury exclusion; sides with zero served weight fall back to the plain mean",
+   "point_in_time_rule": "a candidate rating enters a target game's pool only when its source game date is STRICTLY earlier than the target date, so a target game's own row can never enter its own pool; the injury interval opens only on a captured snapshot timestamp strictly before exact puck drop",
+   "missing_value_policy": "mean of the four position priors (this run's measured all-teams position means) when a side has no pool row; never NaN, never 0",
+   "representation": "difference (all model families)",
+   "model_family_availability": [
+    "linear",
+    "tree"
+   ],
+   "feature_version": 4
+  }
+ },
+ "served_columns": [
+  "off_rating_diff",
+  "def_rating_diff",
+  "net_rating_diff",
+  "rest_days_diff",
+  "ewm_net_goals_diff",
+  "ewm_goal_share_diff",
+  "ga_per_game_diff",
+  "shots_for_per_game_diff",
+  "shots_against_per_game_diff",
+  "pp_success_diff",
+  "faceoff_win_diff",
+  "back_to_back_diff",
+  "nhl_giveaways_pg_ewm_diff",
+  "nhl_takeaways_pg_ewm_diff",
+  "goalie_sv_pct_diff",
+  "goalie_gaa_diff",
+  "goalie_starts_diff",
+  "is_playoffs",
+  "net_rating_sum",
+  "ewm_net_goals_home",
+  "ewm_net_goals_away",
+  "ewm_goal_share_home",
+  "ewm_goal_share_away",
+  "rest_days_home",
+  "rest_days_away",
+  "ga_per_game_home",
+  "ga_per_game_away",
+  "shots_for_per_game_home",
+  "shots_for_per_game_away",
+  "shots_against_per_game_home",
+  "shots_against_per_game_away",
+  "pp_success_home",
+  "pp_success_away",
+  "faceoff_win_home",
+  "faceoff_win_away",
+  "back_to_back_home",
+  "back_to_back_away",
+  "nhl_giveaways_pg_ewm_home",
+  "nhl_giveaways_pg_ewm_away",
+  "nhl_takeaways_pg_ewm_home",
+  "nhl_takeaways_pg_ewm_away",
+  "goalie_sv_pct_home",
+  "goalie_sv_pct_away",
+  "goalie_gaa_home",
+  "goalie_gaa_away",
+  "goalie_starts_home",
+  "goalie_starts_away",
+  "is_home",
+  "pl_xpm_away",
+  "pl_xpm_home",
+  "pl_xpm_diff",
+  "pl_xg_away",
+  "pl_xg_home",
+  "pl_xg_diff"
+ ],
+ "coverage": [
+  {
+   "feature": "off_rating_diff",
+   "n_games": 4591,
+   "coverage_pct": 95.03,
+   "mean": -0.0005343194230855044,
+   "std": 0.2231584305832602
+  },
+  {
+   "feature": "def_rating_diff",
+   "n_games": 4591,
+   "coverage_pct": 95.03,
+   "mean": 0.0021865622037855826,
+   "std": 0.19814975166818685
+  },
+  {
+   "feature": "net_rating_diff",
+   "n_games": 4591,
+   "coverage_pct": 95.03,
+   "mean": 0.0016522427807000796,
+   "std": 0.345763203542961
+  },
+  {
+   "feature": "rest_days_diff",
+   "n_games": 4591,
+   "coverage_pct": 99.56,
+   "mean": 0.27980748195143296,
+   "std": 12.911507650532208
+  },
+  {
+   "feature": "ewm_net_goals_diff",
+   "n_games": 4591,
+   "coverage_pct": 99.56,
+   "mean": -0.024197040386999064,
+   "std": 1.449368209094572
+  },
+  {
+   "feature": "ewm_goal_share_diff",
+   "n_games": 4591,
+   "coverage_pct": 99.56,
+   "mean": -0.0021528412979786695,
+   "std": 0.13226471223937422
+  },
+  {
+   "feature": "ga_per_game_diff",
+   "n_games": 4591,
+   "coverage_pct": 99.56,
+   "mean": 0.01741048639976665,
+   "std": 1.1810956976057683
+  },
+  {
+   "feature": "shots_for_per_game_diff",
+   "n_games": 4591,
+   "coverage_pct": 99.56,
+   "mean": -0.1189127105666156,
+   "std": 5.050196240564451
+  },
+  {
+   "feature": "shots_against_per_game_diff",
+   "n_games": 4591,
+   "coverage_pct": 99.56,
+   "mean": 0.0700612557427259,
+   "std": 4.90938401273808
+  },
+  {
+   "feature": "pp_success_diff",
+   "n_games": 4591,
+   "coverage_pct": 99.56,
+   "mean": -0.0018110132969532426,
+   "std": 0.1612152806476691
+  },
+  {
+   "feature": "faceoff_win_diff",
+   "n_games": 4591,
+   "coverage_pct": 99.56,
+   "mean": 0.000317532103099221,
+   "std": 0.061004092838012045
+  },
+  {
+   "feature": "back_to_back_diff",
+   "n_games": 4591,
+   "coverage_pct": 99.56,
+   "mean": -0.09450886020564428,
+   "std": 0.4295364588146498
+  },
+  {
+   "feature": "nhl_giveaways_pg_ewm_diff",
+   "n_games": 4591,
+   "coverage_pct": 99.56,
+   "mean": 0.030384432714829705,
+   "std": 2.4193862710398437
+  },
+  {
+   "feature": "nhl_takeaways_pg_ewm_diff",
+   "n_games": 4591,
+   "coverage_pct": 99.56,
+   "mean": 0.0005249851504972275,
+   "std": 1.5582719270248486
+  },
+  {
+   "feature": "goalie_sv_pct_diff",
+   "n_games": 4591,
+   "coverage_pct": 98.04,
+   "mean": 0.0015924295886651759,
+   "std": 0.045021044923655065
+  },
+  {
+   "feature": "goalie_gaa_diff",
+   "n_games": 4591,
+   "coverage_pct": 98.04,
+   "mean": -0.04517456701861743,
+   "std": 1.3483596754770908
+  },
+  {
+   "feature": "goalie_starts_diff",
+   "n_games": 4591,
+   "coverage_pct": 98.04,
+   "mean": 0.789602310597645,
+   "std": 11.903629263456104
+  },
+  {
+   "feature": "is_playoffs",
+   "n_games": 4591,
+   "coverage_pct": 100.0,
+   "mean": 0.055761272054018735,
+   "std": 0.22948512720125763
+  },
+  {
+   "feature": "net_rating_sum",
+   "n_games": 4591,
+   "coverage_pct": 95.03,
+   "mean": 0.03133047915890381,
+   "std": 0.3572159353820641
+  },
+  {
+   "feature": "ewm_net_goals_home",
+   "n_games": 4591,
+   "coverage_pct": 99.61,
+   "mean": -0.011813412939350777,
+   "std": 1.014086234783438
+  },
+  {
+   "feature": "ewm_net_goals_away",
+   "n_games": 4591,
+   "coverage_pct": 99.67,
+   "mean": 0.010909782672630854,
+   "std": 1.0227698929666613
+  },
+  {
+   "feature": "ewm_goal_share_home",
+   "n_games": 4591,
+   "coverage_pct": 99.61,
+   "mean": 0.4989346446026914,
+   "std": 0.09222809696092395
+  },
+  {
+   "feature": "ewm_goal_share_away",
+   "n_games": 4591,
+   "coverage_pct": 99.67,
+   "mean": 0.5009606921421134,
+   "std": 0.09393868220747671
+  },
+  {
+   "feature": "rest_days_home",
+   "n_games": 4591,
+   "coverage_pct": 99.61,
+   "mean": 4.091187404329761,
+   "std": 16.054090102613472
+  },
+  {
+   "feature": "rest_days_away",
+   "n_games": 4591,
+   "coverage_pct": 99.67,
+   "mean": 3.847902097902098,
+   "std": 16.059984143198992
+  },
+  {
+   "feature": "ga_per_game_home",
+   "n_games": 4591,
+   "coverage_pct": 99.61,
+   "mean": 3.102503826809534,
+   "std": 0.8346260675951969
+  },
+  {
+   "feature": "ga_per_game_away",
+   "n_games": 4591,
+   "coverage_pct": 99.67,
+   "mean": 3.0857881701631698,
+   "std": 0.8454890023473998
+  },
+  {
+   "feature": "shots_for_per_game_home",
+   "n_games": 4591,
+   "coverage_pct": 99.61,
+   "mean": 28.604202201326625,
+   "std": 3.6547936057197594
+  },
+  {
+   "feature": "shots_for_per_game_away",
+   "n_games": 4591,
+   "coverage_pct": 99.67,
+   "mean": 28.724468240093245,
+   "std": 3.7603263960518616
+  },
+  {
+   "feature": "shots_against_per_game_home",
+   "n_games": 4591,
+   "coverage_pct": 99.61,
+   "mean": 28.700874699322103,
+   "std": 3.6485786368905364
+  },
+  {
+   "feature": "shots_against_per_game_away",
+   "n_games": 4591,
+   "coverage_pct": 99.67,
+   "mean": 28.6366368006993,
+   "std": 3.6374160416352943
+  },
+  {
+   "feature": "pp_success_home",
+   "n_games": 4591,
+   "coverage_pct": 99.61,
+   "mean": 0.21162066601010684,
+   "std": 0.11413810853964197
+  },
+  {
+   "feature": "pp_success_away",
+   "n_games": 4591,
+   "coverage_pct": 99.67,
+   "mean": 0.21329427424819566,
+   "std": 0.11211167419579107
+  },
+  {
+   "feature": "faceoff_win_home",
+   "n_games": 4591,
+   "coverage_pct": 99.61,
+   "mean": 0.5001958187543305,
+   "std": 0.042136733237682855
+  },
+  {
+   "feature": "faceoff_win_away",
+   "n_games": 4591,
+   "coverage_pct": 99.67,
+   "mean": 0.4998647008754925,
+   "std": 0.04228350459555812
+  },
+  {
+   "feature": "back_to_back_home",
+   "n_games": 4591,
+   "coverage_pct": 99.61,
+   "mean": 0.09228077848239667,
+   "std": 0.2894535501883243
+  },
+  {
+   "feature": "back_to_back_away",
+   "n_games": 4591,
+   "coverage_pct": 99.67,
+   "mean": 0.1866258741258741,
+   "std": 0.38965348302029035
+  },
+  {
+   "feature": "nhl_giveaways_pg_ewm_home",
+   "n_games": 4591,
+   "coverage_pct": 99.61,
+   "mean": 12.515545440261015,
+   "std": 3.859493058283205
+  },
+  {
+   "feature": "nhl_giveaways_pg_ewm_away",
+   "n_games": 4591,
+   "coverage_pct": 99.67,
+   "mean": 12.480314923447457,
+   "std": 3.8270779043162952
+  },
+  {
+   "feature": "nhl_takeaways_pg_ewm_home",
+   "n_games": 4591,
+   "coverage_pct": 99.61,
+   "mean": 5.369557115251605,
+   "std": 1.5467655382962822
+  },
+  {
+   "feature": "nhl_takeaways_pg_ewm_away",
+   "n_games": 4591,
+   "coverage_pct": 99.67,
+   "mean": 5.3729698376114055,
+   "std": 1.5612741379288309
+  },
+  {
+   "feature": "goalie_sv_pct_home",
+   "n_games": 4591,
+   "coverage_pct": 98.41,
+   "mean": 0.8942646271306061,
+   "std": 0.0319666777837741
+  },
+  {
+   "feature": "goalie_sv_pct_away",
+   "n_games": 4591,
+   "coverage_pct": 98.58,
+   "mean": 0.8926566979245129,
+   "std": 0.03160672046807324
+  },
+  {
+   "feature": "goalie_gaa_home",
+   "n_games": 4591,
+   "coverage_pct": 98.41,
+   "mean": 2.9751260786603697,
+   "std": 0.9422562865282098
+  },
+  {
+   "feature": "goalie_gaa_away",
+   "n_games": 4591,
+   "coverage_pct": 98.58,
+   "mean": 3.022388684646232,
+   "std": 0.9607055801803236
+  },
+  {
+   "feature": "goalie_starts_home",
+   "n_games": 4591,
+   "coverage_pct": 98.41,
+   "mean": 21.97476759628154,
+   "std": 16.4772545240262
+  },
+  {
+   "feature": "goalie_starts_away",
+   "n_games": 4591,
+   "coverage_pct": 98.58,
+   "mean": 21.163720724701722,
+   "std": 16.23725804182109
+  },
+  {
+   "feature": "is_home",
+   "n_games": 4591,
+   "coverage_pct": 100.0,
+   "mean": 1.0,
+   "std": 0.0
+  },
+  {
+   "feature": "pl_xpm_away",
+   "n_games": 4591,
+   "coverage_pct": 100.0,
+   "mean": 0.20214450195904776,
+   "std": 0.46274673711315356
+  },
+  {
+   "feature": "pl_xpm_home",
+   "n_games": 4591,
+   "coverage_pct": 100.0,
+   "mean": 0.1931163765718807,
+   "std": 0.45772443717733613
+  },
+  {
+   "feature": "pl_xpm_diff",
+   "n_games": 4591,
+   "coverage_pct": 100.0,
+   "mean": -0.009028125387167091,
+   "std": 0.6535939991330263
+  },
+  {
+   "feature": "pl_xg_away",
+   "n_games": 4591,
+   "coverage_pct": 100.0,
+   "mean": 0.726673709415835,
+   "std": 0.08173157436030222
+  },
+  {
+   "feature": "pl_xg_home",
+   "n_games": 4591,
+   "coverage_pct": 100.0,
+   "mean": 0.7249979906108671,
+   "std": 0.08017951666387413
+  },
+  {
+   "feature": "pl_xg_diff",
+   "n_games": 4591,
+   "coverage_pct": 100.0,
+   "mean": -0.0016757188049678349,
+   "std": 0.113951284591405
+  }
+ ],
+ "fold_geometry": {
+  "n_folds": 100,
+  "first_val_start": "2023-11-09",
+  "last_val_end": "2026-11-25",
+  "min_train": 192,
+  "max_train": 4577,
+  "total_val_games": 4399,
+  "n_candidates": 100,
+  "dropped_windows": 0,
+  "dropped_games": 0,
+  "provisional_windows": 23,
+  "provisional_games": 345,
+  "postseason_windows": 22,
+  "min_val_fold_games": 40,
+  "oof_regular": {
+   "n": 4045,
+   "auc": 0.6183076714790335,
+   "logloss": 0.6679154068826437,
+   "brier": 0.2377224081403955,
+   "ece": 0.00923160791679836,
+   "sufficient": true
+  },
+  "oof_postseason": {
+   "n": 256,
+   "auc": 0.6280334983800967,
+   "logloss": 0.6695504968984419,
+   "brier": 0.23843731698138293,
+   "ece": 0.04724285317025274,
+   "sufficient": true
+  },
+  "oof_provisional": {
+   "n": 345,
+   "auc": 0.5957411020655319,
+   "logloss": 0.6889996868794743,
+   "brier": 0.24556652739870308,
+   "ece": 0.0335204940244947,
+   "sufficient": true
+  },
+  "oof_all": {
+   "n": 4399,
+   "auc": 0.6166603222149416,
+   "logloss": 0.669473025440669,
+   "brier": 0.238290540858287,
+   "ece": 0.010764360241217838,
+   "sufficient": true
+  }
+ },
+ "config": {
+  "feature_set_version": "nhl-prod-v1.6-goal-ratings",
+  "warmup_days": 30,
+  "first_season": 2023,
+  "oof_first_season": 2023,
+  "retrain_cadence_days": 7,
+  "min_val_fold_games": 40,
+  "game_types": [
+   2,
+   3
+  ],
+  "ensemble_members": [
+   "xgboost",
+   "lightgbm",
+   "elasticnet"
+  ],
+  "ensemble_blend": {
+   "method": "rolling_logloss_slsqp",
+   "space": "logit",
+   "prior": "fold0_static_thirds",
+   "reearn": "per_fold_pooled_oof_strictly_prior",
+   "gates": "none"
+  },
+  "library_stack": {
+   "scipy": "1.16.3",
+   "sklearn": "1.6.1",
+   "xgboost": "3.2.0",
+   "lightgbm": "4.6.0",
+   "pandas": "2.3.3",
+   "numpy": "2.0.2"
+  },
+  "run_line_model": {
+   "home_model": "lightgbm_poisson",
+   "away_model": "lightgbm_poisson",
+   "distribution": "two_sided_asymmetric_gaussian_split_skew",
+   "simulation": "monte_carlo",
+   "mc_draws": 50000,
+   "feature_contract": "binary_moneyline",
+   "feature_columns": [
+    "off_rating_diff",
+    "def_rating_diff",
+    "net_rating_diff",
+    "rest_days_diff",
+    "ewm_net_goals_diff",
+    "ewm_goal_share_diff",
+    "ga_per_game_diff",
+    "shots_for_per_game_diff",
+    "shots_against_per_game_diff",
+    "pp_success_diff",
+    "faceoff_win_diff",
+    "back_to_back_diff",
+    "nhl_giveaways_pg_ewm_diff",
+    "nhl_takeaways_pg_ewm_diff",
+    "goalie_sv_pct_diff",
+    "goalie_gaa_diff",
+    "goalie_starts_diff",
+    "is_playoffs",
+    "net_rating_sum",
+    "ewm_net_goals_home",
+    "ewm_net_goals_away",
+    "ewm_goal_share_home",
+    "ewm_goal_share_away",
+    "rest_days_home",
+    "rest_days_away",
+    "ga_per_game_home",
+    "ga_per_game_away",
+    "shots_for_per_game_home",
+    "shots_for_per_game_away",
+    "shots_against_per_game_home",
+    "shots_against_per_game_away",
+    "pp_success_home",
+    "pp_success_away",
+    "faceoff_win_home",
+    "faceoff_win_away",
+    "back_to_back_home",
+    "back_to_back_away",
+    "nhl_giveaways_pg_ewm_home",
+    "nhl_giveaways_pg_ewm_away",
+    "nhl_takeaways_pg_ewm_home",
+    "nhl_takeaways_pg_ewm_away",
+    "goalie_sv_pct_home",
+    "goalie_sv_pct_away",
+    "goalie_gaa_home",
+    "goalie_gaa_away",
+    "goalie_starts_home",
+    "goalie_starts_away",
+    "is_home",
+    "pl_xpm_away",
+    "pl_xpm_home",
+    "pl_xpm_diff",
+    "pl_xg_away",
+    "pl_xg_home",
+    "pl_xg_diff"
+   ]
+  },
+  "random_seed": 42,
+  "market_independence": true,
+  "moneyline_evaluation": {
+   "headline_view": "causal_rolling_blend",
+   "calibration_view": "gated_prequential_causal_blend",
+   "training_population": "grades_pooled",
+   "retrospective_column": "p_ensemble_retrospective",
+   "retrospective_is_oof": false,
+   "final_xgb_rounds": 140,
+   "xgb_best_rounds": [
+    83,
+    103,
+    1,
+    172,
+    12,
+    1,
+    256,
+    123,
+    123,
+    420,
+    157,
+    3,
+    223,
+    243,
+    203,
+    235,
+    228,
+    437,
+    152,
+    137,
+    105,
+    416,
+    675,
+    404,
+    481,
+    105,
+    135,
+    74,
+    54,
+    1,
+    588,
+    332,
+    116,
+    294,
+    171,
+    13,
+    14,
+    142,
+    201,
+    189,
+    50,
+    87,
+    275,
+    177,
+    233,
+    347,
+    337,
+    41,
+    456,
+    258,
+    286,
+    89,
+    85,
+    75,
+    251,
+    225,
+    112,
+    151,
+    9,
+    7,
+    368,
+    294,
+    51,
+    64,
+    14,
+    37,
+    101,
+    190,
+    49,
+    375,
+    427,
+    9,
+    2,
+    154,
+    52,
+    109,
+    341,
+    406,
+    25,
+    17,
+    301,
+    95,
+    160,
+    246,
+    99,
+    118,
+    116,
+    568,
+    12,
+    1,
+    237,
+    326,
+    330,
+    139,
+    17,
+    390,
+    457,
+    103,
+    50,
+    49
+   ],
+   "xgb_round_policy": "median_prior_probe_rounds"
+  }
+ }
+}
