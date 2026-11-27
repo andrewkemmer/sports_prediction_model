@@ -6,12 +6,12 @@
  "winner_cards": {
   "over_under": {
    "n": 3880,
-   "actual_win_rate": 0.5057,
-   "win_rate": 0.5057,
+   "actual_win_rate": 0.5054,
+   "win_rate": 0.5054,
    "predicted_mean": 0.5056,
-   "auc": 0.5175,
-   "ece_raw": 0.0187,
-   "ece_calibrated": 0.0187,
+   "auc": 0.517,
+   "ece_raw": 0.0174,
+   "ece_calibrated": 0.0174,
    "brier": 0.2499,
    "logloss": 0.6929,
    "holdout": {
@@ -19,7 +19,7 @@
     "actual_win_rate": 0.6026,
     "win_rate": 0.6026,
     "predicted_mean": 0.5053,
-    "auc": 0.5685,
+    "auc": 0.5686,
     "ece_raw": 0.103,
     "ece_calibrated": 0.103,
     "brier": 0.2486,
@@ -29,13 +29,13 @@
    "crps": 10.3095
   },
   "run_line": {
-   "n": 1942,
-   "actual_win_rate": 0.5134,
-   "win_rate": 0.5134,
+   "n": 1943,
+   "actual_win_rate": 0.5131,
+   "win_rate": 0.5131,
    "predicted_mean": 0.5073,
    "auc": 0.5085,
-   "ece_raw": 0.0301,
-   "ece_calibrated": 0.0301,
+   "ece_raw": 0.0308,
+   "ece_calibrated": 0.0308,
    "brier": 0.2496,
    "logloss": 0.6924,
    "holdout": {
@@ -43,7 +43,7 @@
     "actual_win_rate": 0.5349,
     "win_rate": 0.5349,
     "predicted_mean": 0.5067,
-    "auc": 0.5481,
+    "auc": 0.5486,
     "ece_raw": 0.1038,
     "ece_calibrated": 0.1038,
     "brier": 0.2498,
@@ -91,7 +91,7 @@
   {
    "card": "over_under",
    "date": "2026-11-27",
-   "ece_calibrated": 0.0187,
+   "ece_calibrated": 0.0174,
    "brier": 0.2499,
    "logloss": 0.6929,
    "predicted_mean": 0.5056,
@@ -100,11 +100,11 @@
   {
    "card": "run_line",
    "date": "2026-11-27",
-   "ece_calibrated": 0.0301,
+   "ece_calibrated": 0.0308,
    "brier": 0.2496,
    "logloss": 0.6924,
    "predicted_mean": 0.5073,
-   "n": 1942
+   "n": 1943
   },
   {
    "card": "derived_ml",
@@ -121,23 +121,23 @@
   "family": "two_sided_asymmetric_gaussian_split_skew",
   "priced_by": "inverse_calibrated_cdf_monte_carlo",
   "variance": {
-   "home_variance": 1.1829656900697039,
-   "away_variance": 1.2094021866027989,
-   "correlation": 0.24891604722341898,
-   "total_skew": 0.02974917971314615,
-   "margin_skew": -0.00026800066448152136,
+   "home_variance": 1.1829653542617993,
+   "away_variance": 1.2094023936817138,
+   "correlation": 0.24891555549712996,
+   "total_skew": 0.029749233895728033,
+   "margin_skew": -0.0002680346241590231,
    "total_parity_alpha": 0.0,
    "total_tilt": {
-    "slope": 30.617002818790162,
-    "intercept": 0.0781967145742109,
-    "pace_mean": 0.036437508711013755,
+    "slope": 30.61502775374705,
+    "intercept": 0.07820938428860974,
+    "pace_mean": 0.036437451121402856,
     "cap": 6.0
    },
    "margin_stretch": {
-    "intercept": -0.3609751333826135,
-    "slope": 0.14541798686527224,
-    "quad": 0.005065353147646933,
-    "margin_mean": 2.261864466914276,
+    "intercept": -0.36098645623354025,
+    "slope": 0.14541992578484264,
+    "quad": 0.005065098432011072,
+    "margin_mean": 2.261875682693428,
     "cap": 5.0
    }
   },
@@ -149,8 +149,8 @@
     "n_test": 1194,
     "significant": false,
     "basis": "localized_per_bin_shrinkage",
-    "residual_mae_before": 0.00018668714782990334,
-    "residual_mae_after": 0.00015147352762725466,
+    "residual_mae_before": 0.00018668714443095913,
+    "residual_mae_after": 0.00015147349868752027,
     "delta_l1": 0.029856,
     "delta_max": 0.001474,
     "collateral_max_excess": 0.0,
@@ -278,8 +278,8 @@
       {
        "bin": 18,
        "role": "donor",
-       "residual": -0.003087,
-       "capacity": 0.003087,
+       "residual": -0.003088,
+       "capacity": 0.003088,
        "drawn": 0.002539
       }
      ],
@@ -301,9 +301,9 @@
     "n_test": 1194,
     "significant": false,
     "basis": "localized_per_bin_shrinkage+relief",
-    "residual_mae_before": 0.0001013139873700141,
-    "residual_mae_after": 6.0722217085212e-05,
-    "delta_l1": 0.093037,
+    "residual_mae_before": 0.00010131384274904702,
+    "residual_mae_after": 6.072308151742149e-05,
+    "delta_l1": 0.093038,
     "delta_max": 0.009085,
     "collateral_max_excess": 0.000272,
     "collateral_ok": false,
@@ -396,12 +396,12 @@
     "ece_raw": 0.0739,
     "ece_calibrated": 0.0739,
     "brier": 0.217,
-    "logloss": 0.6231
+    "logloss": 0.6232
    }
   },
   "home_cover_2": {
    "engine_ece_raw": 0.0319,
-   "engine_auc": 0.7433,
+   "engine_auc": 0.7434,
    "engine_ece_calibrated": 0.0319,
    "engine_brier": 0.2057,
    "engine_logloss": 0.5978,
