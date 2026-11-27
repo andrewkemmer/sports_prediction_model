@@ -1,16 +1,16 @@
 {
- "created_utc": "2026-11-16T22:27:26.145476+00:00",
- "feature_set_version": "nfl-prod-v10.2-pbwr",
+ "created_utc": "2026-11-27T15:21:11.419772+00:00",
+ "feature_set_version": "nfl-prod-v11.1-ratings-components",
  "manifest": {
-  "elo_diff": {
-   "description": "Home minus away pre-game Elo rating",
-   "definition": "elo_home_entering - elo_away_entering; Elo update r += K*(actual - expected), expected = 1/(1+10**((r_opp - r_self)/400)); actual = 1 win / 0 loss / 0.5 tie; ELO_SEASON_REVERT (1/3) toward ELO_PRIOR at each season boundary (MLB/NHL/NBA parity)",
-   "source": "nflverse schedules (all decided CON/DIV/REG/SB/WC games; 2016 warmup season, 2017 onward)",
-   "lookback": "full history (iterative)",
-   "aggregation": "iterative state update",
-   "point_in_time_rule": "rating entering kickoff; updated only AFTER a game settles",
-   "missing_value_policy": "ELO_PRIOR (1500) for a team's first-ever game; never NaN",
-   "representation": "difference (all model families)",
+  "off_rating_diff": {
+   "description": "Home minus away fitted team offence rating",
+   "definition": "off_rating_home - off_rating_away, where off_rating_T is team T's own-offence coefficient in a weighted ridge fit of points scored per side row with team offence and opponent defence one-hots, trailing own-offence components and opponent defensive EPA, plus shrunk prior-season points for/against (both clubs); higher = stronger offence.  Re-centred by half of the net's win-channel adjustment so off + def is the two-channel net plus zero; the Elo prior moves only the net",
+   "source": "decided NFL game scores (nflverse schedules)",
+   "lookback": "expanding settled history with a 240-day recency half-life; refit at every observed game date",
+   "aggregation": "weighted ridge (alpha 50), sample weight 0.5**(age_days/240); points-per-game coefficient",
+   "point_in_time_rule": "each weekly fit uses only games strictly before its anchor; a game's rating enters kickoff and never sees its own result",
+   "missing_value_policy": "NaN until 200 settled training games and for teams with no prior history; in-model median imputation",
+   "representation": "difference (all model families; not collinear with net_rating_diff)",
    "model_family_availability": [
     "linear",
     "tree",
@@ -18,14 +18,86 @@
    ],
    "feature_version": 1
   },
-  "win_pct_diff": {
-   "description": "Home minus away trailing win percentage",
-   "definition": "mean(team_win) over the team's prior 12 games (ties = 0.5)",
-   "source": "decided game outcomes",
-   "lookback": 12,
-   "aggregation": "trailing windowed mean",
-   "point_in_time_rule": "per-team rolling(12).mean().shift(1) \u2014 current and future games excluded",
-   "missing_value_policy": "NaN when the team has no prior games; in-model handling",
+  "off_rating_home": {
+   "description": "Home team fitted offence rating",
+   "definition": "off_rating_T for the home team from the causal two-sided scoring + win-channel fit; points per game above league average, higher = stronger offence",
+   "source": "decided NFL game scores (nflverse schedules)",
+   "lookback": "expanding settled history with a 240-day recency half-life; refit at every observed game date",
+   "aggregation": "weighted ridge (alpha 50); points-per-game coefficient",
+   "point_in_time_rule": "each weekly fit uses only games strictly before its anchor; never sees the current game",
+   "missing_value_policy": "NaN until 200 settled training games and for teams with no prior history; in-model median imputation",
+   "representation": "side level (tree members only)",
+   "model_family_availability": [
+    "tree"
+   ],
+   "feature_version": 1
+  },
+  "off_rating_away": {
+   "description": "Away team fitted offence rating",
+   "definition": "off_rating_T for the away team from the causal two-sided scoring + win-channel fit; points per game above league average, higher = stronger offence",
+   "source": "decided NFL game scores (nflverse schedules)",
+   "lookback": "expanding settled history with a 240-day recency half-life; refit at every observed game date",
+   "aggregation": "weighted ridge (alpha 50); points-per-game coefficient",
+   "point_in_time_rule": "each weekly fit uses only games strictly before its anchor; never sees the current game",
+   "missing_value_policy": "NaN until 200 settled training games and for teams with no prior history; in-model median imputation",
+   "representation": "side level (tree members only)",
+   "model_family_availability": [
+    "tree"
+   ],
+   "feature_version": 1
+  },
+  "def_rating_diff": {
+   "description": "Home minus away fitted team defence rating",
+   "definition": "def_rating_home - def_rating_away, where def_rating_T is MINUS team T's opponent-dummy coefficient from the same weighted ridge points model; sign-flipped so higher = better defence (fewer points conceded), net of the offences faced, with the trailing own-offence and opponent-defensive-EPA component panel beside the one-hots.  Re-centred by half of the net's win-channel adjustment; the Elo prior moves only the net",
+   "source": "decided NFL game scores (nflverse schedules)",
+   "lookback": "expanding settled history with a 240-day recency half-life; refit at every observed game date",
+   "aggregation": "weighted ridge (alpha 50); points-per-game coefficient",
+   "point_in_time_rule": "each weekly fit uses only games strictly before its anchor; never sees the current game",
+   "missing_value_policy": "NaN until 200 settled training games and for teams with no prior history; in-model median imputation",
+   "representation": "difference (all model families; not collinear with net_rating_diff)",
+   "model_family_availability": [
+    "linear",
+    "tree",
+    "mlp"
+   ],
+   "feature_version": 1
+  },
+  "def_rating_home": {
+   "description": "Home team fitted defence rating",
+   "definition": "def_rating_T for the home team from the causal two-sided scoring + win-channel fit; points per game above league average prevented, higher = better",
+   "source": "decided NFL game scores (nflverse schedules)",
+   "lookback": "expanding settled history with a 240-day recency half-life; refit at every observed game date",
+   "aggregation": "weighted ridge (alpha 50); points-per-game coefficient",
+   "point_in_time_rule": "each weekly fit uses only games strictly before its anchor; never sees the current game",
+   "missing_value_policy": "NaN until 200 settled training games and for teams with no prior history; in-model median imputation",
+   "representation": "side level (tree members only)",
+   "model_family_availability": [
+    "tree"
+   ],
+   "feature_version": 1
+  },
+  "def_rating_away": {
+   "description": "Away team fitted defence rating",
+   "definition": "def_rating_T for the away team from the causal two-sided scoring + win-channel fit; points per game above league average prevented, higher = better",
+   "source": "decided NFL game scores (nflverse schedules)",
+   "lookback": "expanding settled history with a 240-day recency half-life; refit at every observed game date",
+   "aggregation": "weighted ridge (alpha 50); points-per-game coefficient",
+   "point_in_time_rule": "each weekly fit uses only games strictly before its anchor; never sees the current game",
+   "missing_value_policy": "NaN until 200 settled training games and for teams with no prior history; in-model median imputation",
+   "representation": "side level (tree members only)",
+   "model_family_availability": [
+    "tree"
+   ],
+   "feature_version": 1
+  },
+  "net_rating_diff": {
+   "description": "Home minus away fitted net team rating",
+   "definition": "net_rating_home - net_rating_away, where net_rating_T is the two-channel scoring+win net (equal to off_rating_T + def_rating_T) blended 55/45 with a calibrated pre-kickoff Elo prior.  The Elo prior is consumed at build time and is NOT served; the raw elo_* columns remain retired, and the net is not equal to off_rating_diff + def_rating_diff",
+   "source": "decided NFL game scores (nflverse schedules)",
+   "lookback": "expanding settled history; 240-day scoring half-life, 180-day win-channel half-life, last pre-kickoff Elo; refit at every observed game date",
+   "aggregation": "fixed-weight blend (0.41 scoring net, 0.14 win ridge, 0.45 Elo) of the per-anchor z-scores across the 32 team identities, rescaled to the scoring net's points centre and spread",
+   "point_in_time_rule": "each weekly fit uses only games strictly before its anchor; the Elo entering the game is the frame's point-in-time value",
+   "missing_value_policy": "complete: before 200 settled training games the net is ELO_BLEND * the calibrated Elo prior (a zero fitted net); no NaN warmup",
    "representation": "difference (all model families)",
    "model_family_availability": [
     "linear",
@@ -318,62 +390,6 @@
    ],
    "feature_version": 1,
    "role": "anchor \u2014 in config.MONEYLINE_FEATURE_COLS, so trees receive it too"
-  },
-  "elo_home": {
-   "description": "Home team's pre-game Elo rating",
-   "definition": "team Elo entering kickoff (home side of elo_diff); ratings carry across the offseason with a 1/3 revert toward ELO_PRIOR at each season boundary",
-   "source": "nflverse schedules (all decided CON/DIV/REG/SB/WC games; 2016 warmup season, 2017 onward)",
-   "lookback": "full history (iterative)",
-   "aggregation": "iterative state update",
-   "point_in_time_rule": "rating entering kickoff; updated only AFTER a game settles",
-   "missing_value_policy": "ELO_PRIOR (1500) for a team's first-ever game; never NaN",
-   "representation": "raw home level (tree members)",
-   "model_family_availability": [
-    "tree"
-   ],
-   "feature_version": 1
-  },
-  "elo_away": {
-   "description": "Away team's pre-game Elo rating",
-   "definition": "team Elo entering kickoff (away side of elo_diff)",
-   "source": "nflverse schedules (all decided CON/DIV/REG/SB/WC games; 2016 warmup season, 2017 onward)",
-   "lookback": "full history (iterative)",
-   "aggregation": "iterative state update",
-   "point_in_time_rule": "rating entering kickoff; updated only AFTER a game settles",
-   "missing_value_policy": "ELO_PRIOR (1500) for a team's first-ever game; never NaN",
-   "representation": "raw away level (tree members)",
-   "model_family_availability": [
-    "tree"
-   ],
-   "feature_version": 1
-  },
-  "win_pct_home": {
-   "description": "Home team's trailing win percentage",
-   "definition": "mean(team_win) over the home team's prior 12 games (ties = 0.5)",
-   "source": "decided game outcomes",
-   "lookback": 12,
-   "aggregation": "trailing windowed mean",
-   "point_in_time_rule": "per-team rolling(12).mean().shift(1) \u2014 current and future games excluded",
-   "missing_value_policy": "NaN when the team has no prior games; in-model handling",
-   "representation": "raw home level (tree members)",
-   "model_family_availability": [
-    "tree"
-   ],
-   "feature_version": 1
-  },
-  "win_pct_away": {
-   "description": "Away team's trailing win percentage",
-   "definition": "mean(team_win) over the away team's prior 12 games (ties = 0.5)",
-   "source": "decided game outcomes",
-   "lookback": 12,
-   "aggregation": "trailing windowed mean",
-   "point_in_time_rule": "per-team rolling(12).mean().shift(1) \u2014 current and future games excluded",
-   "missing_value_policy": "NaN when the team has no prior games; in-model handling",
-   "representation": "raw away level (tree members)",
-   "model_family_availability": [
-    "tree"
-   ],
-   "feature_version": 1
   },
   "ewm_net_pts_home": {
    "description": "Home team's exponentially-weighted net points per game",
@@ -1186,8 +1202,9 @@
   }
  },
  "served_columns": [
-  "elo_diff",
-  "win_pct_diff",
+  "off_rating_diff",
+  "def_rating_diff",
+  "net_rating_diff",
   "rest_days_diff",
   "is_dome_home",
   "ewm_net_pts_diff",
@@ -1213,10 +1230,10 @@
   "pbp_def_epa_play_ewm_away",
   "travel_miles_home",
   "travel_miles_away",
-  "elo_home",
-  "elo_away",
-  "win_pct_home",
-  "win_pct_away",
+  "off_rating_home",
+  "off_rating_away",
+  "def_rating_home",
+  "def_rating_away",
   "ewm_net_pts_home",
   "ewm_net_pts_away",
   "ewm_ypp_home",
@@ -1268,608 +1285,615 @@
  ],
  "coverage": [
   {
-   "feature": "elo_diff",
-   "n_games": 2910,
-   "coverage_pct": 100.0,
-   "mean": 0.25455641436566384,
-   "std": 121.8229917482946
+   "feature": "off_rating_diff",
+   "n_games": 2928,
+   "coverage_pct": 92.93,
+   "mean": 0.016372039929304017,
+   "std": 0.6925055659473068
   },
   {
-   "feature": "win_pct_diff",
-   "n_games": 2910,
-   "coverage_pct": 99.45,
-   "mean": -0.00033969620182474383,
-   "std": 0.28373103021750323
+   "feature": "def_rating_diff",
+   "n_games": 2928,
+   "coverage_pct": 92.93,
+   "mean": 0.007659498145798052,
+   "std": 0.6638710602004607
+  },
+  {
+   "feature": "net_rating_diff",
+   "n_games": 2928,
+   "coverage_pct": 100.0,
+   "mean": 0.015236013605870213,
+   "std": 1.0378566700453726
   },
   {
    "feature": "rest_days_diff",
-   "n_games": 2910,
-   "coverage_pct": 93.92,
-   "mean": 0.03951701427003293,
-   "std": 2.5763404421983256
+   "n_games": 2928,
+   "coverage_pct": 93.95,
+   "mean": 0.047619047619047616,
+   "std": 2.583638161040782
   },
   {
    "feature": "is_dome_home",
-   "n_games": 2910,
+   "n_games": 2928,
    "coverage_pct": 100.0,
-   "mean": 0.2883161512027491,
-   "std": 0.45305682249284307
+   "mean": 0.2885928961748634,
+   "std": 0.4531855899423693
   },
   {
    "feature": "ewm_net_pts_diff",
-   "n_games": 2910,
+   "n_games": 2928,
    "coverage_pct": 99.45,
-   "mean": -0.3430156228215869,
-   "std": 10.088941867636386
+   "mean": -0.30770222418571125,
+   "std": 10.101285284492333
   },
   {
    "feature": "ewm_ypp_diff",
-   "n_games": 2910,
+   "n_games": 2928,
    "coverage_pct": 99.45,
-   "mean": -0.008629931754227188,
-   "std": 0.6879582862810542
+   "mean": -0.006321012127277477,
+   "std": 0.6898002571107977
   },
   {
    "feature": "pace_plays_min_diff",
-   "n_games": 2910,
+   "n_games": 2928,
    "coverage_pct": 99.45,
-   "mean": -0.00222474210949676,
-   "std": 0.12265180988466841
+   "mean": -0.0017973917099777376,
+   "std": 0.12258691660525244
   },
   {
    "feature": "rest_short_diff",
-   "n_games": 2910,
+   "n_games": 2928,
    "coverage_pct": 100.0,
-   "mean": 0.013402061855670102,
-   "std": 0.36070160023158937
+   "mean": 0.01331967213114754,
+   "std": 0.36054116633579636
   },
   {
    "feature": "rest_short_home",
-   "n_games": 2910,
+   "n_games": 2928,
    "coverage_pct": 100.0,
-   "mean": 0.15532646048109966,
-   "std": 0.36227786658433675
+   "mean": 0.1560792349726776,
+   "std": 0.36299243598360736
   },
   {
    "feature": "rest_short_away",
-   "n_games": 2910,
+   "n_games": 2928,
    "coverage_pct": 100.0,
-   "mean": 0.14192439862542955,
-   "std": 0.3490325594040304
+   "mean": 0.14275956284153005,
+   "std": 0.3498872397461083
   },
   {
    "feature": "div_game",
-   "n_games": 2910,
+   "n_games": 2928,
    "coverage_pct": 100.0,
-   "mean": 0.3525773195876289,
-   "std": 0.47785460380736294
+   "mean": 0.3521174863387978,
+   "std": 0.47771194488290397
   },
   {
    "feature": "travel_miles_diff",
-   "n_games": 2910,
-   "coverage_pct": 98.73,
-   "mean": -932.9924221916599,
-   "std": 681.6134368304191
+   "n_games": 2928,
+   "coverage_pct": 98.74,
+   "mean": -933.0146402166263,
+   "std": 681.5218970331956
   },
   {
    "feature": "altitude_home",
-   "n_games": 2910,
+   "n_games": 2928,
    "coverage_pct": 100.0,
-   "mean": 597.5974570446735,
-   "std": 963.7991036645255
+   "mean": 598.6245218579236,
+   "std": 965.1701704585861
   },
   {
    "feature": "prime_time",
-   "n_games": 2910,
+   "n_games": 2928,
    "coverage_pct": 100.0,
-   "mean": 0.21958762886597938,
-   "std": 0.41403841852662243
+   "mean": 0.22028688524590165,
+   "std": 0.41451086219067873
   },
   {
    "feature": "is_turf_home",
-   "n_games": 2910,
-   "coverage_pct": 95.6,
+   "n_games": 2928,
+   "coverage_pct": 95.01,
    "mean": 0.4284687275341481,
    "std": 0.4949457878337749
   },
   {
    "feature": "temp_f",
-   "n_games": 2910,
-   "coverage_pct": 71.17,
-   "mean": 57.83148237566393,
-   "std": 17.175267401515995
+   "n_games": 2928,
+   "coverage_pct": 71.14,
+   "mean": 57.81353816610658,
+   "std": 17.143263075840355
   },
   {
    "feature": "wind_mph",
-   "n_games": 2910,
-   "coverage_pct": 71.17,
-   "mean": 7.895509415741188,
-   "std": 4.437350704439138
+   "n_games": 2928,
+   "coverage_pct": 71.14,
+   "mean": 7.892558809409506,
+   "std": 4.432919527115703
   },
   {
    "feature": "is_precip",
-   "n_games": 2910,
-   "coverage_pct": 71.17,
-   "mean": 0.012554321583775953,
-   "std": 0.11136740700234435
+   "n_games": 2928,
+   "coverage_pct": 71.14,
+   "mean": 0.012962073931829092,
+   "std": 0.11313798501025676
   },
   {
    "feature": "is_snow",
-   "n_games": 2910,
-   "coverage_pct": 71.17,
-   "mean": 0.006760019314340898,
-   "std": 0.0819607533320854
+   "n_games": 2928,
+   "coverage_pct": 71.14,
+   "mean": 0.007201152184349496,
+   "std": 0.08457381066926868
   },
   {
    "feature": "pbp_air_yards_att_ewm_diff",
-   "n_games": 2910,
+   "n_games": 2928,
    "coverage_pct": 99.45,
-   "mean": -0.008445655144364203,
-   "std": 1.5591746776871385
+   "mean": -0.008078179717584946,
+   "std": 1.560696694998065
   },
   {
    "feature": "pbp_air_yards_att_ewm_home",
-   "n_games": 2910,
+   "n_games": 2928,
    "coverage_pct": 99.45,
-   "mean": 7.964318669987006,
-   "std": 1.1209976752441975
+   "mean": 7.9632291284796795,
+   "std": 1.1229445336586186
   },
   {
    "feature": "pbp_air_yards_att_ewm_away",
-   "n_games": 2910,
+   "n_games": 2928,
    "coverage_pct": 99.45,
-   "mean": 7.972764325131371,
-   "std": 1.1138931256530122
+   "mean": 7.971307308197265,
+   "std": 1.113138936226175
   },
   {
    "feature": "pbp_def_epa_play_ewm_diff",
-   "n_games": 2910,
+   "n_games": 2928,
    "coverage_pct": 99.45,
-   "mean": 0.00014503022327811874,
-   "std": 0.10740520382795223
+   "mean": -0.00043158854195117095,
+   "std": 0.09055675985393097
   },
   {
    "feature": "pbp_def_epa_play_ewm_home",
-   "n_games": 2910,
+   "n_games": 2928,
    "coverage_pct": 99.45,
-   "mean": -0.00881817938872521,
-   "std": 0.07561569561797975
+   "mean": -0.007281679274274129,
+   "std": 0.06356977948358225
   },
   {
    "feature": "pbp_def_epa_play_ewm_away",
-   "n_games": 2910,
+   "n_games": 2928,
    "coverage_pct": 99.45,
-   "mean": -0.008963209612003331,
-   "std": 0.0790507795206883
+   "mean": -0.006850090732322957,
+   "std": 0.06627405663233653
   },
   {
    "feature": "travel_miles_home",
-   "n_games": 2910,
-   "coverage_pct": 98.83,
-   "mean": 78.63217667954125,
-   "std": 578.3231701078431
+   "n_games": 2928,
+   "coverage_pct": 98.84,
+   "mean": 78.66446429835337,
+   "std": 577.1655595044814
   },
   {
    "feature": "travel_miles_away",
-   "n_games": 2910,
-   "coverage_pct": 99.24,
-   "mean": 1012.9578689812498,
-   "std": 780.1159518899846
+   "n_games": 2928,
+   "coverage_pct": 99.25,
+   "mean": 1013.0038682300586,
+   "std": 779.2355856056304
   },
   {
-   "feature": "elo_home",
-   "n_games": 2910,
-   "coverage_pct": 100.0,
-   "mean": 1504.6684950029676,
-   "std": 90.88956665984004
+   "feature": "off_rating_home",
+   "n_games": 2928,
+   "coverage_pct": 92.93,
+   "mean": 0.030388259427021412,
+   "std": 0.5001690183126631
   },
   {
-   "feature": "elo_away",
-   "n_games": 2910,
-   "coverage_pct": 100.0,
-   "mean": 1504.413938588602,
-   "std": 87.81095297771385
+   "feature": "off_rating_away",
+   "n_games": 2928,
+   "coverage_pct": 92.93,
+   "mean": 0.01401621949771739,
+   "std": 0.48657816789377406
   },
   {
-   "feature": "win_pct_home",
-   "n_games": 2910,
-   "coverage_pct": 99.45,
-   "mean": 0.5001284565469084,
-   "std": 0.20813045418860132
+   "feature": "def_rating_home",
+   "n_games": 2928,
+   "coverage_pct": 92.93,
+   "mean": 0.02146935244180454,
+   "std": 0.46861190363371047
   },
   {
-   "feature": "win_pct_away",
-   "n_games": 2910,
-   "coverage_pct": 99.45,
-   "mean": 0.5004681527487332,
-   "std": 0.20545769959615745
+   "feature": "def_rating_away",
+   "n_games": 2928,
+   "coverage_pct": 92.93,
+   "mean": 0.013809854296006485,
+   "std": 0.46917842062882753
   },
   {
    "feature": "ewm_net_pts_home",
-   "n_games": 2910,
+   "n_games": 2928,
    "coverage_pct": 99.45,
-   "mean": -0.1668073199705,
-   "std": 7.487332959568312
+   "mean": -0.14277352729392515,
+   "std": 7.500281024137371
   },
   {
    "feature": "ewm_net_pts_away",
-   "n_games": 2910,
+   "n_games": 2928,
    "coverage_pct": 99.45,
-   "mean": 0.1762083028510869,
-   "std": 7.352315590313547
+   "mean": 0.16492869689178605,
+   "std": 7.372171987642712
   },
   {
    "feature": "ewm_ypp_home",
-   "n_games": 2910,
+   "n_games": 2928,
    "coverage_pct": 99.45,
-   "mean": 4.199706717223786,
-   "std": 0.5021145383822238
+   "mean": 4.200286045581145,
+   "std": 0.502877502696907
   },
   {
    "feature": "ewm_ypp_away",
-   "n_games": 2910,
+   "n_games": 2928,
    "coverage_pct": 99.45,
-   "mean": 4.208336648978013,
-   "std": 0.4961725267993126
+   "mean": 4.206607057708424,
+   "std": 0.49724404581002374
   },
   {
    "feature": "rest_days_home",
-   "n_games": 2910,
-   "coverage_pct": 93.95,
-   "mean": 7.51097293343087,
-   "std": 2.1869428253456102
+   "n_games": 2928,
+   "coverage_pct": 93.99,
+   "mean": 7.515625,
+   "std": 2.1977259425209645
   },
   {
    "feature": "rest_days_away",
-   "n_games": 2910,
-   "coverage_pct": 93.95,
-   "mean": 7.471836137527433,
-   "std": 2.0801125970985064
+   "n_games": 2928,
+   "coverage_pct": 93.99,
+   "mean": 7.468386627906977,
+   "std": 2.082211589241813
   },
   {
    "feature": "pace_plays_min_home",
-   "n_games": 2910,
+   "n_games": 2928,
    "coverage_pct": 99.45,
-   "mean": 1.3553009749742115,
-   "std": 0.08917661916173965
+   "mean": 1.355502755429469,
+   "std": 0.08913533152864289
   },
   {
    "feature": "pace_plays_min_away",
-   "n_games": 2910,
+   "n_games": 2928,
    "coverage_pct": 99.45,
-   "mean": 1.3575257170837083,
-   "std": 0.08838758691509252
+   "mean": 1.3573001471394466,
+   "std": 0.08826491258790568
   },
   {
    "feature": "pl_epa_qb_home",
-   "n_games": 2910,
-   "coverage_pct": 97.9,
-   "mean": 0.9833379760507579,
-   "std": 4.467005188428696
+   "n_games": 2928,
+   "coverage_pct": 97.92,
+   "mean": 0.9805623839384825,
+   "std": 3.77122589736664
   },
   {
    "feature": "pl_epa_qb_away",
-   "n_games": 2910,
-   "coverage_pct": 97.97,
-   "mean": 0.9568548257618588,
-   "std": 4.4274489229221805
+   "n_games": 2928,
+   "coverage_pct": 97.98,
+   "mean": 0.9466105029419849,
+   "std": 3.7375564312758995
   },
   {
    "feature": "pl_epa_qb_diff",
-   "n_games": 2910,
-   "coverage_pct": 96.84,
-   "mean": 0.025876983422468122,
-   "std": 6.116199213918959
+   "n_games": 2928,
+   "coverage_pct": 96.86,
+   "mean": 0.03452370529932014,
+   "std": 5.146546281381474
   },
   {
    "feature": "pl_epa_wr_home",
-   "n_games": 2910,
-   "coverage_pct": 99.07,
-   "mean": 4.952260539404598,
-   "std": 3.5050992200177635
+   "n_games": 2928,
+   "coverage_pct": 99.08,
+   "mean": 4.207257171277655,
+   "std": 2.968165646693359
   },
   {
    "feature": "pl_epa_wr_away",
-   "n_games": 2910,
+   "n_games": 2928,
    "coverage_pct": 99.04,
-   "mean": 4.9044529708109295,
-   "std": 3.5139664345777053
+   "mean": 4.1486212653261,
+   "std": 2.9741292334815577
   },
   {
    "feature": "pl_epa_wr_diff",
-   "n_games": 2910,
+   "n_games": 2928,
    "coverage_pct": 99.04,
-   "mean": 0.04889286974535426,
-   "std": 4.741439372342403
+   "mean": 0.05963365383166554,
+   "std": 4.011815212260283
   },
   {
    "feature": "pl_epa_te_home",
-   "n_games": 2910,
-   "coverage_pct": 98.35,
-   "mean": 1.7244461526205825,
-   "std": 1.8119682154486958
+   "n_games": 2928,
+   "coverage_pct": 98.36,
+   "mean": 1.4661600846406035,
+   "std": 1.5300013053258927
   },
   {
    "feature": "pl_epa_te_away",
-   "n_games": 2910,
-   "coverage_pct": 98.28,
-   "mean": 1.6844470365351496,
-   "std": 1.7716228754514478
+   "n_games": 2928,
+   "coverage_pct": 98.29,
+   "mean": 1.4359568331179886,
+   "std": 1.5001615901763075
   },
   {
    "feature": "pl_epa_te_diff",
-   "n_games": 2910,
-   "coverage_pct": 97.56,
-   "mean": 0.042583915966609064,
-   "std": 2.5243216177826175
+   "n_games": 2928,
+   "coverage_pct": 97.58,
+   "mean": 0.03184336332809259,
+   "std": 2.1346050698802688
   },
   {
    "feature": "pl_epa_rb_home",
-   "n_games": 2910,
-   "coverage_pct": 99.07,
-   "mean": -1.6362791346635295,
-   "std": 2.589383743473807
+   "n_games": 2928,
+   "coverage_pct": 99.08,
+   "mean": -0.862193319115701,
+   "std": 2.1915234894863813
   },
   {
    "feature": "pl_epa_rb_away",
-   "n_games": 2910,
+   "n_games": 2928,
    "coverage_pct": 99.04,
-   "mean": -1.652973598074419,
-   "std": 2.527013670252098
+   "mean": -0.8775813669958681,
+   "std": 2.132566433021326
   },
   {
    "feature": "pl_epa_rb_diff",
-   "n_games": 2910,
+   "n_games": 2928,
    "coverage_pct": 99.04,
-   "mean": 0.017244324204324545,
-   "std": 3.6564651930536693
+   "mean": 0.015822712543656425,
+   "std": 3.0791516909185557
   },
   {
    "feature": "pl_exp_pass_yds_home",
-   "n_games": 2910,
-   "coverage_pct": 97.94,
-   "mean": 242.5853256831059,
-   "std": 61.23630152187774
+   "n_games": 2928,
+   "coverage_pct": 97.95,
+   "mean": 242.43829614335232,
+   "std": 61.24546623677087
   },
   {
    "feature": "pl_exp_pass_yds_away",
-   "n_games": 2910,
-   "coverage_pct": 97.87,
-   "mean": 243.46826503899985,
-   "std": 58.97003663759246
+   "n_games": 2928,
+   "coverage_pct": 97.88,
+   "mean": 243.41308125289464,
+   "std": 58.96245278264998
   },
   {
    "feature": "pl_exp_pass_yds_diff",
-   "n_games": 2910,
-   "coverage_pct": 96.77,
-   "mean": -0.7336911732505129,
-   "std": 73.3605543856424
+   "n_games": 2928,
+   "coverage_pct": 96.79,
+   "mean": -0.8276100542122444,
+   "std": 73.46195003658872
   },
   {
    "feature": "pl_exp_rush_yds_home",
-   "n_games": 2910,
-   "coverage_pct": 99.07,
-   "mean": 125.03877081515623,
-   "std": 35.333404715904926
+   "n_games": 2928,
+   "coverage_pct": 99.08,
+   "mean": 125.0453634244094,
+   "std": 35.293156394760736
   },
   {
    "feature": "pl_exp_rush_yds_away",
-   "n_games": 2910,
-   "coverage_pct": 99.07,
-   "mean": 125.84468252369982,
-   "std": 35.868952650290176
+   "n_games": 2928,
+   "coverage_pct": 99.08,
+   "mean": 125.82486667343919,
+   "std": 35.825729835721326
   },
   {
    "feature": "pl_exp_rush_yds_diff",
-   "n_games": 2910,
-   "coverage_pct": 99.07,
-   "mean": -0.8059117085435946,
-   "std": 45.66419635038299
+   "n_games": 2928,
+   "coverage_pct": 99.08,
+   "mean": -0.7795032490297957,
+   "std": 45.611376787906266
   },
   {
    "feature": "inj_ol_out_home",
-   "n_games": 2910,
+   "n_games": 2928,
    "coverage_pct": 100.0,
-   "mean": 2.290378006872852,
-   "std": 1.5511925112667986
+   "mean": 2.287226775956284,
+   "std": 1.5505867257909667
   },
   {
    "feature": "inj_ol_out_away",
-   "n_games": 2910,
+   "n_games": 2928,
    "coverage_pct": 100.0,
-   "mean": 2.304123711340206,
-   "std": 1.5315913032082984
+   "mean": 2.301571038251366,
+   "std": 1.5307700156683268
   },
   {
    "feature": "inj_ol_out_diff",
-   "n_games": 2910,
+   "n_games": 2928,
    "coverage_pct": 100.0,
-   "mean": -0.013745704467353952,
-   "std": 2.0100683466675466
+   "mean": -0.014344262295081968,
+   "std": 2.0101720772897953
   },
   {
    "feature": "ol_snaps_lost_share_home",
-   "n_games": 2910,
+   "n_games": 2928,
    "coverage_pct": 100.0,
-   "mean": 1.4543524382261495,
-   "std": 1.1266809874117507
+   "mean": 1.452210358118657,
+   "std": 1.1268382118879399
   },
   {
    "feature": "ol_snaps_lost_share_away",
-   "n_games": 2910,
+   "n_games": 2928,
    "coverage_pct": 100.0,
-   "mean": 1.4725410284732452,
-   "std": 1.1151986788289006
+   "mean": 1.4706793236078586,
+   "std": 1.1148811483330816
   },
   {
    "feature": "ol_snaps_lost_share_diff",
-   "n_games": 2910,
+   "n_games": 2928,
    "coverage_pct": 100.0,
-   "mean": -0.01818859024709541,
-   "std": 1.492444214937695
+   "mean": -0.018468965489201145,
+   "std": 1.492351347725976
   },
   {
    "feature": "ol_key_out_home",
-   "n_games": 2910,
+   "n_games": 2928,
    "coverage_pct": 100.0,
-   "mean": 0.7154639175257732,
-   "std": 0.4512707407320164
+   "mean": 0.7148224043715847,
+   "std": 0.4515761062361013
   },
   {
    "feature": "ol_key_out_away",
-   "n_games": 2910,
+   "n_games": 2928,
    "coverage_pct": 100.0,
-   "mean": 0.7312714776632302,
-   "std": 0.44337462404539185
+   "mean": 0.7305327868852459,
+   "std": 0.4437588184074828
   },
   {
    "feature": "ol_key_out_diff",
-   "n_games": 2910,
+   "n_games": 2928,
    "coverage_pct": 100.0,
-   "mean": -0.015807560137457044,
-   "std": 0.6202919206066572
+   "mean": -0.015710382513661202,
+   "std": 0.6205889293260427
   },
   {
    "feature": "inj_def_out_home",
-   "n_games": 2910,
+   "n_games": 2928,
    "coverage_pct": 100.0,
-   "mean": 7.128178694158076,
-   "std": 3.264294230930149
+   "mean": 7.127732240437158,
+   "std": 3.2640450056851025
   },
   {
    "feature": "inj_def_out_away",
-   "n_games": 2910,
+   "n_games": 2928,
    "coverage_pct": 100.0,
-   "mean": 7.177319587628866,
-   "std": 3.310062737962566
+   "mean": 7.171448087431694,
+   "std": 3.303771646561469
   },
   {
    "feature": "inj_def_out_diff",
-   "n_games": 2910,
+   "n_games": 2928,
    "coverage_pct": 100.0,
-   "mean": -0.04914089347079038,
-   "std": 4.0847826855605165
+   "mean": -0.04371584699453552,
+   "std": 4.08185818416005
   },
   {
    "feature": "def_snaps_lost_share_home",
-   "n_games": 2910,
+   "n_games": 2928,
    "coverage_pct": 100.0,
-   "mean": 3.077224922271314,
-   "std": 1.6063525217653225
+   "mean": 3.0791025037405677,
+   "std": 1.6067350745765043
   },
   {
    "feature": "def_snaps_lost_share_away",
-   "n_games": 2910,
+   "n_games": 2928,
    "coverage_pct": 100.0,
-   "mean": 3.1111466372115855,
-   "std": 1.6092826443580972
+   "mean": 3.1095016263335937,
+   "std": 1.606657433722462
   },
   {
    "feature": "def_snaps_lost_share_diff",
-   "n_games": 2910,
+   "n_games": 2928,
    "coverage_pct": 100.0,
-   "mean": -0.03392171494027166,
-   "std": 2.117039912379065
+   "mean": -0.030399122593026278,
+   "std": 2.1157022004138293
   },
   {
    "feature": "def_key_out_home",
-   "n_games": 2910,
+   "n_games": 2928,
    "coverage_pct": 100.0,
-   "mean": 0.8529209621993127,
-   "std": 0.3542455618967175
+   "mean": 0.8538251366120219,
+   "std": 0.35334177911735104
   },
   {
    "feature": "def_key_out_away",
-   "n_games": 2910,
+   "n_games": 2928,
    "coverage_pct": 100.0,
-   "mean": 0.8584192439862542,
-   "std": 0.3486795444589121
+   "mean": 0.8586065573770492,
+   "std": 0.34848646082290713
   },
   {
    "feature": "def_key_out_diff",
-   "n_games": 2910,
+   "n_games": 2928,
    "coverage_pct": 100.0,
-   "mean": -0.005498281786941581,
-   "std": 0.48699555526321947
+   "mean": -0.0047814207650273225,
+   "std": 0.48620640925240904
   },
   {
    "feature": "pbp_pbwr_edge_ewm_diff",
-   "n_games": 2910,
-   "coverage_pct": 98.9,
-   "mean": 0.00024288571778174122,
-   "std": 0.055291026580533295
+   "n_games": 2928,
+   "coverage_pct": 98.91,
+   "mean": 0.00035571657188890305,
+   "std": 0.05523333742832734
   },
   {
    "feature": "pbp_pbwr_edge_ewm_home",
-   "n_games": 2910,
-   "coverage_pct": 98.9,
-   "mean": 0.6589881113021191,
-   "std": 0.04066397818029439
+   "n_games": 2928,
+   "coverage_pct": 98.91,
+   "mean": 0.6589200073551844,
+   "std": 0.040684868162869536
   },
   {
    "feature": "pbp_pbwr_edge_ewm_away",
-   "n_games": 2910,
-   "coverage_pct": 98.9,
-   "mean": 0.6587452255843373,
-   "std": 0.040833552429440596
+   "n_games": 2928,
+   "coverage_pct": 98.91,
+   "mean": 0.6585642907832955,
+   "std": 0.040855942066907396
   },
   {
    "feature": "is_home",
-   "n_games": 2910,
+   "n_games": 2928,
    "coverage_pct": 100.0,
    "mean": 1.0,
    "std": 0.0
   }
  ],
  "fold_geometry": {
-  "n_folds": 205,
+  "n_folds": 207,
   "first_val_start": "2017-09-07",
-  "last_val_end": "2026-11-18",
+  "last_val_end": "2026-12-02",
   "min_train": 267,
-  "max_train": 2897,
-  "total_val_games": 2643,
-  "n_candidates": 205,
+  "max_train": 2925,
+  "total_val_games": 2661,
+  "n_candidates": 207,
   "dropped_windows": 0,
   "dropped_games": 0,
-  "provisional_windows": 96,
-  "provisional_games": 924,
+  "provisional_windows": 98,
+  "provisional_games": 942,
   "postseason_windows": 36,
   "min_val_fold_games": 15,
   "oof_regular": {
    "n": 1719,
-   "auc": 0.7061832333794239,
-   "logloss": 0.6237721668544539,
-   "brier": 0.21726235247568862,
-   "ece": 0.03721964225265312,
+   "auc": 0.7041241555735555,
+   "logloss": 0.6258046087311087,
+   "brier": 0.21808013241149332,
+   "ece": 0.027151140585987412,
    "sufficient": true
   },
   "oof_postseason": {
    "n": 111,
-   "auc": 0.647688060731539,
-   "logloss": 0.6299562030533545,
-   "brier": 0.21956657470215166,
-   "ece": 0.07760057336765128,
+   "auc": 0.6121463077984817,
+   "logloss": 0.6384869031601069,
+   "brier": 0.2236735229226255,
+   "ece": 0.05965404618707965,
    "sufficient": true
   },
   "oof_provisional": {
-   "n": 924,
-   "auc": 0.689778012336313,
-   "logloss": 0.6355734200871827,
-   "brier": 0.22229519564977288,
-   "ece": 0.02804404892914005,
+   "n": 942,
+   "auc": 0.6878147120654191,
+   "logloss": 0.6350838284893929,
+   "brier": 0.22221859296056887,
+   "ece": 0.023509317624309172,
    "sufficient": true
   },
   "oof_all": {
-   "n": 2643,
-   "auc": 0.7007846234556869,
-   "logloss": 0.6278979171333194,
-   "brier": 0.21902184815970446,
-   "ece": 0.03028859935659715,
+   "n": 2661,
+   "auc": 0.6984769095250344,
+   "logloss": 0.6290894734482465,
+   "brier": 0.21954515677723146,
+   "ece": 0.023619009263068085,
    "sufficient": true
   }
  },
  "config": {
-  "feature_set_version": "nfl-prod-v10.2-pbwr",
+  "feature_set_version": "nfl-prod-v11.1-ratings-components",
   "warmup_seasons": [
    2016
   ],
@@ -1912,8 +1936,9 @@
    "mc_draws": 50000,
    "feature_contract": "binary_moneyline",
    "feature_columns": [
-    "elo_diff",
-    "win_pct_diff",
+    "off_rating_diff",
+    "def_rating_diff",
+    "net_rating_diff",
     "rest_days_diff",
     "is_dome_home",
     "ewm_net_pts_diff",
@@ -1939,10 +1964,10 @@
     "pbp_def_epa_play_ewm_away",
     "travel_miles_home",
     "travel_miles_away",
-    "elo_home",
-    "elo_away",
-    "win_pct_home",
-    "win_pct_away",
+    "off_rating_home",
+    "off_rating_away",
+    "def_rating_home",
+    "def_rating_away",
     "ewm_net_pts_home",
     "ewm_net_pts_away",
     "ewm_ypp_home",
@@ -2537,8 +2562,8 @@
      "n_prior": 503,
      "decision": "identity",
      "reason": "gated_no_gain",
-     "nested_holdout_logloss": 0.637465,
-     "raw_logloss": 0.633974,
+     "nested_holdout_logloss": 0.640747,
+     "raw_logloss": 0.63757,
      "params": null,
      "fold_id": 57
     },
@@ -2546,8 +2571,8 @@
      "n_prior": 519,
      "decision": "identity",
      "reason": "gated_no_gain",
-     "nested_holdout_logloss": 0.625187,
-     "raw_logloss": 0.624981,
+     "nested_holdout_logloss": 0.629177,
+     "raw_logloss": 0.628904,
      "params": null,
      "fold_id": 58
     },
@@ -2555,8 +2580,8 @@
      "n_prior": 535,
      "decision": "identity",
      "reason": "gated_no_gain",
-     "nested_holdout_logloss": 0.630287,
-     "raw_logloss": 0.629221,
+     "nested_holdout_logloss": 0.634756,
+     "raw_logloss": 0.633745,
      "params": null,
      "fold_id": 59
     },
@@ -2564,8 +2589,8 @@
      "n_prior": 535,
      "decision": "identity",
      "reason": "gated_no_gain",
-     "nested_holdout_logloss": 0.630287,
-     "raw_logloss": 0.629221,
+     "nested_holdout_logloss": 0.634756,
+     "raw_logloss": 0.633745,
      "params": null,
      "fold_id": 60
     },
@@ -2573,8 +2598,8 @@
      "n_prior": 535,
      "decision": "identity",
      "reason": "gated_no_gain",
-     "nested_holdout_logloss": 0.630287,
-     "raw_logloss": 0.629221,
+     "nested_holdout_logloss": 0.634756,
+     "raw_logloss": 0.633745,
      "params": null,
      "fold_id": 61
     },
@@ -2582,8 +2607,8 @@
      "n_prior": 535,
      "decision": "identity",
      "reason": "gated_no_gain",
-     "nested_holdout_logloss": 0.630287,
-     "raw_logloss": 0.629221,
+     "nested_holdout_logloss": 0.634756,
+     "raw_logloss": 0.633745,
      "params": null,
      "fold_id": 62
     },
@@ -2591,8 +2616,8 @@
      "n_prior": 535,
      "decision": "identity",
      "reason": "gated_no_gain",
-     "nested_holdout_logloss": 0.630287,
-     "raw_logloss": 0.629221,
+     "nested_holdout_logloss": 0.634756,
+     "raw_logloss": 0.633745,
      "params": null,
      "fold_id": 63
     },
@@ -2600,8 +2625,8 @@
      "n_prior": 551,
      "decision": "identity",
      "reason": "gated_no_gain",
-     "nested_holdout_logloss": 0.633611,
-     "raw_logloss": 0.632682,
+     "nested_holdout_logloss": 0.637688,
+     "raw_logloss": 0.636509,
      "params": null,
      "fold_id": 64
     },
@@ -2609,8 +2634,8 @@
      "n_prior": 567,
      "decision": "identity",
      "reason": "gated_no_gain",
-     "nested_holdout_logloss": 0.62711,
-     "raw_logloss": 0.626814,
+     "nested_holdout_logloss": 0.630968,
+     "raw_logloss": 0.630444,
      "params": null,
      "fold_id": 65
     },
@@ -2618,8 +2643,8 @@
      "n_prior": 583,
      "decision": "identity",
      "reason": "gated_no_gain",
-     "nested_holdout_logloss": 0.641055,
-     "raw_logloss": 0.638596,
+     "nested_holdout_logloss": 0.642217,
+     "raw_logloss": 0.639765,
      "params": null,
      "fold_id": 66
     },
@@ -2627,8 +2652,8 @@
      "n_prior": 598,
      "decision": "identity",
      "reason": "gated_no_gain",
-     "nested_holdout_logloss": 0.642317,
-     "raw_logloss": 0.639013,
+     "nested_holdout_logloss": 0.643953,
+     "raw_logloss": 0.640448,
      "params": null,
      "fold_id": 67
     },
@@ -2636,8 +2661,8 @@
      "n_prior": 598,
      "decision": "identity",
      "reason": "gated_no_gain",
-     "nested_holdout_logloss": 0.642317,
-     "raw_logloss": 0.639013,
+     "nested_holdout_logloss": 0.643953,
+     "raw_logloss": 0.640448,
      "params": null,
      "fold_id": 68
     },
@@ -2645,8 +2670,8 @@
      "n_prior": 598,
      "decision": "identity",
      "reason": "gated_no_gain",
-     "nested_holdout_logloss": 0.642317,
-     "raw_logloss": 0.639013,
+     "nested_holdout_logloss": 0.643953,
+     "raw_logloss": 0.640448,
      "params": null,
      "fold_id": 69
     },
@@ -2654,8 +2679,8 @@
      "n_prior": 598,
      "decision": "identity",
      "reason": "gated_no_gain",
-     "nested_holdout_logloss": 0.642317,
-     "raw_logloss": 0.639013,
+     "nested_holdout_logloss": 0.643953,
+     "raw_logloss": 0.640448,
      "params": null,
      "fold_id": 70
     },
@@ -2663,8 +2688,8 @@
      "n_prior": 598,
      "decision": "identity",
      "reason": "gated_no_gain",
-     "nested_holdout_logloss": 0.642317,
-     "raw_logloss": 0.639013,
+     "nested_holdout_logloss": 0.643953,
+     "raw_logloss": 0.640448,
      "params": null,
      "fold_id": 71
     },
@@ -2672,8 +2697,8 @@
      "n_prior": 598,
      "decision": "identity",
      "reason": "gated_no_gain",
-     "nested_holdout_logloss": 0.642317,
-     "raw_logloss": 0.639013,
+     "nested_holdout_logloss": 0.643953,
+     "raw_logloss": 0.640448,
      "params": null,
      "fold_id": 72
     },
@@ -2681,8 +2706,8 @@
      "n_prior": 598,
      "decision": "identity",
      "reason": "gated_no_gain",
-     "nested_holdout_logloss": 0.642317,
-     "raw_logloss": 0.639013,
+     "nested_holdout_logloss": 0.643953,
+     "raw_logloss": 0.640448,
      "params": null,
      "fold_id": 73
     },
@@ -2690,8 +2715,8 @@
      "n_prior": 598,
      "decision": "identity",
      "reason": "gated_no_gain",
-     "nested_holdout_logloss": 0.642317,
-     "raw_logloss": 0.639013,
+     "nested_holdout_logloss": 0.643953,
+     "raw_logloss": 0.640448,
      "params": null,
      "fold_id": 74
     },
@@ -2699,8 +2724,8 @@
      "n_prior": 614,
      "decision": "identity",
      "reason": "gated_no_gain",
-     "nested_holdout_logloss": 0.629506,
-     "raw_logloss": 0.628703,
+     "nested_holdout_logloss": 0.631217,
+     "raw_logloss": 0.630647,
      "params": null,
      "fold_id": 75
     },
@@ -2708,8 +2733,8 @@
      "n_prior": 629,
      "decision": "identity",
      "reason": "gated_no_gain",
-     "nested_holdout_logloss": 0.626801,
-     "raw_logloss": 0.626187,
+     "nested_holdout_logloss": 0.63108,
+     "raw_logloss": 0.629468,
      "params": null,
      "fold_id": 76
     },
@@ -2717,8 +2742,8 @@
      "n_prior": 645,
      "decision": "identity",
      "reason": "gated_no_gain",
-     "nested_holdout_logloss": 0.630959,
-     "raw_logloss": 0.63141,
+     "nested_holdout_logloss": 0.634405,
+     "raw_logloss": 0.633803,
      "params": null,
      "fold_id": 77
     },
@@ -2726,8 +2751,8 @@
      "n_prior": 661,
      "decision": "identity",
      "reason": "gated_no_gain",
-     "nested_holdout_logloss": 0.635357,
-     "raw_logloss": 0.635324,
+     "nested_holdout_logloss": 0.64038,
+     "raw_logloss": 0.639444,
      "params": null,
      "fold_id": 78
     },
@@ -2735,8 +2760,8 @@
      "n_prior": 677,
      "decision": "identity",
      "reason": "gated_no_gain",
-     "nested_holdout_logloss": 0.62825,
-     "raw_logloss": 0.628487,
+     "nested_holdout_logloss": 0.6338,
+     "raw_logloss": 0.633445,
      "params": null,
      "fold_id": 79
     },
@@ -2744,8 +2769,8 @@
      "n_prior": 693,
      "decision": "identity",
      "reason": "gated_no_gain",
-     "nested_holdout_logloss": 0.622334,
-     "raw_logloss": 0.623035,
+     "nested_holdout_logloss": 0.629239,
+     "raw_logloss": 0.628985,
      "params": null,
      "fold_id": 80
     },
@@ -2753,8 +2778,8 @@
      "n_prior": 693,
      "decision": "identity",
      "reason": "gated_no_gain",
-     "nested_holdout_logloss": 0.622334,
-     "raw_logloss": 0.623035,
+     "nested_holdout_logloss": 0.629239,
+     "raw_logloss": 0.628985,
      "params": null,
      "fold_id": 81
     },
@@ -2762,8 +2787,8 @@
      "n_prior": 693,
      "decision": "identity",
      "reason": "gated_no_gain",
-     "nested_holdout_logloss": 0.622334,
-     "raw_logloss": 0.623035,
+     "nested_holdout_logloss": 0.629239,
+     "raw_logloss": 0.628985,
      "params": null,
      "fold_id": 82
     },
@@ -2771,8 +2796,8 @@
      "n_prior": 693,
      "decision": "identity",
      "reason": "gated_no_gain",
-     "nested_holdout_logloss": 0.622334,
-     "raw_logloss": 0.623035,
+     "nested_holdout_logloss": 0.629239,
+     "raw_logloss": 0.628985,
      "params": null,
      "fold_id": 83
     },
@@ -2780,8 +2805,8 @@
      "n_prior": 693,
      "decision": "identity",
      "reason": "gated_no_gain",
-     "nested_holdout_logloss": 0.622334,
-     "raw_logloss": 0.623035,
+     "nested_holdout_logloss": 0.629239,
+     "raw_logloss": 0.628985,
      "params": null,
      "fold_id": 84
     },
@@ -2789,8 +2814,8 @@
      "n_prior": 709,
      "decision": "identity",
      "reason": "gated_no_gain",
-     "nested_holdout_logloss": 0.639758,
-     "raw_logloss": 0.64018,
+     "nested_holdout_logloss": 0.644253,
+     "raw_logloss": 0.643114,
      "params": null,
      "fold_id": 85
     },
@@ -2798,8 +2823,8 @@
      "n_prior": 725,
      "decision": "identity",
      "reason": "gated_no_gain",
-     "nested_holdout_logloss": 0.629919,
-     "raw_logloss": 0.6306,
+     "nested_holdout_logloss": 0.629963,
+     "raw_logloss": 0.629939,
      "params": null,
      "fold_id": 86
     },
@@ -2807,8 +2832,8 @@
      "n_prior": 741,
      "decision": "identity",
      "reason": "gated_no_gain",
-     "nested_holdout_logloss": 0.626091,
-     "raw_logloss": 0.627653,
+     "nested_holdout_logloss": 0.628013,
+     "raw_logloss": 0.628178,
      "params": null,
      "fold_id": 87
     },
@@ -2816,8 +2841,8 @@
      "n_prior": 757,
      "decision": "identity",
      "reason": "gated_no_gain",
-     "nested_holdout_logloss": 0.636736,
-     "raw_logloss": 0.638065,
+     "nested_holdout_logloss": 0.639507,
+     "raw_logloss": 0.639095,
      "params": null,
      "fold_id": 88
     },
@@ -2825,8 +2850,8 @@
      "n_prior": 773,
      "decision": "identity",
      "reason": "gated_no_gain",
-     "nested_holdout_logloss": 0.623234,
-     "raw_logloss": 0.625485,
+     "nested_holdout_logloss": 0.627129,
+     "raw_logloss": 0.627849,
      "params": null,
      "fold_id": 89
     },
@@ -2834,8 +2859,8 @@
      "n_prior": 773,
      "decision": "identity",
      "reason": "gated_no_gain",
-     "nested_holdout_logloss": 0.623234,
-     "raw_logloss": 0.625485,
+     "nested_holdout_logloss": 0.627129,
+     "raw_logloss": 0.627849,
      "params": null,
      "fold_id": 90
     },
@@ -2843,8 +2868,8 @@
      "n_prior": 773,
      "decision": "identity",
      "reason": "gated_no_gain",
-     "nested_holdout_logloss": 0.623234,
-     "raw_logloss": 0.625485,
+     "nested_holdout_logloss": 0.627129,
+     "raw_logloss": 0.627849,
      "params": null,
      "fold_id": 91
     },
@@ -2852,8 +2877,8 @@
      "n_prior": 788,
      "decision": "identity",
      "reason": "gated_no_gain",
-     "nested_holdout_logloss": 0.628777,
-     "raw_logloss": 0.630397,
+     "nested_holdout_logloss": 0.632779,
+     "raw_logloss": 0.632596,
      "params": null,
      "fold_id": 92
     },
@@ -2861,8 +2886,8 @@
      "n_prior": 788,
      "decision": "identity",
      "reason": "gated_no_gain",
-     "nested_holdout_logloss": 0.628777,
-     "raw_logloss": 0.630397,
+     "nested_holdout_logloss": 0.632779,
+     "raw_logloss": 0.632596,
      "params": null,
      "fold_id": 93
     },
@@ -2870,8 +2895,8 @@
      "n_prior": 788,
      "decision": "identity",
      "reason": "gated_no_gain",
-     "nested_holdout_logloss": 0.628777,
-     "raw_logloss": 0.630397,
+     "nested_holdout_logloss": 0.632779,
+     "raw_logloss": 0.632596,
      "params": null,
      "fold_id": 94
     },
@@ -2879,8 +2904,8 @@
      "n_prior": 803,
      "decision": "identity",
      "reason": "gated_no_gain",
-     "nested_holdout_logloss": 0.637486,
-     "raw_logloss": 0.638628,
+     "nested_holdout_logloss": 0.640164,
+     "raw_logloss": 0.63957,
      "params": null,
      "fold_id": 95
     },
@@ -2888,8 +2913,8 @@
      "n_prior": 818,
      "decision": "identity",
      "reason": "gated_no_gain",
-     "nested_holdout_logloss": 0.648776,
-     "raw_logloss": 0.649468,
+     "nested_holdout_logloss": 0.653006,
+     "raw_logloss": 0.651595,
      "params": null,
      "fold_id": 96
     },
@@ -2897,8 +2922,8 @@
      "n_prior": 818,
      "decision": "identity",
      "reason": "gated_no_gain",
-     "nested_holdout_logloss": 0.648776,
-     "raw_logloss": 0.649468,
+     "nested_holdout_logloss": 0.653006,
+     "raw_logloss": 0.651595,
      "params": null,
      "fold_id": 97
     },
@@ -2906,8 +2931,8 @@
      "n_prior": 818,
      "decision": "identity",
      "reason": "gated_no_gain",
-     "nested_holdout_logloss": 0.648776,
-     "raw_logloss": 0.649468,
+     "nested_holdout_logloss": 0.653006,
+     "raw_logloss": 0.651595,
      "params": null,
      "fold_id": 98
     },
@@ -2915,8 +2940,8 @@
      "n_prior": 834,
      "decision": "identity",
      "reason": "gated_no_gain",
-     "nested_holdout_logloss": 0.647807,
-     "raw_logloss": 0.648134,
+     "nested_holdout_logloss": 0.651059,
+     "raw_logloss": 0.649688,
      "params": null,
      "fold_id": 99
     },
@@ -2924,8 +2949,8 @@
      "n_prior": 850,
      "decision": "identity",
      "reason": "gated_no_gain",
-     "nested_holdout_logloss": 0.638848,
-     "raw_logloss": 0.640159,
+     "nested_holdout_logloss": 0.641673,
+     "raw_logloss": 0.641664,
      "params": null,
      "fold_id": 100
     },
@@ -2933,8 +2958,8 @@
      "n_prior": 866,
      "decision": "identity",
      "reason": "gated_no_gain",
-     "nested_holdout_logloss": 0.629818,
-     "raw_logloss": 0.63147,
+     "nested_holdout_logloss": 0.634346,
+     "raw_logloss": 0.634333,
      "params": null,
      "fold_id": 101
     },
@@ -2942,8 +2967,8 @@
      "n_prior": 882,
      "decision": "identity",
      "reason": "gated_no_gain",
-     "nested_holdout_logloss": 0.63815,
-     "raw_logloss": 0.639104,
+     "nested_holdout_logloss": 0.640991,
+     "raw_logloss": 0.641595,
      "params": null,
      "fold_id": 102
     },
@@ -2951,8 +2976,8 @@
      "n_prior": 882,
      "decision": "identity",
      "reason": "gated_no_gain",
-     "nested_holdout_logloss": 0.63815,
-     "raw_logloss": 0.639104,
+     "nested_holdout_logloss": 0.640991,
+     "raw_logloss": 0.641595,
      "params": null,
      "fold_id": 103
     },
@@ -2960,8 +2985,8 @@
      "n_prior": 882,
      "decision": "identity",
      "reason": "gated_no_gain",
-     "nested_holdout_logloss": 0.63815,
-     "raw_logloss": 0.639104,
+     "nested_holdout_logloss": 0.640991,
+     "raw_logloss": 0.641595,
      "params": null,
      "fold_id": 104
     },
@@ -2969,8 +2994,8 @@
      "n_prior": 882,
      "decision": "identity",
      "reason": "gated_no_gain",
-     "nested_holdout_logloss": 0.63815,
-     "raw_logloss": 0.639104,
+     "nested_holdout_logloss": 0.640991,
+     "raw_logloss": 0.641595,
      "params": null,
      "fold_id": 105
     },
@@ -2978,8 +3003,8 @@
      "n_prior": 882,
      "decision": "identity",
      "reason": "gated_no_gain",
-     "nested_holdout_logloss": 0.63815,
-     "raw_logloss": 0.639104,
+     "nested_holdout_logloss": 0.640991,
+     "raw_logloss": 0.641595,
      "params": null,
      "fold_id": 106
     },
@@ -2987,8 +3012,8 @@
      "n_prior": 898,
      "decision": "identity",
      "reason": "gated_no_gain",
-     "nested_holdout_logloss": 0.640692,
-     "raw_logloss": 0.642855,
+     "nested_holdout_logloss": 0.643554,
+     "raw_logloss": 0.644531,
      "params": null,
      "fold_id": 107
     },
@@ -2996,8 +3021,8 @@
      "n_prior": 914,
      "decision": "identity",
      "reason": "gated_no_gain",
-     "nested_holdout_logloss": 0.647761,
-     "raw_logloss": 0.648016,
+     "nested_holdout_logloss": 0.648247,
+     "raw_logloss": 0.648824,
      "params": null,
      "fold_id": 108
     },
@@ -3005,8 +3030,8 @@
      "n_prior": 930,
      "decision": "identity",
      "reason": "gated_no_gain",
-     "nested_holdout_logloss": 0.658786,
-     "raw_logloss": 0.658072,
+     "nested_holdout_logloss": 0.660254,
+     "raw_logloss": 0.660419,
      "params": null,
      "fold_id": 109
     },
@@ -3014,8 +3039,8 @@
      "n_prior": 946,
      "decision": "identity",
      "reason": "gated_no_gain",
-     "nested_holdout_logloss": 0.650146,
-     "raw_logloss": 0.649368,
+     "nested_holdout_logloss": 0.65083,
+     "raw_logloss": 0.651752,
      "params": null,
      "fold_id": 110
     },
@@ -3023,8 +3048,8 @@
      "n_prior": 962,
      "decision": "identity",
      "reason": "gated_no_gain",
-     "nested_holdout_logloss": 0.651664,
-     "raw_logloss": 0.650862,
+     "nested_holdout_logloss": 0.652969,
+     "raw_logloss": 0.654066,
      "params": null,
      "fold_id": 111
     },
@@ -3032,8 +3057,8 @@
      "n_prior": 962,
      "decision": "identity",
      "reason": "gated_no_gain",
-     "nested_holdout_logloss": 0.651664,
-     "raw_logloss": 0.650862,
+     "nested_holdout_logloss": 0.652969,
+     "raw_logloss": 0.654066,
      "params": null,
      "fold_id": 112
     },
@@ -3041,8 +3066,8 @@
      "n_prior": 962,
      "decision": "identity",
      "reason": "gated_no_gain",
-     "nested_holdout_logloss": 0.651664,
-     "raw_logloss": 0.650862,
+     "nested_holdout_logloss": 0.652969,
+     "raw_logloss": 0.654066,
      "params": null,
      "fold_id": 113
     },
@@ -3050,8 +3075,8 @@
      "n_prior": 977,
      "decision": "identity",
      "reason": "gated_no_gain",
-     "nested_holdout_logloss": 0.650542,
-     "raw_logloss": 0.648911,
+     "nested_holdout_logloss": 0.652271,
+     "raw_logloss": 0.652983,
      "params": null,
      "fold_id": 114
     },
@@ -3059,8 +3084,8 @@
      "n_prior": 977,
      "decision": "identity",
      "reason": "gated_no_gain",
-     "nested_holdout_logloss": 0.650542,
-     "raw_logloss": 0.648911,
+     "nested_holdout_logloss": 0.652271,
+     "raw_logloss": 0.652983,
      "params": null,
      "fold_id": 115
     },
@@ -3068,8 +3093,8 @@
      "n_prior": 977,
      "decision": "identity",
      "reason": "gated_no_gain",
-     "nested_holdout_logloss": 0.650542,
-     "raw_logloss": 0.648911,
+     "nested_holdout_logloss": 0.652271,
+     "raw_logloss": 0.652983,
      "params": null,
      "fold_id": 116
     },
@@ -3077,8 +3102,8 @@
      "n_prior": 977,
      "decision": "identity",
      "reason": "gated_no_gain",
-     "nested_holdout_logloss": 0.650542,
-     "raw_logloss": 0.648911,
+     "nested_holdout_logloss": 0.652271,
+     "raw_logloss": 0.652983,
      "params": null,
      "fold_id": 117
     },
@@ -3086,8 +3111,8 @@
      "n_prior": 993,
      "decision": "identity",
      "reason": "gated_no_gain",
-     "nested_holdout_logloss": 0.648624,
-     "raw_logloss": 0.646138,
+     "nested_holdout_logloss": 0.649134,
+     "raw_logloss": 0.649867,
      "params": null,
      "fold_id": 118
     },
@@ -3095,8 +3120,8 @@
      "n_prior": 1008,
      "decision": "identity",
      "reason": "gated_no_gain",
-     "nested_holdout_logloss": 0.639627,
-     "raw_logloss": 0.638206,
+     "nested_holdout_logloss": 0.639699,
+     "raw_logloss": 0.641055,
      "params": null,
      "fold_id": 119
     },
@@ -3104,8 +3129,8 @@
      "n_prior": 1008,
      "decision": "identity",
      "reason": "gated_no_gain",
-     "nested_holdout_logloss": 0.639627,
-     "raw_logloss": 0.638206,
+     "nested_holdout_logloss": 0.639699,
+     "raw_logloss": 0.641055,
      "params": null,
      "fold_id": 120
     },
@@ -3113,8 +3138,8 @@
      "n_prior": 1024,
      "decision": "identity",
      "reason": "gated_no_gain",
-     "nested_holdout_logloss": 0.641817,
-     "raw_logloss": 0.639106,
+     "nested_holdout_logloss": 0.6415,
+     "raw_logloss": 0.642198,
      "params": null,
      "fold_id": 121
     },
@@ -3122,8 +3147,8 @@
      "n_prior": 1040,
      "decision": "identity",
      "reason": "gated_no_gain",
-     "nested_holdout_logloss": 0.637407,
-     "raw_logloss": 0.635049,
+     "nested_holdout_logloss": 0.63778,
+     "raw_logloss": 0.638836,
      "params": null,
      "fold_id": 122
     },
@@ -3131,8 +3156,8 @@
      "n_prior": 1055,
      "decision": "identity",
      "reason": "gated_no_gain",
-     "nested_holdout_logloss": 0.630452,
-     "raw_logloss": 0.628468,
+     "nested_holdout_logloss": 0.632478,
+     "raw_logloss": 0.633777,
      "params": null,
      "fold_id": 123
     },
@@ -3140,8 +3165,8 @@
      "n_prior": 1071,
      "decision": "identity",
      "reason": "gated_no_gain",
-     "nested_holdout_logloss": 0.625389,
-     "raw_logloss": 0.623285,
+     "nested_holdout_logloss": 0.627086,
+     "raw_logloss": 0.62807,
      "params": null,
      "fold_id": 124
     },
@@ -3149,8 +3174,8 @@
      "n_prior": 1071,
      "decision": "identity",
      "reason": "gated_no_gain",
-     "nested_holdout_logloss": 0.625389,
-     "raw_logloss": 0.623285,
+     "nested_holdout_logloss": 0.627086,
+     "raw_logloss": 0.62807,
      "params": null,
      "fold_id": 125
     },
@@ -3158,8 +3183,8 @@
      "n_prior": 1071,
      "decision": "identity",
      "reason": "gated_no_gain",
-     "nested_holdout_logloss": 0.625389,
-     "raw_logloss": 0.623285,
+     "nested_holdout_logloss": 0.627086,
+     "raw_logloss": 0.62807,
      "params": null,
      "fold_id": 126
     },
@@ -3167,8 +3192,8 @@
      "n_prior": 1071,
      "decision": "identity",
      "reason": "gated_no_gain",
-     "nested_holdout_logloss": 0.625389,
-     "raw_logloss": 0.623285,
+     "nested_holdout_logloss": 0.627086,
+     "raw_logloss": 0.62807,
      "params": null,
      "fold_id": 127
     },
@@ -3176,8 +3201,8 @@
      "n_prior": 1071,
      "decision": "identity",
      "reason": "gated_no_gain",
-     "nested_holdout_logloss": 0.625389,
-     "raw_logloss": 0.623285,
+     "nested_holdout_logloss": 0.627086,
+     "raw_logloss": 0.62807,
      "params": null,
      "fold_id": 128
     },
@@ -3185,8 +3210,8 @@
      "n_prior": 1087,
      "decision": "identity",
      "reason": "gated_no_gain",
-     "nested_holdout_logloss": 0.622941,
-     "raw_logloss": 0.620351,
+     "nested_holdout_logloss": 0.623188,
+     "raw_logloss": 0.623777,
      "params": null,
      "fold_id": 129
     },
@@ -3194,8 +3219,8 @@
      "n_prior": 1103,
      "decision": "identity",
      "reason": "gated_no_gain",
-     "nested_holdout_logloss": 0.622181,
-     "raw_logloss": 0.620406,
+     "nested_holdout_logloss": 0.623721,
+     "raw_logloss": 0.624555,
      "params": null,
      "fold_id": 130
     },
@@ -3203,8 +3228,8 @@
      "n_prior": 1119,
      "decision": "identity",
      "reason": "gated_no_gain",
-     "nested_holdout_logloss": 0.622893,
-     "raw_logloss": 0.622456,
+     "nested_holdout_logloss": 0.623899,
+     "raw_logloss": 0.625435,
      "params": null,
      "fold_id": 131
     },
@@ -3212,8 +3237,8 @@
      "n_prior": 1135,
      "decision": "identity",
      "reason": "gated_no_gain",
-     "nested_holdout_logloss": 0.61888,
-     "raw_logloss": 0.618473,
+     "nested_holdout_logloss": 0.619677,
+     "raw_logloss": 0.621214,
      "params": null,
      "fold_id": 132
     },
@@ -3221,8 +3246,8 @@
      "n_prior": 1135,
      "decision": "identity",
      "reason": "gated_no_gain",
-     "nested_holdout_logloss": 0.61888,
-     "raw_logloss": 0.618473,
+     "nested_holdout_logloss": 0.619677,
+     "raw_logloss": 0.621214,
      "params": null,
      "fold_id": 133
     },
@@ -3230,8 +3255,8 @@
      "n_prior": 1150,
      "decision": "identity",
      "reason": "gated_no_gain",
-     "nested_holdout_logloss": 0.623978,
-     "raw_logloss": 0.623252,
+     "nested_holdout_logloss": 0.62315,
+     "raw_logloss": 0.624854,
      "params": null,
      "fold_id": 134
     },
@@ -3239,8 +3264,8 @@
      "n_prior": 1150,
      "decision": "identity",
      "reason": "gated_no_gain",
-     "nested_holdout_logloss": 0.623978,
-     "raw_logloss": 0.623252,
+     "nested_holdout_logloss": 0.62315,
+     "raw_logloss": 0.624854,
      "params": null,
      "fold_id": 135
     },
@@ -3248,8 +3273,8 @@
      "n_prior": 1166,
      "decision": "identity",
      "reason": "gated_no_gain",
-     "nested_holdout_logloss": 0.622531,
-     "raw_logloss": 0.619799,
+     "nested_holdout_logloss": 0.620399,
+     "raw_logloss": 0.620909,
      "params": null,
      "fold_id": 136
     },
@@ -3257,8 +3282,8 @@
      "n_prior": 1166,
      "decision": "identity",
      "reason": "gated_no_gain",
-     "nested_holdout_logloss": 0.622531,
-     "raw_logloss": 0.619799,
+     "nested_holdout_logloss": 0.620399,
+     "raw_logloss": 0.620909,
      "params": null,
      "fold_id": 137
     },
@@ -3266,8 +3291,8 @@
      "n_prior": 1166,
      "decision": "identity",
      "reason": "gated_no_gain",
-     "nested_holdout_logloss": 0.622531,
-     "raw_logloss": 0.619799,
+     "nested_holdout_logloss": 0.620399,
+     "raw_logloss": 0.620909,
      "params": null,
      "fold_id": 138
     },
@@ -3275,8 +3300,8 @@
      "n_prior": 1166,
      "decision": "identity",
      "reason": "gated_no_gain",
-     "nested_holdout_logloss": 0.622531,
-     "raw_logloss": 0.619799,
+     "nested_holdout_logloss": 0.620399,
+     "raw_logloss": 0.620909,
      "params": null,
      "fold_id": 139
     },
@@ -3284,8 +3309,8 @@
      "n_prior": 1182,
      "decision": "identity",
      "reason": "gated_no_gain",
-     "nested_holdout_logloss": 0.621184,
-     "raw_logloss": 0.619141,
+     "nested_holdout_logloss": 0.619844,
+     "raw_logloss": 0.62068,
      "params": null,
      "fold_id": 140
     },
@@ -3293,8 +3318,8 @@
      "n_prior": 1182,
      "decision": "identity",
      "reason": "gated_no_gain",
-     "nested_holdout_logloss": 0.621184,
-     "raw_logloss": 0.619141,
+     "nested_holdout_logloss": 0.619844,
+     "raw_logloss": 0.62068,
      "params": null,
      "fold_id": 141
     },
@@ -3302,8 +3327,8 @@
      "n_prior": 1197,
      "decision": "identity",
      "reason": "gated_no_gain",
-     "nested_holdout_logloss": 0.628834,
-     "raw_logloss": 0.626323,
+     "nested_holdout_logloss": 0.625891,
+     "raw_logloss": 0.626436,
      "params": null,
      "fold_id": 142
     },
@@ -3311,8 +3336,8 @@
      "n_prior": 1213,
      "decision": "identity",
      "reason": "gated_no_gain",
-     "nested_holdout_logloss": 0.627475,
-     "raw_logloss": 0.625589,
+     "nested_holdout_logloss": 0.624957,
+     "raw_logloss": 0.625331,
      "params": null,
      "fold_id": 143
     },
@@ -3320,8 +3345,8 @@
      "n_prior": 1229,
      "decision": "identity",
      "reason": "gated_no_gain",
-     "nested_holdout_logloss": 0.628067,
-     "raw_logloss": 0.62668,
+     "nested_holdout_logloss": 0.626116,
+     "raw_logloss": 0.626381,
      "params": null,
      "fold_id": 144
     },
@@ -3329,8 +3354,8 @@
      "n_prior": 1245,
      "decision": "identity",
      "reason": "gated_no_gain",
-     "nested_holdout_logloss": 0.621732,
-     "raw_logloss": 0.620676,
+     "nested_holdout_logloss": 0.619243,
+     "raw_logloss": 0.619465,
      "params": null,
      "fold_id": 145
     },
@@ -3338,8 +3363,8 @@
      "n_prior": 1261,
      "decision": "identity",
      "reason": "gated_no_gain",
-     "nested_holdout_logloss": 0.61966,
-     "raw_logloss": 0.618847,
+     "nested_holdout_logloss": 0.618343,
+     "raw_logloss": 0.618473,
      "params": null,
      "fold_id": 146
     },
@@ -3347,8 +3372,8 @@
      "n_prior": 1261,
      "decision": "identity",
      "reason": "gated_no_gain",
-     "nested_holdout_logloss": 0.61966,
-     "raw_logloss": 0.618847,
+     "nested_holdout_logloss": 0.618343,
+     "raw_logloss": 0.618473,
      "params": null,
      "fold_id": 147
     },
@@ -3356,8 +3381,8 @@
      "n_prior": 1261,
      "decision": "identity",
      "reason": "gated_no_gain",
-     "nested_holdout_logloss": 0.61966,
-     "raw_logloss": 0.618847,
+     "nested_holdout_logloss": 0.618343,
+     "raw_logloss": 0.618473,
      "params": null,
      "fold_id": 148
     },
@@ -3365,8 +3390,8 @@
      "n_prior": 1261,
      "decision": "identity",
      "reason": "gated_no_gain",
-     "nested_holdout_logloss": 0.61966,
-     "raw_logloss": 0.618847,
+     "nested_holdout_logloss": 0.618343,
+     "raw_logloss": 0.618473,
      "params": null,
      "fold_id": 149
     },
@@ -3374,8 +3399,8 @@
      "n_prior": 1261,
      "decision": "identity",
      "reason": "gated_no_gain",
-     "nested_holdout_logloss": 0.61966,
-     "raw_logloss": 0.618847,
+     "nested_holdout_logloss": 0.618343,
+     "raw_logloss": 0.618473,
      "params": null,
      "fold_id": 150
     },
@@ -3383,8 +3408,8 @@
      "n_prior": 1277,
      "decision": "identity",
      "reason": "gated_no_gain",
-     "nested_holdout_logloss": 0.61432,
-     "raw_logloss": 0.612632,
+     "nested_holdout_logloss": 0.614647,
+     "raw_logloss": 0.613915,
      "params": null,
      "fold_id": 151
     },
@@ -3392,8 +3417,8 @@
      "n_prior": 1293,
      "decision": "identity",
      "reason": "gated_no_gain",
-     "nested_holdout_logloss": 0.622452,
-     "raw_logloss": 0.621601,
+     "nested_holdout_logloss": 0.621848,
+     "raw_logloss": 0.62207,
      "params": null,
      "fold_id": 152
     },
@@ -3401,8 +3426,8 @@
      "n_prior": 1309,
      "decision": "identity",
      "reason": "gated_no_gain",
-     "nested_holdout_logloss": 0.629135,
-     "raw_logloss": 0.629705,
+     "nested_holdout_logloss": 0.629149,
+     "raw_logloss": 0.63074,
      "params": null,
      "fold_id": 153
     },
@@ -3410,8 +3435,8 @@
      "n_prior": 1325,
      "decision": "identity",
      "reason": "gated_no_gain",
-     "nested_holdout_logloss": 0.633006,
-     "raw_logloss": 0.633275,
+     "nested_holdout_logloss": 0.63337,
+     "raw_logloss": 0.634428,
      "params": null,
      "fold_id": 154
     },
@@ -3419,8 +3444,8 @@
      "n_prior": 1325,
      "decision": "identity",
      "reason": "gated_no_gain",
-     "nested_holdout_logloss": 0.633006,
-     "raw_logloss": 0.633275,
+     "nested_holdout_logloss": 0.63337,
+     "raw_logloss": 0.634428,
      "params": null,
      "fold_id": 155
     },
@@ -3428,8 +3453,8 @@
      "n_prior": 1325,
      "decision": "identity",
      "reason": "gated_no_gain",
-     "nested_holdout_logloss": 0.633006,
-     "raw_logloss": 0.633275,
+     "nested_holdout_logloss": 0.63337,
+     "raw_logloss": 0.634428,
      "params": null,
      "fold_id": 156
     },
@@ -3437,8 +3462,8 @@
      "n_prior": 1340,
      "decision": "identity",
      "reason": "gated_no_gain",
-     "nested_holdout_logloss": 0.629168,
-     "raw_logloss": 0.629287,
+     "nested_holdout_logloss": 0.630572,
+     "raw_logloss": 0.630936,
      "params": null,
      "fold_id": 157
     },
@@ -3446,8 +3471,8 @@
      "n_prior": 1356,
      "decision": "identity",
      "reason": "gated_no_gain",
-     "nested_holdout_logloss": 0.629728,
-     "raw_logloss": 0.630062,
+     "nested_holdout_logloss": 0.631192,
+     "raw_logloss": 0.631832,
      "params": null,
      "fold_id": 158
     },
@@ -3455,8 +3480,8 @@
      "n_prior": 1371,
      "decision": "identity",
      "reason": "gated_no_gain",
-     "nested_holdout_logloss": 0.629692,
-     "raw_logloss": 0.629437,
+     "nested_holdout_logloss": 0.631296,
+     "raw_logloss": 0.631711,
      "params": null,
      "fold_id": 159
     },
@@ -3464,8 +3489,8 @@
      "n_prior": 1371,
      "decision": "identity",
      "reason": "gated_no_gain",
-     "nested_holdout_logloss": 0.629692,
-     "raw_logloss": 0.629437,
+     "nested_holdout_logloss": 0.631296,
+     "raw_logloss": 0.631711,
      "params": null,
      "fold_id": 160
     },
@@ -3473,8 +3498,8 @@
      "n_prior": 1371,
      "decision": "identity",
      "reason": "gated_no_gain",
-     "nested_holdout_logloss": 0.629692,
-     "raw_logloss": 0.629437,
+     "nested_holdout_logloss": 0.631296,
+     "raw_logloss": 0.631711,
      "params": null,
      "fold_id": 161
     },
@@ -3482,8 +3507,8 @@
      "n_prior": 1371,
      "decision": "identity",
      "reason": "gated_no_gain",
-     "nested_holdout_logloss": 0.629692,
-     "raw_logloss": 0.629437,
+     "nested_holdout_logloss": 0.631296,
+     "raw_logloss": 0.631711,
      "params": null,
      "fold_id": 162
     },
@@ -3491,8 +3516,8 @@
      "n_prior": 1387,
      "decision": "identity",
      "reason": "gated_no_gain",
-     "nested_holdout_logloss": 0.625414,
-     "raw_logloss": 0.625057,
+     "nested_holdout_logloss": 0.626617,
+     "raw_logloss": 0.626814,
      "params": null,
      "fold_id": 163
     },
@@ -3500,8 +3525,8 @@
      "n_prior": 1387,
      "decision": "identity",
      "reason": "gated_no_gain",
-     "nested_holdout_logloss": 0.625414,
-     "raw_logloss": 0.625057,
+     "nested_holdout_logloss": 0.626617,
+     "raw_logloss": 0.626814,
      "params": null,
      "fold_id": 164
     },
@@ -3509,8 +3534,8 @@
      "n_prior": 1403,
      "decision": "identity",
      "reason": "gated_no_gain",
-     "nested_holdout_logloss": 0.623688,
-     "raw_logloss": 0.623267,
+     "nested_holdout_logloss": 0.623846,
+     "raw_logloss": 0.624221,
      "params": null,
      "fold_id": 165
     },
@@ -3518,8 +3543,8 @@
      "n_prior": 1421,
      "decision": "identity",
      "reason": "gated_no_gain",
-     "nested_holdout_logloss": 0.61924,
-     "raw_logloss": 0.619138,
+     "nested_holdout_logloss": 0.619842,
+     "raw_logloss": 0.620518,
      "params": null,
      "fold_id": 166
     },
@@ -3527,8 +3552,8 @@
      "n_prior": 1421,
      "decision": "identity",
      "reason": "gated_no_gain",
-     "nested_holdout_logloss": 0.61924,
-     "raw_logloss": 0.619138,
+     "nested_holdout_logloss": 0.619842,
+     "raw_logloss": 0.620518,
      "params": null,
      "fold_id": 167
     },
@@ -3536,8 +3561,8 @@
      "n_prior": 1437,
      "decision": "identity",
      "reason": "gated_no_gain",
-     "nested_holdout_logloss": 0.623886,
-     "raw_logloss": 0.623916,
+     "nested_holdout_logloss": 0.622931,
+     "raw_logloss": 0.624318,
      "params": null,
      "fold_id": 168
     },
@@ -3545,8 +3570,8 @@
      "n_prior": 1437,
      "decision": "identity",
      "reason": "gated_no_gain",
-     "nested_holdout_logloss": 0.623886,
-     "raw_logloss": 0.623916,
+     "nested_holdout_logloss": 0.622931,
+     "raw_logloss": 0.624318,
      "params": null,
      "fold_id": 169
     },
@@ -3554,8 +3579,8 @@
      "n_prior": 1437,
      "decision": "identity",
      "reason": "gated_no_gain",
-     "nested_holdout_logloss": 0.623886,
-     "raw_logloss": 0.623916,
+     "nested_holdout_logloss": 0.622931,
+     "raw_logloss": 0.624318,
      "params": null,
      "fold_id": 170
     },
@@ -3563,8 +3588,8 @@
      "n_prior": 1437,
      "decision": "identity",
      "reason": "gated_no_gain",
-     "nested_holdout_logloss": 0.623886,
-     "raw_logloss": 0.623916,
+     "nested_holdout_logloss": 0.622931,
+     "raw_logloss": 0.624318,
      "params": null,
      "fold_id": 171
     },
@@ -3572,8 +3597,8 @@
      "n_prior": 1437,
      "decision": "identity",
      "reason": "gated_no_gain",
-     "nested_holdout_logloss": 0.623886,
-     "raw_logloss": 0.623916,
+     "nested_holdout_logloss": 0.622931,
+     "raw_logloss": 0.624318,
      "params": null,
      "fold_id": 172
     },
@@ -3581,8 +3606,8 @@
      "n_prior": 1453,
      "decision": "identity",
      "reason": "gated_no_gain",
-     "nested_holdout_logloss": 0.618215,
-     "raw_logloss": 0.618186,
+     "nested_holdout_logloss": 0.618494,
+     "raw_logloss": 0.61981,
      "params": null,
      "fold_id": 173
     },
@@ -3590,8 +3615,8 @@
      "n_prior": 1469,
      "decision": "identity",
      "reason": "gated_no_gain",
-     "nested_holdout_logloss": 0.612548,
-     "raw_logloss": 0.611784,
+     "nested_holdout_logloss": 0.613098,
+     "raw_logloss": 0.614134,
      "params": null,
      "fold_id": 174
     },
@@ -3599,8 +3624,8 @@
      "n_prior": 1485,
      "decision": "identity",
      "reason": "gated_no_gain",
-     "nested_holdout_logloss": 0.61057,
-     "raw_logloss": 0.609086,
+     "nested_holdout_logloss": 0.610964,
+     "raw_logloss": 0.61178,
      "params": null,
      "fold_id": 175
     },
@@ -3608,8 +3633,8 @@
      "n_prior": 1501,
      "decision": "identity",
      "reason": "gated_no_gain",
-     "nested_holdout_logloss": 0.61345,
-     "raw_logloss": 0.611791,
+     "nested_holdout_logloss": 0.613861,
+     "raw_logloss": 0.614174,
      "params": null,
      "fold_id": 176
     },
@@ -3617,8 +3642,8 @@
      "n_prior": 1501,
      "decision": "identity",
      "reason": "gated_no_gain",
-     "nested_holdout_logloss": 0.61345,
-     "raw_logloss": 0.611791,
+     "nested_holdout_logloss": 0.613861,
+     "raw_logloss": 0.614174,
      "params": null,
      "fold_id": 177
     },
@@ -3626,8 +3651,8 @@
      "n_prior": 1516,
      "decision": "identity",
      "reason": "gated_no_gain",
-     "nested_holdout_logloss": 0.618543,
-     "raw_logloss": 0.61705,
+     "nested_holdout_logloss": 0.617973,
+     "raw_logloss": 0.618315,
      "params": null,
      "fold_id": 178
     },
@@ -3635,8 +3660,8 @@
      "n_prior": 1531,
      "decision": "identity",
      "reason": "gated_no_gain",
-     "nested_holdout_logloss": 0.616093,
-     "raw_logloss": 0.613662,
+     "nested_holdout_logloss": 0.61578,
+     "raw_logloss": 0.614855,
      "params": null,
      "fold_id": 179
     },
@@ -3644,8 +3669,8 @@
      "n_prior": 1531,
      "decision": "identity",
      "reason": "gated_no_gain",
-     "nested_holdout_logloss": 0.616093,
-     "raw_logloss": 0.613662,
+     "nested_holdout_logloss": 0.61578,
+     "raw_logloss": 0.614855,
      "params": null,
      "fold_id": 180
     },
@@ -3653,8 +3678,8 @@
      "n_prior": 1531,
      "decision": "identity",
      "reason": "gated_no_gain",
-     "nested_holdout_logloss": 0.616093,
-     "raw_logloss": 0.613662,
+     "nested_holdout_logloss": 0.61578,
+     "raw_logloss": 0.614855,
      "params": null,
      "fold_id": 181
     },
@@ -3662,8 +3687,8 @@
      "n_prior": 1531,
      "decision": "identity",
      "reason": "gated_no_gain",
-     "nested_holdout_logloss": 0.616093,
-     "raw_logloss": 0.613662,
+     "nested_holdout_logloss": 0.61578,
+     "raw_logloss": 0.614855,
      "params": null,
      "fold_id": 182
     },
@@ -3671,8 +3696,8 @@
      "n_prior": 1546,
      "decision": "identity",
      "reason": "gated_no_gain",
-     "nested_holdout_logloss": 0.609985,
-     "raw_logloss": 0.608833,
+     "nested_holdout_logloss": 0.61004,
+     "raw_logloss": 0.61046,
      "params": null,
      "fold_id": 183
     },
@@ -3680,8 +3705,8 @@
      "n_prior": 1546,
      "decision": "identity",
      "reason": "gated_no_gain",
-     "nested_holdout_logloss": 0.609985,
-     "raw_logloss": 0.608833,
+     "nested_holdout_logloss": 0.61004,
+     "raw_logloss": 0.61046,
      "params": null,
      "fold_id": 184
     },
@@ -3689,8 +3714,8 @@
      "n_prior": 1562,
      "decision": "identity",
      "reason": "gated_no_gain",
-     "nested_holdout_logloss": 0.615418,
-     "raw_logloss": 0.614636,
+     "nested_holdout_logloss": 0.615616,
+     "raw_logloss": 0.616321,
      "params": null,
      "fold_id": 185
     },
@@ -3698,8 +3723,8 @@
      "n_prior": 1562,
      "decision": "identity",
      "reason": "gated_no_gain",
-     "nested_holdout_logloss": 0.615418,
-     "raw_logloss": 0.614636,
+     "nested_holdout_logloss": 0.615616,
+     "raw_logloss": 0.616321,
      "params": null,
      "fold_id": 186
     },
@@ -3707,8 +3732,8 @@
      "n_prior": 1578,
      "decision": "identity",
      "reason": "gated_no_gain",
-     "nested_holdout_logloss": 0.61044,
-     "raw_logloss": 0.609315,
+     "nested_holdout_logloss": 0.611497,
+     "raw_logloss": 0.611566,
      "params": null,
      "fold_id": 187
     },
@@ -3716,8 +3741,8 @@
      "n_prior": 1594,
      "decision": "identity",
      "reason": "gated_no_gain",
-     "nested_holdout_logloss": 0.610506,
-     "raw_logloss": 0.609224,
+     "nested_holdout_logloss": 0.613354,
+     "raw_logloss": 0.612841,
      "params": null,
      "fold_id": 188
     },
@@ -3725,8 +3750,8 @@
      "n_prior": 1610,
      "decision": "identity",
      "reason": "gated_no_gain",
-     "nested_holdout_logloss": 0.609177,
-     "raw_logloss": 0.608089,
+     "nested_holdout_logloss": 0.613262,
+     "raw_logloss": 0.612348,
      "params": null,
      "fold_id": 189
     },
@@ -3734,8 +3759,8 @@
      "n_prior": 1626,
      "decision": "identity",
      "reason": "gated_no_gain",
-     "nested_holdout_logloss": 0.611382,
-     "raw_logloss": 0.610268,
+     "nested_holdout_logloss": 0.613719,
+     "raw_logloss": 0.61356,
      "params": null,
      "fold_id": 190
     },
@@ -3743,8 +3768,8 @@
      "n_prior": 1626,
      "decision": "identity",
      "reason": "gated_no_gain",
-     "nested_holdout_logloss": 0.611382,
-     "raw_logloss": 0.610268,
+     "nested_holdout_logloss": 0.613719,
+     "raw_logloss": 0.61356,
      "params": null,
      "fold_id": 191
     },
@@ -3752,8 +3777,8 @@
      "n_prior": 1626,
      "decision": "identity",
      "reason": "gated_no_gain",
-     "nested_holdout_logloss": 0.611382,
-     "raw_logloss": 0.610268,
+     "nested_holdout_logloss": 0.613719,
+     "raw_logloss": 0.61356,
      "params": null,
      "fold_id": 192
     },
@@ -3761,8 +3786,8 @@
      "n_prior": 1626,
      "decision": "identity",
      "reason": "gated_no_gain",
-     "nested_holdout_logloss": 0.611382,
-     "raw_logloss": 0.610268,
+     "nested_holdout_logloss": 0.613719,
+     "raw_logloss": 0.61356,
      "params": null,
      "fold_id": 193
     },
@@ -3770,8 +3795,8 @@
      "n_prior": 1626,
      "decision": "identity",
      "reason": "gated_no_gain",
-     "nested_holdout_logloss": 0.611382,
-     "raw_logloss": 0.610268,
+     "nested_holdout_logloss": 0.613719,
+     "raw_logloss": 0.61356,
      "params": null,
      "fold_id": 194
     },
@@ -3779,8 +3804,8 @@
      "n_prior": 1626,
      "decision": "identity",
      "reason": "gated_no_gain",
-     "nested_holdout_logloss": 0.611382,
-     "raw_logloss": 0.610268,
+     "nested_holdout_logloss": 0.613719,
+     "raw_logloss": 0.61356,
      "params": null,
      "fold_id": 195
     },
@@ -3788,8 +3813,8 @@
      "n_prior": 1641,
      "decision": "identity",
      "reason": "gated_no_gain",
-     "nested_holdout_logloss": 0.611483,
-     "raw_logloss": 0.609972,
+     "nested_holdout_logloss": 0.613422,
+     "raw_logloss": 0.613038,
      "params": null,
      "fold_id": 196
     },
@@ -3797,8 +3822,8 @@
      "n_prior": 1657,
      "decision": "identity",
      "reason": "gated_no_gain",
-     "nested_holdout_logloss": 0.610975,
-     "raw_logloss": 0.608732,
+     "nested_holdout_logloss": 0.613626,
+     "raw_logloss": 0.612477,
      "params": null,
      "fold_id": 197
     },
@@ -3806,8 +3831,8 @@
      "n_prior": 1673,
      "decision": "identity",
      "reason": "gated_no_gain",
-     "nested_holdout_logloss": 0.614769,
-     "raw_logloss": 0.612659,
+     "nested_holdout_logloss": 0.616981,
+     "raw_logloss": 0.615546,
      "params": null,
      "fold_id": 198
     },
@@ -3815,8 +3840,8 @@
      "n_prior": 1689,
      "decision": "identity",
      "reason": "gated_no_gain",
-     "nested_holdout_logloss": 0.615151,
-     "raw_logloss": 0.613888,
+     "nested_holdout_logloss": 0.61738,
+     "raw_logloss": 0.616823,
      "params": null,
      "fold_id": 199
     },
@@ -3824,8 +3849,8 @@
      "n_prior": 1704,
      "decision": "identity",
      "reason": "gated_no_gain",
-     "nested_holdout_logloss": 0.615531,
-     "raw_logloss": 0.614222,
+     "nested_holdout_logloss": 0.618728,
+     "raw_logloss": 0.617754,
      "params": null,
      "fold_id": 200
     },
@@ -3833,8 +3858,8 @@
      "n_prior": 1704,
      "decision": "identity",
      "reason": "gated_no_gain",
-     "nested_holdout_logloss": 0.615531,
-     "raw_logloss": 0.614222,
+     "nested_holdout_logloss": 0.618728,
+     "raw_logloss": 0.617754,
      "params": null,
      "fold_id": 201
     },
@@ -3842,8 +3867,8 @@
      "n_prior": 1704,
      "decision": "identity",
      "reason": "gated_no_gain",
-     "nested_holdout_logloss": 0.615531,
-     "raw_logloss": 0.614222,
+     "nested_holdout_logloss": 0.618728,
+     "raw_logloss": 0.617754,
      "params": null,
      "fold_id": 202
     },
@@ -3851,8 +3876,8 @@
      "n_prior": 1704,
      "decision": "identity",
      "reason": "gated_no_gain",
-     "nested_holdout_logloss": 0.615531,
-     "raw_logloss": 0.614222,
+     "nested_holdout_logloss": 0.618728,
+     "raw_logloss": 0.617754,
      "params": null,
      "fold_id": 203
     },
@@ -3860,18 +3885,36 @@
      "n_prior": 1719,
      "decision": "identity",
      "reason": "gated_no_gain",
-     "nested_holdout_logloss": 0.608186,
-     "raw_logloss": 0.606792,
+     "nested_holdout_logloss": 0.611372,
+     "raw_logloss": 0.610491,
      "params": null,
      "fold_id": 204
+    },
+    {
+     "n_prior": 1719,
+     "decision": "identity",
+     "reason": "gated_no_gain",
+     "nested_holdout_logloss": 0.611372,
+     "raw_logloss": 0.610491,
+     "params": null,
+     "fold_id": 205
+    },
+    {
+     "n_prior": 1719,
+     "decision": "identity",
+     "reason": "gated_no_gain",
+     "nested_holdout_logloss": 0.611372,
+     "raw_logloss": 0.610491,
+     "params": null,
+     "fold_id": 206
     }
    ],
    "final_serving": {
     "n_prior": 1719,
     "decision": "identity",
     "reason": "gated_no_gain",
-    "nested_holdout_logloss": 0.608186,
-    "raw_logloss": 0.606792,
+    "nested_holdout_logloss": 0.611372,
+    "raw_logloss": 0.610491,
     "params": null
    }
   }
